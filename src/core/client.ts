@@ -5,6 +5,7 @@ import {
   Item,
   ItemFolder,
 } from '../types/items';
+import { UpdateItemDto, UpdateItemFolderDto } from '../types/item.dto';
 
 const FOLDER_PATH = 'item/folder';
 const ITEM_PATH = 'item';
@@ -59,6 +60,7 @@ export class EngineServicesClient {
     );
   }
 
+  // TODO allow nested folders
   async createFolder(name: string, parentFolderId?: string) {
     return await this.#requestApi<ItemFolder>('POST', FOLDER_PATH, {
       body: { name, parentFolderId },
@@ -74,7 +76,7 @@ export class EngineServicesClient {
       'PUT',
       `${FOLDER_PATH}/${folderId}`,
       {
-        body: { name, parentFolderId },
+        body: { name, parentFolderId } as UpdateItemFolderDto,
       },
     );
   }
@@ -114,7 +116,7 @@ export class EngineServicesClient {
     formData.append('file', file);
     formData.append('name', name);
     formData.append('versionTag', versionTag);
-    parentFolderId && formData.append('parentFolderId', parentFolderId);
+    parentFolderId && formData.append('folderId', parentFolderId);
 
     return await this.#requestApi<Item>('POST', ITEM_PATH, {
       body: formData,
@@ -139,8 +141,9 @@ export class EngineServicesClient {
         body: formData,
       });
     }
+    const body: UpdateItemDto = { name, folderId: parentFolderId };
     return await this.#requestApi<Item>('PUT', `${ITEM_PATH}/${fileId}`, {
-      body: { name, versionTag, parentFolderId },
+      body,
     });
   }
 
