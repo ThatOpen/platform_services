@@ -1,5 +1,11 @@
 # thatopen-services
 
+## 0.1.10
+
+### Patch Changes
+
+- Add generics and responseType to file downloads
+
 ## 0.1.9
 
 ### Patch Changes

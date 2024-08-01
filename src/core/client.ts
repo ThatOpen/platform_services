@@ -1,4 +1,4 @@
-import axios, { Method } from 'axios';
+import axios, { Method, ResponseType } from 'axios';
 import { UpdateItemDto, UpdateItemFolderDto } from '../types/item.dto';
 import {
   ComponentItem,
@@ -73,17 +73,20 @@ export class EngineServicesClient {
     return response.data as T;
   }
 
-  async #requestFile(path: string, requestData?: { query?: object }) {
-    const { query } = requestData || {};
+  async #requestFile<T = ReadableStream>(
+    path: string,
+    requestData?: { query?: object; responseType?: ResponseType },
+  ) {
+    const { query, responseType = 'stream' } = requestData || {};
     const url = this.#buildUrl(path);
     const params = {
       ...query,
       accessToken: this.accessToken,
     };
-    const response = await axios.request<ReadableStream>({
+    const response = await axios.request<T>({
       url,
       params,
-      responseType: 'stream',
+      responseType: responseType,
     });
 
     return response.data;
@@ -160,12 +163,22 @@ export class EngineServicesClient {
     return await this.#requestApi<Item>('GET', `${ITEM_PATH}/${fileId}`);
   }
 
-  async downloadFile(fileId: string) {
-    return await this.#requestFile(`${ITEM_PATH}/${fileId}/download`);
+  async downloadFile<T = ReadableStream>(
+    fileId: string,
+    responseType?: ResponseType,
+  ) {
+    return await this.#requestFile<T>(`${ITEM_PATH}/${fileId}/download`, {
+      responseType,
+    });
   }
 
-  async downloadFolder(folderId: string) {
-    return await this.#requestFile(`${FOLDER_PATH}/${folderId}/download`);
+  async downloadFolder<T = ReadableStream>(
+    folderId: string,
+    responseType?: ResponseType,
+  ) {
+    return await this.#requestFile<T>(`${FOLDER_PATH}/${folderId}/download`, {
+      responseType,
+    });
   }
 
   async #createItem<T = Item, P extends object = object>(
