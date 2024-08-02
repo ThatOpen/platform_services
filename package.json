@@ -1,7 +1,7 @@
 {
   "name": "thatopen-services",
   "private": false,
-  "version": "0.1.10",
+  "version": "0.2.1",
   "main": "dist/index.js",
   "files": [
     "dist"
@@ -28,7 +28,7 @@
     "vite-plugin-eslint": "^1.8.1"
   },
   "dependencies": {
-    "axios": "^1.7.2",
+    "axios": "^1.7.3",
     "dotenv": "^16.4.5"
   }
 }

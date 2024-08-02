@@ -1,5 +1,17 @@
 # thatopen-services
 
+## 0.2.1
+
+### Patch Changes
+
+- Fix issue with empty json responses
+
+## 0.2.0
+
+### Minor Changes
+
+- Replace axios with fetch for a better dev experience
+
 ## 0.1.10
 
 ### Patch Changes

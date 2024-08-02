@@ -58,7 +58,7 @@ export class EngineServicesClient {
   async #requestApi<T = object>(
     method: Method,
     path: string,
-    requestData?: { body?: object; query?: object },
+    requestData?: { body?: BodyInit; query?: object },
   ) {
     const { body, query } = requestData || {};
     const url = this.#buildUrl(path);
@@ -68,9 +68,23 @@ export class EngineServicesClient {
       accessToken: this.accessToken,
     };
 
-    const response = await axios.request({ method, url, data: body, params });
+    const response = await fetch(
+      url + '?' + new URLSearchParams(params).toString(),
+      {
+        method,
+        ...(body && { body }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error(
+        `Request failed with status ${response.status}: ${response.statusText}`,
+      );
+    }
 
-    return response.data as T;
+    return response
+      .json()
+      .then((data) => data as T)
+      .catch(() => undefined);
   }
 
   async #requestFile<T = ReadableStream>(
@@ -109,7 +123,7 @@ export class EngineServicesClient {
   // TODO allow nested folders
   async createFolder(name: string) {
     return await this.#requestApi<ItemFolder>('POST', FOLDER_PATH, {
-      body: { name },
+      body: JSON.stringify({ name }),
     });
   }
 
@@ -119,7 +133,7 @@ export class EngineServicesClient {
       'PUT',
       `${FOLDER_PATH}/${folderId}`,
       {
-        body: { name } as UpdateItemFolderDto,
+        body: JSON.stringify({ name } as UpdateItemFolderDto),
       },
     );
   }
@@ -228,8 +242,10 @@ export class EngineServicesClient {
         ...(extraProps && { extraProps }),
       };
 
+      const parsedBody = JSON.stringify(body);
+
       item = await this.#requestApi<T>('PUT', `${ITEM_PATH}/${itemId}`, {
-        body,
+        body: parsedBody,
       });
     }
 
