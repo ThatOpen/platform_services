@@ -76,8 +76,12 @@ export class EngineServicesClient {
       },
     );
     if (!response.ok) {
+      const textResponse = response
+        .text()
+        .then((text) => text)
+        .catch(() => undefined);
       throw new Error(
-        `Request failed with status ${response.status}: ${response.statusText}`,
+        `Request failed with status ${response.status}: ${response.statusText} - ${textResponse}`,
       );
     }
 

@@ -1,5 +1,11 @@
 # thatopen-services
 
+## 0.2.2
+
+### Patch Changes
+
+- Add more verbosity to error
+
 ## 0.2.1
 
 ### Patch Changes
