@@ -15,6 +15,7 @@ export interface ItemVersion extends Base {
   fileVersionId: string;
   fileId: string;
   fileSize: number;
+  isDraft?: boolean;
 }
 
 export interface ItemFolder extends Base {

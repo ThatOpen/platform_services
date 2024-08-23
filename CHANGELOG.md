@@ -1,5 +1,11 @@
 # thatopen-services
 
+## 0.3.1
+
+### Patch Changes
+
+- Allow creation of drafts
+
 ## 0.3.0
 
 ### Minor Changes
