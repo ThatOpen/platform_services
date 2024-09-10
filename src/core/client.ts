@@ -2,7 +2,7 @@ import axios, { Method, ResponseType } from 'axios';
 import { UpdateItemDto, UpdateItemFolderDto } from '../types/item.dto';
 import {
   ComponentItem,
-  ComponentProps,
+  ComponentVersionProps,
   Item,
   ItemFolder,
   ItemType,
@@ -31,11 +31,11 @@ export type UpdateItemProps = {
 };
 
 export type CreateComponentProps = CreateItemProps & {
-  componentProps: ComponentProps;
+  componentProps: ComponentVersionProps;
 };
 
 export type UpdateComponentProps = UpdateItemProps & {
-  componentProps: ComponentProps;
+  componentProps: ComponentVersionProps;
 };
 
 export class EngineServicesClient {
@@ -314,7 +314,7 @@ export class EngineServicesClient {
 
   async createComponent(componentData: CreateComponentProps) {
     const { componentProps } = componentData;
-    return await this.#createItem<ComponentItem, ComponentProps>(
+    return await this.#createItem<ComponentItem, ComponentVersionProps>(
       componentData,
       ITEM_TYPE_COMPONENT,
       componentProps,
@@ -331,7 +331,7 @@ export class EngineServicesClient {
     componentData: UpdateComponentProps,
   ): Promise<UpdateItemResponse> {
     const { componentProps } = componentData;
-    return await this.#updateItem<ComponentItem, ComponentProps>(
+    return await this.#updateItem<ComponentItem, ComponentVersionProps>(
       fileId,
       componentData,
       componentProps,

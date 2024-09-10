@@ -4,7 +4,8 @@ export interface Item extends Base {
   fileExtension?: string;
   name: string;
   itemType: ItemType;
-  folderId?: string;
+  folderId?: ObjectId;
+  internalId: string;
 }
 
 export type ItemType = 'APP' | 'TOOL' | 'HIDDEN' | 'FILE';
@@ -15,37 +16,50 @@ export interface ItemVersion extends Base {
   fileVersionId: string;
   fileId: string;
   fileSize: number;
+  extraProps?: AppVersionProps | ComponentVersionProps;
   isDraft?: boolean;
 }
 
 export interface ItemFolder extends Base {
   name: string;
-  parentId?: string;
+  parentId?: ObjectId;
 }
 
 export type ItemWithVersions<T = Item> = T & { versions: ItemVersion[] };
 
-export type AppSource = 'custom' | 'built-in';
-
-export type AppProps = {
+export type AppVersionProps = {
   isOnline?: boolean;
-  source: AppSource;
   url?: string;
 };
 
-export type AppItem = Item & { itemType: 'APP'; extraProps: AppProps };
+export type AppItem = Item & { itemType: 'APP' };
+
+export type AppItemVersion = ItemVersion & {
+  extraProps: AppVersionProps;
+};
 
 export type ComponentType = 'FRONTEND' | 'CLOUD';
 
-export type ComponentProps = {
+export type ComponentTier = 'FREE' | 'PREMIUM';
+
+export type ComponentItemProps = {
+  generatedId: string;
+};
+
+export type ComponentVersionProps = {
   isPublic?: boolean;
-  isOpenSource?: AppSource;
-  price?: number;
-  componentId: string;
+  isOpenSource?: boolean;
   type: ComponentType;
+  tier: ComponentTier;
+  executionEngineVersion?: string;
 };
 
 export type ComponentItem = Item & {
   itemType: 'TOOL';
-  extraProps: ComponentProps;
 };
+
+export type ComponentItemVersion = ItemVersion & {
+  extraProps: ComponentVersionProps;
+};
+
+export type ItemEntity = Item | AppItem | ComponentItem;

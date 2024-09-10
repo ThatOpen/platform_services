@@ -1,5 +1,11 @@
 # thatopen-services
 
+## 0.3.2
+
+### Patch Changes
+
+- Change types in component creation
+
 ## 0.3.1
 
 ### Patch Changes
