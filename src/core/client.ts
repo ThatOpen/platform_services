@@ -7,6 +7,7 @@ import {
   ItemFolder,
   ItemType,
   ItemVersion,
+  ItemWithVersions,
 } from '../types/items';
 import { CreateItemResponse, UpdateItemResponse } from '../types/response';
 import {
@@ -205,7 +206,7 @@ export class EngineServicesClient {
   }
 
   async getFile(fileId: string, props?: GetItemProps) {
-    return await this.#getItem(fileId, props);
+    return (await this.#getItem)(fileId, props);
   }
 
   async downloadFile<T = ReadableStream>(
@@ -331,7 +332,10 @@ export class EngineServicesClient {
   }
 
   async getComponent(componentId: string, props: GetItemProps) {
-    return await this.#getItem(componentId, props);
+    return await this.#getItem<ItemWithVersions<ComponentItem>>(
+      componentId,
+      props,
+    );
   }
 
   /**
@@ -433,11 +437,15 @@ export class EngineServicesClient {
     });
   }
 
-  async #getItem(itemId: string, props?: GetItemProps) {
+  async #getItem<T = Item>(itemId: string, props?: GetItemProps) {
     const { showVersions = false } = props || {};
-    return await this.#requestApi<Item>('GET', `${ITEM_PATH}/${itemId}`, {
-      query: { showVersions },
-    });
+    return await this.#requestApi<ItemWithVersions<T>>(
+      'GET',
+      `${ITEM_PATH}/${itemId}`,
+      {
+        query: { showVersions },
+      },
+    );
   }
 
   #cleanData(data?: object) {
