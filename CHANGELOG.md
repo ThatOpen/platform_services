@@ -1,5 +1,11 @@
 # thatopen-services
 
+## 0.4.6
+
+### Patch Changes
+
+- Fix get file
+
 ## 0.4.5
 
 ### Patch Changes

@@ -206,7 +206,7 @@ export class EngineServicesClient {
   }
 
   async getFile(fileId: string, props?: GetItemProps) {
-    return (await this.#getItem)(fileId, props);
+    return await this.#getItem(fileId, props);
   }
 
   async downloadFile<T = ReadableStream>(
