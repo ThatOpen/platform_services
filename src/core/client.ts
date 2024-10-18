@@ -1,4 +1,9 @@
-import axios, { Method, ResponseType } from 'axios';
+import { Method } from 'axios';
+import { io } from 'socket.io-client';
+import {
+  ExecutionEntity,
+  ExecutionSuscriptionReturnType,
+} from '../types/execution';
 import { UpdateItemDto, UpdateItemFolderDto } from '../types/item.dto';
 import {
   ComponentItem,
@@ -10,12 +15,6 @@ import {
   ItemWithVersions,
 } from '../types/items';
 import { CreateItemResponse, UpdateItemResponse } from '../types/response';
-import {
-  ExecutionEntity,
-  ExecutionSuscriptionReturnType,
-  // ExecutionSuscriptionReturnType,
-} from '../types/execution';
-import { io } from 'socket.io-client';
 
 const FOLDER_PATH = 'item/folder';
 const ITEM_PATH = 'item';
@@ -52,7 +51,6 @@ export type UpdateComponentProps = UpdateItemProps & {
 export type DownloadItemFileParams = {
   versionTag?: string;
   withDraft?: boolean;
-  responseType?: ResponseType;
 };
 
 export class EngineServicesClient {
@@ -123,23 +121,19 @@ export class EngineServicesClient {
       .catch(() => undefined);
   }
 
-  async #requestFile<T = ReadableStream>(
-    path: string,
-    requestData?: { query?: object; responseType?: ResponseType },
-  ) {
-    const { query, responseType = 'stream' } = requestData || {};
+  async #requestFile(path: string, requestData?: { query?: object }) {
+    const { query } = requestData || {};
     const url = this.#buildUrl(path);
     const params = {
       ...query,
       accessToken: this.accessToken,
     };
-    const response = await axios.request<T>({
-      url,
-      params,
-      responseType: responseType,
-    });
+    const response = await fetch(
+      url + '?' + new URLSearchParams(params).toString(),
+      { method: 'GET' },
+    );
 
-    return response.data;
+    return response;
   }
 
   async listFolders(params: { parentFolderId?: string; archived?: boolean }) {
@@ -215,29 +209,34 @@ export class EngineServicesClient {
     return await this.#getItem<ItemWithVersions<Item>>(fileId, props);
   }
 
-  async downloadFile<T = ReadableStream>(
+  async downloadFile(
     fileId: string,
+
     params?: DownloadItemFileParams,
   ) {
-    const { responseType, versionTag, withDraft } = params || {};
-    return await this.#requestFile<T>(`${ITEM_PATH}/${fileId}/download`, {
-      responseType,
-      query: {
-        ...(versionTag && { versionTag }),
-        ...(withDraft && { withDraft }),
+    const { versionTag, withDraft } = params || {};
+    return await this.#requestFile(
+      `${ITEM_PATH}/${fileId}/download`,
+
+      {
+        query: {
+          ...(versionTag && { versionTag }),
+          ...(withDraft && { withDraft }),
+        },
       },
-    });
+    );
   }
 
   async downloadComponent(
     componentId: string,
+
     params?: DownloadItemFileParams,
   ) {
-    const { responseType, versionTag, withDraft } = params || {};
-    return await this.#requestFile<string>(
+    const { versionTag, withDraft } = params || {};
+    return await this.#requestFile(
       `${ITEM_PATH}/${componentId}/download`,
+
       {
-        responseType,
         query: {
           ...(versionTag && { versionTag }),
           ...(withDraft && { withDraft }),
@@ -250,11 +249,10 @@ export class EngineServicesClient {
     componentId: string,
     params?: DownloadItemFileParams,
   ) {
-    const { responseType, versionTag, withDraft } = params || {};
-    return await this.#requestFile<string>(
+    const { versionTag, withDraft } = params || {};
+    return await this.#requestFile(
       `${ITEM_PATH}/${componentId}/download/bundle`,
       {
-        responseType,
         query: {
           ...(versionTag && { versionTag }),
           ...(withDraft && { withDraft }),
@@ -263,28 +261,27 @@ export class EngineServicesClient {
     );
   }
 
-  async downloadAppBundle<T = ReadableStream>(
+  async downloadApp(
     appId: string,
+
     params?: DownloadItemFileParams,
   ) {
-    const { responseType, versionTag, withDraft } = params || {};
+    const { versionTag, withDraft } = params || {};
 
-    return await this.#requestFile<T>(`${ITEM_PATH}/${appId}/download`, {
-      responseType,
-      query: {
-        ...(versionTag && { versionTag }),
-        ...(withDraft && { withDraft }),
+    return await this.#requestFile(
+      `${ITEM_PATH}/${appId}/download`,
+
+      {
+        query: {
+          ...(versionTag && { versionTag }),
+          ...(withDraft && { withDraft }),
+        },
       },
-    });
+    );
   }
 
-  async downloadFolder<T = ReadableStream>(
-    folderId: string,
-    responseType?: ResponseType,
-  ) {
-    return await this.#requestFile<T>(`${FOLDER_PATH}/${folderId}/download`, {
-      responseType,
-    });
+  async downloadFolder(folderId: string) {
+    return await this.#requestFile(`${FOLDER_PATH}/${folderId}/download`);
   }
 
   async #createItem<T = Item, P extends object = object>(
@@ -473,9 +470,13 @@ export class EngineServicesClient {
     executionId: string,
     onUpdateCallback: (data: ExecutionSuscriptionReturnType) => void,
   ) {
-    const socket = io(this.wsUrl);
-
-    socket.on('connect', () => {
+    const socket = await io(
+      'ws://localhost:3000?accessToken=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhIjoiNjVlMWZjNzkyNTZlYWE3YTFmNDA1OThmIiwidSI6IjY1ZTFmYTNjMjU2ZWFhN2ExZjQwNTk4YiJ9.r0cZ3blYLogbxriq_FC1Y6TTRz9S92DZYzxBCdPB_P8',
+      {
+        transports: ['websocket'],
+      },
+    );
+    socket.on('connect', function () {
       socket.emit('executionSubscription', JSON.stringify({ executionId }));
       socket.on('execution', (data: ExecutionSuscriptionReturnType) => {
         onUpdateCallback(data);
@@ -483,7 +484,7 @@ export class EngineServicesClient {
     });
 
     socket.on('connect_error', function (e: any) {
-      throw e;
+      console.log(e);
     });
   }
 

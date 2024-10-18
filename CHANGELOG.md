@@ -1,5 +1,17 @@
 # thatopen-services
 
+## 0.5.0
+
+### Minor Changes
+
+- File download improvements
+
+## 0.4.11
+
+### Patch Changes
+
+- Fix socket connect
+
 ## 0.4.10
 
 ### Patch Changes
