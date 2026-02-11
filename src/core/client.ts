@@ -5,6 +5,8 @@ import {
 } from '../types/execution';
 import { UpdateItemDto, UpdateItemFolderDto } from '../types/item.dto';
 import {
+  AppItem,
+  AppVersionProps,
   ComponentItem,
   ComponentVersionProps,
   Item,
@@ -15,12 +17,43 @@ import {
 } from '../types/items';
 import { CreateItemResponse, UpdateItemResponse } from '../types/response';
 import { CreateHiddenItemResult, HiddenFileEntity } from '../types/files';
+import {
+  Project,
+  ProjectApp,
+  ProjectRole,
+  ProjectUser,
+  ProjectWithRole,
+  ProjectUserWithRole,
+  CreateProjectParams,
+  UpdateProjectParams,
+  CreateProjectRoleParams,
+  UpdateProjectRoleParams,
+  AddProjectUserParams,
+  ChangeProjectUserRoleParams,
+} from '../types/projects';
+import {
+  EventHook,
+  EnrichedEventLog,
+  CreateEventHookParams,
+  UpdateEventHookParams,
+} from '../types/events';
+import {
+  AccessTokenInfo,
+  CreateTokenParams,
+  UpdateTokenParams,
+} from '../types/tokens';
+import { Account, UpdateAccountParams } from '../types/accounts';
 
 const FOLDER_PATH = 'item/folder';
 const ITEM_PATH = 'item';
 const PROCESS_PATH = 'processor';
+const PROJECT_PATH = 'project';
+const EVENTS_PATH = 'events';
+const TOKENS_PATH = 'tokens';
+const ACCOUNT_PATH = 'account';
 const ITEM_TYPE_FILE = 'FILE';
 const ITEM_TYPE_COMPONENT = 'TOOL';
+const ITEM_TYPE_APP = 'APP';
 const HIDDEN_PATH = 'hidden';
 
 export type CreateItemProps = {
@@ -49,6 +82,14 @@ export type CreateComponentProps = CreateItemProps & {
 
 export type UpdateComponentProps = UpdateItemProps & {
   componentProps: ComponentVersionProps;
+};
+
+export type CreateAppProps = CreateItemProps & {
+  appProps?: AppVersionProps;
+};
+
+export type UpdateAppProps = UpdateItemProps & {
+  appProps?: AppVersionProps;
 };
 
 export type DownloadItemFileParams = {
@@ -596,6 +637,483 @@ export class EngineServicesClient {
     return await this.#requestApi<Item[]>(
       'DELETE',
       `${ITEM_PATH}/${parentFileId}/${HIDDEN_PATH}`,
+    );
+  }
+
+  // ─── App Methods ───
+
+  async createApp(appData: CreateAppProps) {
+    const { appProps } = appData;
+    return await this.#createItem<AppItem, AppVersionProps>(
+      appData,
+      ITEM_TYPE_APP,
+      appProps,
+    );
+  }
+
+  async updateApp(
+    appId: string,
+    appData: UpdateAppProps,
+  ): Promise<UpdateItemResponse<AppItem>> {
+    const { appProps } = appData;
+    return await this.#updateItem<AppItem, AppVersionProps>(
+      appId,
+      appData,
+      appProps,
+    );
+  }
+
+  async listApps(params?: GetItemsParams) {
+    const { folderId, ShowVersions } = params || {};
+    if (folderId) {
+      return await this.#requestApi<AppItem[]>(
+        'GET',
+        `${FOLDER_PATH}/${folderId}/items`,
+        {
+          query: {
+            itemType: ITEM_TYPE_APP,
+            ...(ShowVersions && { ShowVersions }),
+          },
+        },
+      );
+    }
+    return await this.#requestApi<AppItem[]>('GET', `${ITEM_PATH}`, {
+      query: {
+        itemType: ITEM_TYPE_APP,
+        ...(ShowVersions && { ShowVersions }),
+      },
+    });
+  }
+
+  async getApp(appId: string, props?: GetItemProps) {
+    return await this.#getItem<ItemWithVersions<AppItem>>(appId, props);
+  }
+
+  async archiveApp(appId: string) {
+    return await this.#requestApi<AppItem>('DELETE', `${ITEM_PATH}/${appId}`);
+  }
+
+  async recoverApp(appId: string) {
+    return await this.#requestApi<AppItem>(
+      'PUT',
+      `${ITEM_PATH}/${appId}/recover`,
+    );
+  }
+
+  async duplicateApp(appId: string, name?: string) {
+    return await this.#requestApi<Item>(
+      'POST',
+      `${ITEM_PATH}/${appId}/duplicate`,
+      {
+        body: JSON.stringify({ ...(name && { name }) }),
+        contentType: 'application/json',
+      },
+    );
+  }
+
+  // ─── Version Methods ───
+
+  async createVersion(
+    itemId: string,
+    file: File,
+    versionTag: string,
+    extraProps?: object,
+  ) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('versionTag', versionTag);
+    extraProps && formData.append('extraProps', JSON.stringify(extraProps));
+    return await this.#requestApi<ItemVersion>(
+      'POST',
+      `${ITEM_PATH}/${itemId}/version`,
+      { body: formData },
+    );
+  }
+
+  async createDraftVersion(
+    itemId: string,
+    file: File,
+    versionTag: string,
+    extraProps?: object,
+  ) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('versionTag', versionTag);
+    extraProps && formData.append('extraProps', JSON.stringify(extraProps));
+    return await this.#requestApi<ItemVersion>(
+      'POST',
+      `${ITEM_PATH}/${itemId}/version/draft`,
+      { body: formData },
+    );
+  }
+
+  async getVersion(itemId: string, versionTag: string) {
+    return await this.#requestApi<ItemVersion>(
+      'GET',
+      `${ITEM_PATH}/${itemId}/version/${versionTag}`,
+    );
+  }
+
+  // ─── Project Methods ───
+
+  async createProject(params: CreateProjectParams) {
+    return await this.#requestApi<Project>('POST', PROJECT_PATH, {
+      body: JSON.stringify(params),
+      contentType: 'application/json',
+    });
+  }
+
+  async listProjects() {
+    return await this.#requestApi<ProjectWithRole[]>('GET', PROJECT_PATH);
+  }
+
+  async getProject(projectId: string) {
+    return await this.#requestApi<Project>(
+      'GET',
+      `${PROJECT_PATH}/${projectId}`,
+    );
+  }
+
+  async updateProject(projectId: string, params: UpdateProjectParams) {
+    return await this.#requestApi<Project>(
+      'PUT',
+      `${PROJECT_PATH}/${projectId}`,
+      {
+        body: JSON.stringify(params),
+        contentType: 'application/json',
+      },
+    );
+  }
+
+  async deleteProject(projectId: string) {
+    return await this.#requestApi<void>(
+      'DELETE',
+      `${PROJECT_PATH}/${projectId}`,
+    );
+  }
+
+  // ─── Project Roles ───
+
+  async createProjectRole(
+    projectId: string,
+    params: CreateProjectRoleParams,
+  ) {
+    return await this.#requestApi<ProjectRole>(
+      'POST',
+      `${PROJECT_PATH}/${projectId}/role`,
+      {
+        body: JSON.stringify(params),
+        contentType: 'application/json',
+      },
+    );
+  }
+
+  async listProjectRoles(projectId: string) {
+    return await this.#requestApi<ProjectRole[]>(
+      'GET',
+      `${PROJECT_PATH}/${projectId}/roles`,
+    );
+  }
+
+  async updateProjectRole(roleId: string, params: UpdateProjectRoleParams) {
+    return await this.#requestApi<ProjectRole>(
+      'PUT',
+      `${PROJECT_PATH}/role/${roleId}`,
+      {
+        body: JSON.stringify(params),
+        contentType: 'application/json',
+      },
+    );
+  }
+
+  async deleteProjectRole(roleId: string) {
+    return await this.#requestApi<void>(
+      'DELETE',
+      `${PROJECT_PATH}/role/${roleId}`,
+    );
+  }
+
+  async listUsersForRole(roleId: string) {
+    return await this.#requestApi<ProjectUser[]>(
+      'GET',
+      `${PROJECT_PATH}/role/${roleId}/users`,
+    );
+  }
+
+  // ─── Project Users ───
+
+  async addProjectUser(projectId: string, params: AddProjectUserParams) {
+    return await this.#requestApi<ProjectUser>(
+      'POST',
+      `${PROJECT_PATH}/${projectId}/user`,
+      {
+        body: JSON.stringify(params),
+        contentType: 'application/json',
+      },
+    );
+  }
+
+  async listProjectUsers(projectId: string) {
+    return await this.#requestApi<ProjectUserWithRole[]>(
+      'GET',
+      `${PROJECT_PATH}/${projectId}/users`,
+    );
+  }
+
+  async changeProjectUserRole(
+    projectId: string,
+    projectUserId: string,
+    params: ChangeProjectUserRoleParams,
+  ) {
+    return await this.#requestApi<ProjectUser>(
+      'PUT',
+      `${PROJECT_PATH}/${projectId}/user/${projectUserId}`,
+      {
+        body: JSON.stringify(params),
+        contentType: 'application/json',
+      },
+    );
+  }
+
+  async removeProjectUser(projectId: string, projectUserId: string) {
+    return await this.#requestApi<void>(
+      'DELETE',
+      `${PROJECT_PATH}/${projectId}/user/${projectUserId}`,
+    );
+  }
+
+  // ─── Project Apps ───
+
+  async addAppToProject(projectId: string, appId: string) {
+    return await this.#requestApi<ProjectApp>(
+      'POST',
+      `${PROJECT_PATH}/${projectId}/app`,
+      {
+        body: JSON.stringify({ appId }),
+        contentType: 'application/json',
+      },
+    );
+  }
+
+  async listProjectApps(projectId: string) {
+    return await this.#requestApi<ProjectApp[]>(
+      'GET',
+      `${PROJECT_PATH}/${projectId}/apps`,
+    );
+  }
+
+  async removeAppFromProject(projectId: string, appId: string) {
+    return await this.#requestApi<void>(
+      'DELETE',
+      `${PROJECT_PATH}/${projectId}/app/${appId}`,
+    );
+  }
+
+  // ─── Project Storage ───
+
+  async listProjectFiles(projectId: string) {
+    return await this.#requestApi<Item[]>(
+      'GET',
+      `${PROJECT_PATH}/${projectId}/files`,
+    );
+  }
+
+  async listProjectFolders(projectId: string) {
+    return await this.#requestApi<ItemFolder[]>(
+      'GET',
+      `${PROJECT_PATH}/${projectId}/folders`,
+    );
+  }
+
+  // ─── Project Events ───
+
+  async createProjectEventHook(
+    projectId: string,
+    params: CreateEventHookParams,
+  ) {
+    return await this.#requestApi<EventHook>(
+      'POST',
+      `${PROJECT_PATH}/${projectId}/events/hooks`,
+      {
+        body: JSON.stringify(params),
+        contentType: 'application/json',
+      },
+    );
+  }
+
+  async listProjectEventHooks(projectId: string) {
+    return await this.#requestApi<EventHook[]>(
+      'GET',
+      `${PROJECT_PATH}/${projectId}/events/hooks`,
+    );
+  }
+
+  async updateProjectEventHook(
+    projectId: string,
+    hookId: string,
+    params: UpdateEventHookParams,
+  ) {
+    return await this.#requestApi<EventHook>(
+      'PATCH',
+      `${PROJECT_PATH}/${projectId}/events/hooks/${hookId}`,
+      {
+        body: JSON.stringify(params),
+        contentType: 'application/json',
+      },
+    );
+  }
+
+  async deleteProjectEventHook(projectId: string, hookId: string) {
+    return await this.#requestApi<void>(
+      'DELETE',
+      `${PROJECT_PATH}/${projectId}/events/hooks/${hookId}`,
+    );
+  }
+
+  async listProjectEventLogs(projectId: string) {
+    return await this.#requestApi<EnrichedEventLog[]>(
+      'GET',
+      `${PROJECT_PATH}/${projectId}/events/logs/enriched`,
+    );
+  }
+
+  // ─── Events (Personal) ───
+
+  async createEventHook(params: CreateEventHookParams) {
+    return await this.#requestApi<EventHook>(
+      'POST',
+      `${EVENTS_PATH}/hooks`,
+      {
+        body: JSON.stringify(params),
+        contentType: 'application/json',
+      },
+    );
+  }
+
+  async listEventHooks() {
+    return await this.#requestApi<EventHook[]>(
+      'GET',
+      `${EVENTS_PATH}/hooks`,
+    );
+  }
+
+  async updateEventHook(hookId: string, params: UpdateEventHookParams) {
+    return await this.#requestApi<EventHook>(
+      'PATCH',
+      `${EVENTS_PATH}/hooks/${hookId}`,
+      {
+        body: JSON.stringify(params),
+        contentType: 'application/json',
+      },
+    );
+  }
+
+  async deleteEventHook(hookId: string) {
+    return await this.#requestApi<void>(
+      'DELETE',
+      `${EVENTS_PATH}/hooks/${hookId}`,
+    );
+  }
+
+  async listEventLogs() {
+    return await this.#requestApi<EnrichedEventLog[]>(
+      'GET',
+      `${EVENTS_PATH}/logs`,
+    );
+  }
+
+  async listEventLogExecutions(logId: string) {
+    return await this.#requestApi<ExecutionEntity[]>(
+      'GET',
+      `${EVENTS_PATH}/logs/${logId}/executions`,
+    );
+  }
+
+  async retryEventLog(logId: string) {
+    return await this.#requestApi<{ message: string }>(
+      'POST',
+      `${EVENTS_PATH}/logs/${logId}/retry`,
+    );
+  }
+
+  // ─── Tokens ───
+
+  async createToken(params: CreateTokenParams) {
+    return await this.#requestApi<AccessTokenInfo>(
+      'POST',
+      TOKENS_PATH,
+      {
+        body: JSON.stringify(params),
+        contentType: 'application/json',
+      },
+    );
+  }
+
+  async listTokens() {
+    return await this.#requestApi<AccessTokenInfo[]>('GET', TOKENS_PATH);
+  }
+
+  async getToken(tokenId: string) {
+    return await this.#requestApi<AccessTokenInfo>(
+      'GET',
+      `${TOKENS_PATH}/${tokenId}`,
+    );
+  }
+
+  async getTokenValue(tokenId: string) {
+    return await this.#requestApi<string>(
+      'GET',
+      `${TOKENS_PATH}/${tokenId}/token`,
+    );
+  }
+
+  async updateToken(tokenId: string, params: UpdateTokenParams) {
+    return await this.#requestApi<AccessTokenInfo>(
+      'PUT',
+      `${TOKENS_PATH}/${tokenId}`,
+      {
+        body: JSON.stringify(params),
+        contentType: 'application/json',
+      },
+    );
+  }
+
+  async deleteToken(tokenId: string) {
+    return await this.#requestApi<void>(
+      'DELETE',
+      `${TOKENS_PATH}/${tokenId}`,
+    );
+  }
+
+  // ─── Account ───
+
+  async getCurrentAccount() {
+    return await this.#requestApi<Account>('GET', `${ACCOUNT_PATH}/me`);
+  }
+
+  async updateAccount(accountId: string, params: UpdateAccountParams) {
+    return await this.#requestApi<Account>(
+      'PUT',
+      `${ACCOUNT_PATH}/${accountId}`,
+      {
+        body: JSON.stringify(params),
+        contentType: 'application/json',
+      },
+    );
+  }
+
+  // ─── Permissions ───
+
+  async checkPermission(params: {
+    resourceId: string;
+    resourceType: string;
+    action: string;
+    projectId: string;
+  }) {
+    return await this.#requestApi<{ hasPermission: boolean }>(
+      'GET',
+      `${PROJECT_PATH}/permissions/check`,
+      { query: params },
     );
   }
 
