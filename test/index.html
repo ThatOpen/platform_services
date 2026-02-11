@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ThatOpen Services — Test Page</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #c9d1d9; padding: 20px; }
+      h1 { color: #58a6ff; margin-bottom: 8px; font-size: 22px; }
+      h2 { color: #8b949e; font-size: 14px; margin-bottom: 20px; font-weight: normal; }
+      h3 { color: #58a6ff; font-size: 15px; margin: 16px 0 8px; padding-top: 12px; border-top: 1px solid #21262d; }
+      .config { display: flex; gap: 10px; margin-bottom: 20px; align-items: end; }
+      .config label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #8b949e; }
+      .config input { background: #161b22; border: 1px solid #30363d; color: #c9d1d9; padding: 8px 12px; border-radius: 6px; font-size: 14px; width: 340px; }
+      .config button { background: #238636; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; height: 36px; }
+      .config button:hover { background: #2ea043; }
+      .config button.connected { background: #1f6feb; }
+      .panels { display: flex; gap: 20px; height: calc(100vh - 140px); }
+      .methods { flex: 0 0 320px; overflow-y: auto; padding-right: 10px; }
+      .log-panel { flex: 1; display: flex; flex-direction: column; }
+      .log-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+      .log-header h3 { margin: 0; border: none; padding: 0; }
+      .log-header button { background: #21262d; color: #8b949e; border: 1px solid #30363d; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+      #log { flex: 1; background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 12px; overflow-y: auto; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+      .log-entry { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #21262d; }
+      .log-entry.error { color: #f85149; }
+      .log-entry.success { color: #3fb950; }
+      .log-entry.info { color: #58a6ff; }
+      .log-time { color: #484f58; font-size: 11px; }
+      button.test-btn { display: block; width: 100%; text-align: left; background: #161b22; border: 1px solid #30363d; color: #c9d1d9; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; margin-bottom: 4px; transition: background 0.15s; }
+      button.test-btn:hover { background: #1f2937; border-color: #58a6ff; }
+      button.test-btn:active { background: #253341; }
+      .input-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 4px; }
+      .input-row input { background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 6px 8px; border-radius: 4px; font-size: 12px; width: 100%; }
+      .input-row input::placeholder { color: #484f58; }
+    </style>
+  </head>
+  <body>
+    <h1>ThatOpen Services — Test Page</h1>
+    <h2>Test all library methods against a running backend</h2>
+
+    <div class="config">
+      <label>
+        API URL
+        <input type="text" id="apiUrl" value="http://localhost:3000" placeholder="http://localhost:3000" />
+      </label>
+      <label>
+        Access Token
+        <input type="text" id="accessToken" placeholder="Paste your access token" />
+      </label>
+      <button id="connectBtn" onclick="connect()">Connect</button>
+    </div>
+
+    <div class="panels">
+      <div class="methods" id="methods">
+        <!-- Populated by JS -->
+      </div>
+      <div class="log-panel">
+        <div class="log-header">
+          <h3>Results</h3>
+          <button onclick="clearLog()">Clear</button>
+        </div>
+        <div id="log"></div>
+      </div>
+    </div>
+
+    <script type="module" src="./test.ts"></script>
+  </body>
+</html>

@@ -10,6 +10,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "test:ui": "vite --config test/vite.config.mts",
     "create-version": "yarn build && yarn changeset && yarn changeset version && yarn changeset publish"
   },
   "devDependencies": {
