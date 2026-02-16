@@ -5,6 +5,7 @@ export function getMainBim(): string {
   return [
     'import * as THREE from "three";',
     'import * as OBC from "@thatopen/components";',
+    'import * as FRAGS from "@thatopen/fragments";',
     'import * as BUI from "@thatopen/ui";',
     'import { EngineServicesClient, AppManager, ViewportManager } from "thatopen-services";',
     '',
@@ -41,7 +42,7 @@ export function getMainBim(): string {
     '  // factory) from the platform. These are fetched at runtime and',
     '  // registered with the OBC component system.',
     '  await client.initBuiltInComponent(AppManager, components, { OBC, BUI });',
-    '  await client.initBuiltInComponent(ViewportManager, components, { OBC, BUI, THREE });',
+    '  await client.initBuiltInComponent(ViewportManager, components, { OBC, BUI, THREE, FRAGS });',
     '',
     '  // ─── 3D Viewport ──────────────────────────────────────────────',
     '  // ViewportManager creates a fully configured viewport with its own',
