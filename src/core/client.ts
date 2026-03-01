@@ -18,6 +18,7 @@ import {
 import { CreateItemResponse, UpdateItemResponse } from '../types/response';
 import { CreateHiddenItemResult, HiddenFileEntity } from '../types/files';
 import { Project, ProjectData } from '../types/projects';
+import { ThatOpenContext } from '../types/context';
 
 const FOLDER_PATH = 'item/folder';
 const ITEM_PATH = 'item';
@@ -106,6 +107,20 @@ export type EngineServicesClientProps = {
    * Auth0 JWT (e.g. inside platform apps) rather than a platform API token.
    */
   useBearer?: boolean;
+  /**
+   * URL of a local execution server started with `thatopen local-server`.
+   * When set, execution methods (executeComponent, onExecutionProgress,
+   * listExecutions, getExecution, abortExecution) are routed to this server
+   * instead of the cloud API. All other methods remain unchanged.
+   *
+   * @example
+   * ```ts
+   * const client = new EngineServicesClient(token, apiUrl, {
+   *   localServerUrl: 'http://localhost:4001',
+   * });
+   * ```
+   */
+  localServerUrl?: string;
 };
 
 /**
@@ -131,6 +146,51 @@ export class EngineServicesClient {
   private builtInGlobals: Record<string, unknown> | null = null;
 
   /**
+   * URL of a local execution server (e.g. `http://localhost:4001`).
+   * When set, execution methods are routed to this server instead of the cloud API.
+   * Set to `null` to disable local routing and use the cloud API.
+   */
+  localServerUrl: string | null = null;
+
+  /**
+   * The platform context this client was created with.
+   * Contains `appId`, `projectId`, `accessToken`, and `apiUrl`.
+   * Populated automatically when using {@link fromPlatformContext}.
+   */
+  readonly context: ThatOpenContext;
+
+  /**
+   * Creates a client from the platform context injected into
+   * `window.__THATOPEN_CONTEXT__` by the That Open Platform.
+   *
+   * This is the recommended way to create a client inside platform apps.
+   * It automatically reads the auth context and sets `useBearer: true`.
+   *
+   * @param props - Optional configuration (retry count, local server URL, etc.).
+   * @returns A new EngineServicesClient instance.
+   *
+   * @example
+   * ```ts
+   * const client = EngineServicesClient.fromPlatformContext();
+   * console.log(client.context.projectId);
+   * ```
+   */
+  static fromPlatformContext(
+    props?: Omit<EngineServicesClientProps, 'useBearer'>,
+  ): EngineServicesClient {
+    const ctx: ThatOpenContext =
+      (typeof window !== 'undefined'
+        ? (window as any).__THATOPEN_CONTEXT__
+        : null) || { appId: '', projectId: '', accessToken: '', apiUrl: '' };
+    const client = new EngineServicesClient(ctx.accessToken, ctx.apiUrl, {
+      ...props,
+      useBearer: true,
+    });
+    (client as { context: ThatOpenContext }).context = ctx;
+    return client;
+  }
+
+  /**
    * Creates a new EngineServicesClient instance.
    * @param accessToken - API access token (obtained from the platform dashboard)
    *   or an Auth0 JWT (when using `useBearer: true`).
@@ -142,7 +202,7 @@ export class EngineServicesClient {
     apiUrl: string,
     props?: EngineServicesClientProps,
   ) {
-    const { retries = 0, useBearer = false } = props || {};
+    const { retries = 0, useBearer = false, localServerUrl } = props || {};
     let url = apiUrl;
     if (url.charAt(url.length - 1) === '/') {
       url = url.slice(0, -1);
@@ -152,6 +212,14 @@ export class EngineServicesClient {
     this.wsUrl = `${url}?accessToken=${accessToken}`;
     this.retries = retries;
     this.useBearer = useBearer;
+    this.context = { appId: '', projectId: '', accessToken, apiUrl };
+    if (localServerUrl) {
+      let lsUrl = localServerUrl;
+      if (lsUrl.charAt(lsUrl.length - 1) === '/') {
+        lsUrl = lsUrl.slice(0, -1);
+      }
+      this.localServerUrl = lsUrl;
+    }
   }
 
   /**
@@ -663,6 +731,67 @@ export class EngineServicesClient {
     components.get(componentDefinition);
   }
 
+  /**
+   * Loads multiple built-in components in parallel.
+   *
+   * Convenience wrapper around {@link initBuiltInComponent} that fetches
+   * and registers all given component stubs concurrently.
+   *
+   * @param components - The OBC `Components` instance.
+   * @param stubs - One or more component stubs (e.g. `AppManager`, `ViewportManager`).
+   *
+   * @example
+   * ```ts
+   * await client.initBuiltInComponents(components, AppManager, ViewportManager);
+   * ```
+   */
+  async initBuiltInComponents(
+    components: { get: (c: new (components: any) => any) => any },
+    ...stubs: { uuid: string }[]
+  ): Promise<void> {
+    await Promise.all(
+      stubs.map((s) => this.initBuiltInComponent(s, components)),
+    );
+  }
+
+  /**
+   * High-level helper that creates an OBC component system, initialises BUI,
+   * loads built-in components, and starts the engine — all in one call.
+   *
+   * @param globals - Map of global names to module namespaces
+   *   (must include at least `OBC` and `BUI`).
+   * @param builtIns - Built-in component stubs to load (e.g. `AppManager`, `ViewportManager`).
+   * @returns An object containing the initialised `components` instance.
+   *
+   * @example
+   * ```ts
+   * const { components } = await client.initApp(
+   *   { OBC, OBF, BUI, CUI, THREE, FRAGS },
+   *   AppManager, ViewportManager,
+   * );
+   *
+   * const viewports = components.get(ViewportManager);
+   * const { element, world } = await viewports.create();
+   * ```
+   */
+  async initApp(
+    globals: Record<string, unknown>,
+    ...builtIns: { uuid: string }[]
+  ): Promise<{ components: any }> {
+    const OBC = globals.OBC as any;
+    const BUI = globals.BUI as any;
+    if (!OBC?.Components)
+      throw new Error('globals.OBC must include Components');
+    if (!BUI?.Manager) throw new Error('globals.BUI must include Manager');
+
+    const components = new OBC.Components();
+    BUI.Manager.init();
+    this.setBuiltInGlobals(globals);
+    await this.initBuiltInComponents(components, ...builtIns);
+    components.init();
+    return { components };
+  }
+
   // ─── Apps ────────────────────────────────────────────────────────
 
   /**
@@ -758,6 +887,19 @@ export class EngineServicesClient {
     executionParams: object,
     versionTag?: string,
   ) {
+    if (this.localServerUrl) {
+      const url = `${this.localServerUrl}/api/${PROCESS_PATH}/${componentId}/execute`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(executionParams),
+      });
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw new Error(`Local server request failed: ${response.status} - ${text}`);
+      }
+      return (await response.json()) as { executionId: string };
+    }
     return await this.#requestApi<{ executionId: string }>(
       'POST',
       `${PROCESS_PATH}/${componentId}/execute`,
@@ -774,6 +916,15 @@ export class EngineServicesClient {
    * @param executionId - The execution's unique identifier.
    */
   async abortExecution(executionId: string) {
+    if (this.localServerUrl) {
+      const url = `${this.localServerUrl}/api/${PROCESS_PATH}/progress/${executionId}/abort`;
+      const response = await fetch(url, { method: 'POST' });
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw new Error(`Local server request failed: ${response.status} - ${text}`);
+      }
+      return (await response.json()) as ExecutionEntity;
+    }
     return await this.#requestApi<ExecutionEntity>(
       'POST',
       `${PROCESS_PATH}/progress/${executionId}/abort`,
@@ -786,6 +937,15 @@ export class EngineServicesClient {
    * @returns Array of execution entities.
    */
   async listExecutions(componentId: string) {
+    if (this.localServerUrl) {
+      const url = `${this.localServerUrl}/api/${PROCESS_PATH}/${componentId}/progress`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw new Error(`Local server request failed: ${response.status} - ${text}`);
+      }
+      return (await response.json()) as ExecutionEntity[];
+    }
     return await this.#requestApi<ExecutionEntity[]>(
       'GET',
       `${PROCESS_PATH}/${componentId}/progress`,
@@ -798,6 +958,15 @@ export class EngineServicesClient {
    * @returns The execution entity with progress and result info.
    */
   async getExecution(executionId: string) {
+    if (this.localServerUrl) {
+      const url = `${this.localServerUrl}/api/${PROCESS_PATH}/progress/${executionId}`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw new Error(`Local server request failed: ${response.status} - ${text}`);
+      }
+      return (await response.json()) as ExecutionEntity;
+    }
     return await this.#requestApi<ExecutionEntity>(
       'GET',
       `${PROCESS_PATH}/progress/${executionId}`,
@@ -814,7 +983,12 @@ export class EngineServicesClient {
     executionId: string,
     onUpdateCallback: (data: ExecutionSuscriptionReturnType) => void,
   ) {
-    const socket = await io(this.wsUrl);
+    const wsUrl = this.localServerUrl
+      ? `${this.localServerUrl}?accessToken=${this.accessToken}`
+      : this.wsUrl;
+    const socket = await io(wsUrl, {
+      ...(this.localServerUrl && { transports: ['websocket'] }),
+    });
 
     socket.on('connect', function () {
       socket.emit('executionSubscription', JSON.stringify({ executionId }));

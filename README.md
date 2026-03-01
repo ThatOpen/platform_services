@@ -9,7 +9,6 @@ Client library and CLI for building BIM apps and cloud components on the [That O
 ```bash
 npx thatopen create my-app
 cd my-app
-npm install
 npm run dev
 
 # Open your project on platform.thatopen.com and click the debug button
@@ -20,7 +19,6 @@ npm run dev
 ```bash
 npx thatopen create my-component --template cloud
 cd my-component
-npm install
 npm run run   # Build and test locally
 ```
 
@@ -83,9 +81,9 @@ const client = new EngineServicesClient(ctx.accessToken, ctx.apiUrl, { useBearer
 Apps run inside the That Open Platform (platform.thatopen.com) within a project. They are served inside the platform's iframe — not as standalone websites.
 
 ```bash
-# 1. Create and install
+# 1. Create project (dependencies are installed automatically)
 npx thatopen create my-app
-cd my-app && npm install
+cd my-app
 
 # 2. Develop locally
 npm run dev
@@ -102,9 +100,9 @@ npm run publish
 ## Cloud component workflow
 
 ```bash
-# 1. Create and install
+# 1. Create project (dependencies are installed automatically)
 npx thatopen create my-component --template cloud
-cd my-component && npm install
+cd my-component
 
 # 2. Run locally
 npm run run
@@ -215,8 +213,30 @@ npm run test:cli-run-component
 
 ### Publishing a new version
 
+Publishing is handled automatically by CI when a PR with changesets is merged to `main`.
+
+**1. Create a changeset (developer does this with their changes):**
+
 ```bash
-yarn create-version
+yarn changeset
+# Pick the bump type (patch / minor / major) and write a summary
+# This creates a .changeset/<random-name>.md file — commit it with your PR
 ```
 
-This runs: build → changeset → version → publish to npm. Keep in mind the importance of semver (don't release a major for non-breaking changes). Make sure you have the proper npm token.
+**2. Merge the PR to `main`:**
+
+CI will automatically:
+- Consume the changeset files
+- Bump `package.json` version and update `CHANGELOG.md`
+- Commit the version bump back to `main`
+- Build and publish to npm
+
+**Manual publishing (if CI is not available):**
+
+```bash
+yarn version           # Consume changesets, bump version
+yarn build
+yarn changeset publish
+```
+
+Keep in mind the importance of semver — don't release a major for non-breaking changes.

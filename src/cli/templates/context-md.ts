@@ -59,13 +59,12 @@ Always use \`npm run dev\` which runs \`thatopen serve\` under the hood.
 ## Architecture pattern
 
 \`\`\`
-1. Create EngineServicesClient with platform context
-2. Create OBC.Components instance
-3. Init BUI.Manager
-4. Load built-in components (AppManager, ViewportManager, etc.)
-5. Create viewport(s) and UI elements
-6. Configure AppManager with elements + layouts
-7. Call app.init()
+1. Create EngineServicesClient from platform context
+2. Call client.initApp(globals, ...builtIns) — creates OBC.Components,
+   inits BUI, loads built-in components, calls components.init()
+3. Create viewport(s) and UI elements
+4. Configure AppManager with elements + layouts
+5. Call app.init()
 \`\`\`
 
 ## Built-in components
@@ -99,23 +98,32 @@ interfaces, method signatures, and code examples.
 
 ### Loading pattern
 
-Register all globals once with \`setBuiltInGlobals\`, then load components without passing globals each time:
+Use \`initApp\` to create the component system and load built-in components in one call:
 
 \`\`\`ts
-import { AppManager, ViewportManager } from "thatopen-services";
+import { EngineServicesClient, AppManager, ViewportManager } from "thatopen-services";
 
-// Register all library globals once
-client.setBuiltInGlobals({ OBC, OBF, BUI, CUI, THREE, FRAGS });
+const client = EngineServicesClient.fromPlatformContext();
 
-// Load built-in components — globals are automatically applied
-await client.initBuiltInComponent(AppManager, components);
-await client.initBuiltInComponent(ViewportManager, components);
+// Creates OBC.Components, inits BUI, loads built-ins, calls components.init()
+const { components } = await client.initApp(
+  { OBC, OBF, BUI, CUI, THREE, FRAGS },
+  AppManager, ViewportManager,
+);
 
 const app = components.get(AppManager);
 const viewports = components.get(ViewportManager);
 \`\`\`
 
-**Important**: Always call \`setBuiltInGlobals\` before loading any built-in components.
+You can also load components individually if needed:
+
+\`\`\`ts
+// Batch load (parallel)
+await client.initBuiltInComponents(components, AppManager, ViewportManager);
+
+// Or one at a time
+await client.initBuiltInComponent(AppManager, components);
+\`\`\`
 
 ### Required globals per component
 
@@ -205,7 +213,12 @@ await fragments.core.load(fileBuffer, { modelId: "my-model" });
 ## EngineServicesClient API (commonly used in apps)
 
 \`\`\`ts
-const client = new EngineServicesClient(ctx.accessToken, ctx.apiUrl, { useBearer: true });
+// Recommended: auto-reads window.__THATOPEN_CONTEXT__ and sets useBearer: true
+const client = EngineServicesClient.fromPlatformContext();
+console.log(client.context.projectId); // access the platform context
+
+// Alternative: manual construction
+// const client = new EngineServicesClient(token, apiUrl, { useBearer: true });
 
 // Files
 const files = await client.listFiles();
@@ -223,6 +236,11 @@ client.onExecutionProgress(executionId, (data) => {
   // data.progressUpdate — progress percentage
   // data.messageUpdate — status messages
 });
+
+// Test against a local cloud component (requires thatopen local-server running in the component project)
+client.localServerUrl = "http://localhost:4001";
+const local = await client.executeComponent("any-id", { param: "value" });
+client.localServerUrl = null; // reset to use the cloud API
 \`\`\`
 
 ## Configuration
@@ -290,22 +308,14 @@ import * as BUI from "@thatopen/ui";
 import * as CUI from "@thatopen/ui-obc";
 import { EngineServicesClient, AppManager, ViewportManager } from "thatopen-services";
 
-const ctx = window.__THATOPEN_CONTEXT__!;
-const client = new EngineServicesClient(ctx.accessToken, ctx.apiUrl, { useBearer: true });
-const components = new OBC.Components();
-
-BUI.Manager.init();
-
-// Register all library globals once
-client.setBuiltInGlobals({ OBC, OBF, BUI, CUI, THREE, FRAGS });
-
-// Load built-in components — globals are automatically applied
-await client.initBuiltInComponent(AppManager, components);
-await client.initBuiltInComponent(ViewportManager, components);
+const client = EngineServicesClient.fromPlatformContext();
+const { components } = await client.initApp(
+  { OBC, OBF, BUI, CUI, THREE, FRAGS },
+  AppManager, ViewportManager,
+);
 
 const viewports = components.get(ViewportManager);
 const { element, world } = await viewports.create();
-components.init();
 \`\`\`
 
 ## EngineServicesClient API
@@ -315,8 +325,7 @@ If you install \`thatopen-services\`, you can make API calls:
 \`\`\`ts
 import { EngineServicesClient } from "thatopen-services";
 
-const ctx = window.__THATOPEN_CONTEXT__!;
-const client = new EngineServicesClient(ctx.accessToken, ctx.apiUrl, { useBearer: true });
+const client = EngineServicesClient.fromPlatformContext();
 
 // Files
 const files = await client.listFiles();
@@ -352,10 +361,11 @@ It runs on the server as a Node.js process, triggered via the platform API.
 ## Commands
 
 \`\`\`bash
-npm run build      # Build dist/bundle.js
-npm run run        # Build and run locally (uses thatopen run)
-npm run login      # Authenticate with the platform (saves token locally)
-npm run publish    # Publish to the platform
+npm run build          # Build dist/bundle.js
+npm run run            # Build and run locally (one-shot execution via thatopen run)
+npm run local-server   # Start local execution server (API-compatible with EngineServicesClient)
+npm run login          # Authenticate with the platform (saves token locally)
+npm run publish        # Publish to the platform
 \`\`\`
 
 To pass parameters when running locally:
@@ -363,6 +373,34 @@ To pass parameters when running locally:
 \`\`\`bash
 npx thatopen run --params '{"inputFile": "model.ifc", "threshold": 0.5}'
 \`\`\`
+
+### Local execution server
+
+The local server (\`npm run local-server\`) starts an HTTP + WebSocket server that implements
+the same execution API as the cloud. This lets apps using \`EngineServicesClient\` test against
+local component code without publishing:
+
+\`\`\`bash
+npm run local-server                     # Start on default port 4001
+npx thatopen local-server --port 5000    # Custom port
+\`\`\`
+
+Then in your app or test script:
+
+\`\`\`ts
+import { EngineServicesClient } from "thatopen-services";
+
+const client = new EngineServicesClient(token, apiUrl, {
+  localServerUrl: "http://localhost:4001",
+});
+
+const { executionId } = await client.executeComponent("any-id", { param: "value" });
+client.onExecutionProgress(executionId, (data) => {
+  console.log(data.progressUpdate?.progress);
+});
+\`\`\`
+
+The server watches source files and auto-rebuilds — changes are picked up on the next execution.
 
 ## Globals available at runtime
 

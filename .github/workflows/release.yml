@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  release:
+    name: Version & Publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - run: yarn install --frozen-lockfile
+
+      # Check if any changeset files exist (ignore README.md)
+      - name: Check for changesets
+        id: changesets
+        run: |
+          COUNT=$(find .changeset -name '*.md' ! -name 'README.md' | wc -l | tr -d ' ')
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          if [ "$COUNT" != "0" ]; then
+            echo "Found $COUNT changeset(s) — will version and publish."
+          else
+            echo "No changesets found — skipping."
+          fi
+
+      # Consume changesets: bump version, write CHANGELOG, remove changeset files
+      - name: Version packages
+        if: steps.changesets.outputs.count != '0'
+        run: |
+          yarn changeset version
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "chore: version packages [skip ci]"
+          git push
+
+      # Build with the bumped version and publish
+      - name: Build & Publish
+        if: steps.changesets.outputs.count != '0'
+        run: |
+          yarn build
+          yarn changeset publish --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
