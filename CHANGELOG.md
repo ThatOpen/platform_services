@@ -1,5 +1,11 @@
 # thatopen-services
 
+## 0.7.0
+
+### Minor Changes
+
+- 5e75861: Adds dev improvements
+
 ## 0.6.1
 
 ### Patch Changes
