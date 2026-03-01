@@ -24,7 +24,8 @@
     "test:cli-build-component": "npm run build:cli && node test/setup-test-component.mjs",
     "test:cli-run-component": "cd temp/test-component && thatopen run --skip-build",
     "test:cli-local-server": "cd temp/test-component && thatopen local-server",
-    "create-version": "yarn build && yarn changeset && yarn changeset version && yarn changeset publish"
+    "changeset": "changeset",
+    "version": "changeset version"
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.7",
