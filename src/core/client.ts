@@ -20,6 +20,13 @@ import { CreateHiddenItemResult, HiddenFileEntity } from '../types/files';
 import { Project, ProjectData } from '../types/projects';
 import { ThatOpenContext } from '../types/context';
 
+declare global {
+  interface Window {
+    __THATOPEN_CONTEXT__?: ThatOpenContext;
+    ThatOpenCompany?: Record<string, unknown>;
+  }
+}
+
 const FOLDER_PATH = 'item/folder';
 const ITEM_PATH = 'item';
 const PROCESS_PATH = 'processor';
@@ -28,6 +35,15 @@ const HIDDEN_PATH = 'hidden';
 const ITEM_TYPE_FILE = 'FILE';
 const ITEM_TYPE_COMPONENT = 'TOOL';
 const ITEM_TYPE_APP = 'APP';
+
+/**
+ * Minimal shape of an OBC.Components-like object.
+ * Avoids hard-coupling to `@thatopen/components` at the public API level.
+ */
+export interface ComponentsLike {
+  get(c: new (components: ComponentsLike) => unknown): unknown;
+  init(): void;
+}
 
 /** Properties for creating a new item (file, component, or app). */
 export type CreateItemProps = {
@@ -180,7 +196,7 @@ export class EngineServicesClient {
   ): EngineServicesClient {
     const ctx: ThatOpenContext =
       (typeof window !== 'undefined'
-        ? (window as any).__THATOPEN_CONTEXT__
+        ? window.__THATOPEN_CONTEXT__
         : null) || { appId: '', projectId: '', accessToken: '', apiUrl: '' };
     const client = new EngineServicesClient(ctx.accessToken, ctx.apiUrl, {
       ...props,
@@ -710,14 +726,14 @@ export class EngineServicesClient {
    */
   async initBuiltInComponent(
     component: { uuid: string },
-    components: { get: (c: new (components: any) => any) => any },
+    components: ComponentsLike,
     globals?: Record<string, unknown>,
   ): Promise<void> {
     const source = await this.getBuiltInComponent(component.uuid);
     const resolvedGlobals =
       globals ??
       this.builtInGlobals ??
-      (typeof window !== 'undefined' ? (window as any).ThatOpenCompany : {}) ??
+      (typeof window !== 'undefined' ? window.ThatOpenCompany : {}) ??
       {};
 
     const keys = Object.keys(resolvedGlobals);
@@ -746,7 +762,7 @@ export class EngineServicesClient {
    * ```
    */
   async initBuiltInComponents(
-    components: { get: (c: new (components: any) => any) => any },
+    components: ComponentsLike,
     ...stubs: { uuid: string }[]
   ): Promise<void> {
     await Promise.all(
@@ -777,9 +793,9 @@ export class EngineServicesClient {
   async initApp(
     globals: Record<string, unknown>,
     ...builtIns: { uuid: string }[]
-  ): Promise<{ components: any }> {
-    const OBC = globals.OBC as any;
-    const BUI = globals.BUI as any;
+  ): Promise<{ components: ComponentsLike }> {
+    const OBC = globals.OBC as { Components?: new () => ComponentsLike } | undefined;
+    const BUI = globals.BUI as { Manager?: { init(): void } } | undefined;
     if (!OBC?.Components)
       throw new Error('globals.OBC must include Components');
     if (!BUI?.Manager) throw new Error('globals.BUI must include Manager');
