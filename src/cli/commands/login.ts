@@ -20,7 +20,7 @@ export const loginCommand = new Command('login')
       console.log('  To log in, you need an access token from the ThatOpen platform.');
       console.log('');
       console.log('  1. Go to your ThatOpen dashboard');
-      console.log('  2. Navigate to Settings > API Tokens');
+      console.log('  2. Navigate to Data > API Tokens');
       console.log('  3. Create a new token and copy it');
       console.log('');
       console.log('  Then run:');
