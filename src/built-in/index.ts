@@ -1420,6 +1420,10 @@ export type ScreenshotAnnotator = InstanceType<typeof _ScreenshotAnnotator>;
  */
 export const ScreenshotAnnotator = { uuid: '42a75a5a-2dac-49d7-9d1a-1e44f9d0dd56' } as typeof _ScreenshotAnnotator & { uuid: '42a75a5a-2dac-49d7-9d1a-1e44f9d0dd56' };
 
+interface ViewportToolbarState {
+    components: OBC.Components;
+    world: OBC.World;
+}
 /**
  * Built-in component that creates a BIM viewer toolbar with common
  * 3D interaction controls.
@@ -1451,12 +1455,11 @@ declare class _ViewerToolbar {
     readonly name = "ViewerToolbar";
     constructor(components: any);
     /**
-     * Creates a viewer toolbar element for the given world.
+     * Get a viewer toolbar UI template.
      *
-     * @param world - The 3D world this toolbar controls.
-     * @returns An HTMLElement containing the toolbar.
+     * @returns An StatefullComponent to create viewer toolbars.
      */
-    create(world: OBC.World): HTMLElement;
+    get(): BUI.StatefullComponent<ViewportToolbarState>;
 }
 
 /**
@@ -1498,6 +1501,30 @@ export type ViewerToolbar = InstanceType<typeof _ViewerToolbar>;
  */
 export const ViewerToolbar = { uuid: '66f94e95-15c4-404b-bff9-c17ddedb6b3e' } as typeof _ViewerToolbar & { uuid: '66f94e95-15c4-404b-bff9-c17ddedb6b3e' };
 
+type ViewportFloatingGridLayouts = ["default"];
+interface ViewportFloatingGridToolbarState {
+    components: OBC.Components;
+    world: OBC.World;
+}
+type ViewportFloatingGridElements = [
+    {
+        name: "top";
+        state: ViewportFloatingGridToolbarState;
+    },
+    {
+        name: "left";
+        state: ViewportFloatingGridToolbarState;
+    },
+    {
+        name: "right";
+        state: ViewportFloatingGridToolbarState;
+    },
+    {
+        name: "bottom";
+        state: ViewportFloatingGridToolbarState;
+    }
+];
+type ViewportFloatingGrid = BUI.Grid<ViewportFloatingGridLayouts, ViewportFloatingGridElements>;
 /**
  * The result of creating a viewport instance via {@link ViewportManager.create}.
  */
@@ -1506,7 +1533,14 @@ interface ViewportInstance {
     element: BUI.Viewport;
     /** The Three.js world bound to this viewport. */
     world: OBC.SimpleWorld<OBC.SimpleScene, OBC.OrthoPerspectiveCamera, OBC.SimpleRenderer>;
+    floatingGrid?: ViewportFloatingGrid;
 }
+type FloatingGridToolbars = {
+    top?: ViewportFloatingGrid["elements"]["top"];
+    bottom?: ViewportFloatingGrid["elements"]["bottom"];
+    left?: ViewportFloatingGrid["elements"]["left"];
+    right?: ViewportFloatingGrid["elements"]["right"];
+};
 /**
  * Optional configuration when creating a viewport instance.
  */
@@ -1515,6 +1549,8 @@ interface ViewportConfig {
     backgroundColor?: THREE.ColorRepresentation | null;
     /** Grid color. Defaults to `"lightgray"`. */
     gridColor?: THREE.ColorRepresentation;
+    /** Setup for the floating grid in the viewport. Useful for toolbars. */
+    floatingToolbarsSetup?: (state: ViewportFloatingGridToolbarState) => FloatingGridToolbars;
 }
 /**
  * Built-in component that creates 3D viewports with a pre-configured
@@ -1559,6 +1595,7 @@ declare class _ViewportManager {
      * @returns A {@link ViewportInstance} containing the DOM element and world.
      */
     create(config?: ViewportConfig): Promise<ViewportInstance>;
+    private setupFloatingGrid;
     /**
      * Disposes all created viewport instances and their worlds.
      */
