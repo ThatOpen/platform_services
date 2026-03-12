@@ -805,6 +805,7 @@ export class EngineServicesClient {
     this.setBuiltInGlobals(globals);
     await this.initBuiltInComponents(components, ...builtIns);
     components.init();
+    this.context.appEventOrchestrator?.appLoaded?.();
     return { components };
   }
 
