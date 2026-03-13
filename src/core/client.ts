@@ -809,6 +809,15 @@ export class EngineServicesClient {
     return { components };
   }
 
+  /**
+   * Reports an error to the platform via the {@link AppEventOrchestrator.appError} callback.
+   * @param code - Numeric error code.
+   * @param message - Human-readable error description.
+   */
+  throwError(code: number, message: string): void {
+    this.context.appEventOrchestrator?.appError?.(code, message);
+  }
+
   // ─── Apps ────────────────────────────────────────────────────────
 
   /**
