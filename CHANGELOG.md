@@ -1,5 +1,11 @@
 # thatopen-services
 
+## 0.13.0
+
+### Minor Changes
+
+- 7ce2d0f: templates refactor to align them with SKILL patterns
+
 ## 0.12.0
 
 ### Patch Changes
