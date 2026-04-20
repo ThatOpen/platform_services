@@ -55,6 +55,33 @@ npm run test:cli-build-tests      # Build CLI + scaffold test app & test compone
 npm run test:cli-serve-tests      # Serve the test app and test component's local server in parallel
 ```
 
+## Two clients — components vs apps/FE
+
+This package ships two clients with overlapping but intentionally different
+surfaces. Pick the one that matches who's calling.
+
+### `EngineServicesClient`
+**For cloud components running inside the platform.** Authenticates via
+API token by default (`?accessToken=`). Supports local-server execution,
+WebSocket execution progress, built-in component runtime helpers, and the
+low-level HTTP surface. This is what you get via
+`EngineServicesClient.fromPlatformContext()` inside a component bundle.
+
+### `PlatformClient`
+**For apps, frontends, and general user code.** Always uses Bearer JWT auth.
+Exposes a narrower surface: CRUD for files/folders/apps/components,
+project-scoped listings, `checkPermission`/`checkPermissionBatch`, icons,
+project getters. Does **not** expose `executeComponent`, WebSocket progress,
+built-in component helpers, or the local-execution-server plumbing.
+
+Composition, not duplication: `PlatformClient` wraps an
+`EngineServicesClient` internally with `useBearer: true`, so bug fixes in
+the HTTP layer automatically propagate to both.
+
+Choose by audience:
+- Component code → `EngineServicesClient` (or `fromPlatformContext()`).
+- App / FE / integration with a user JWT → `PlatformClient`.
+
 ## Permissions contract (backend coupling)
 
 The platform API enforces **project-scoped permission checks**: whenever a

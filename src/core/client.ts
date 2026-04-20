@@ -392,8 +392,17 @@ export class EngineServicesClient {
    * @param filters - Optional filters for folder and archive status.
    * @returns Array of file items.
    */
-  async listFiles(filters?: { folderId?: string; archived?: boolean }) {
-    const { folderId, archived } = filters || {};
+  async listFiles(filters?: {
+    folderId?: string;
+    archived?: boolean;
+    /**
+     * Scope the listing to a project. Requires the token owner to have
+     * `STORAGE:READ` role in that project; otherwise the backend returns
+     * 403. Per-entity permission overrides are applied server-side.
+     */
+    projectId?: string;
+  }) {
+    const { folderId, archived, projectId } = filters || {};
     if (folderId) {
       return await this.#requestApi<Item[]>(
         'GET',
@@ -402,7 +411,11 @@ export class EngineServicesClient {
       );
     }
     return await this.#requestApi<Item[]>('GET', `${ITEM_PATH}`, {
-      query: { itemType: ITEM_TYPE_FILE, archived },
+      query: {
+        itemType: ITEM_TYPE_FILE,
+        archived,
+        ...(projectId && { projectId }),
+      },
     });
   }
 
@@ -495,10 +508,22 @@ export class EngineServicesClient {
    * @param params - Optional filters for parent folder and archive status.
    * @returns Array of folder items.
    */
-  async listFolders(params?: { parentFolderId?: string; archived?: boolean }) {
-    const { archived, parentFolderId } = params || {};
+  async listFolders(params?: {
+    parentFolderId?: string;
+    archived?: boolean;
+    /**
+     * Scope the listing to a project. Requires the token owner to have
+     * `STORAGE:READ` in that project; returns 403 otherwise.
+     */
+    projectId?: string;
+  }) {
+    const { archived, parentFolderId, projectId } = params || {};
     return await this.#requestApi<ItemFolder[]>('GET', FOLDER_PATH, {
-      query: { parentFolderId, archived },
+      query: {
+        parentFolderId,
+        archived,
+        ...(projectId && { projectId }),
+      },
     });
   }
 
@@ -586,8 +611,8 @@ export class EngineServicesClient {
    * @param params - Optional filters for folder and version inclusion.
    * @returns Array of component items.
    */
-  async listComponents(params?: GetItemsParams) {
-    const { folderId, ShowVersions } = params || {};
+  async listComponents(params?: GetItemsParams & { projectId?: string }) {
+    const { folderId, ShowVersions, projectId } = params || {};
     if (folderId) {
       return await this.#requestApi<ComponentItem[]>(
         'GET',
@@ -604,6 +629,7 @@ export class EngineServicesClient {
       query: {
         itemType: ITEM_TYPE_COMPONENT,
         ...(ShowVersions && { ShowVersions }),
+        ...(projectId && { projectId }),
       },
     });
   }
@@ -848,8 +874,8 @@ export class EngineServicesClient {
    * @param params - Optional filters for folder and version inclusion.
    * @returns Array of app items.
    */
-  async listApps(params?: GetItemsParams) {
-    const { folderId, ShowVersions } = params || {};
+  async listApps(params?: GetItemsParams & { projectId?: string }) {
+    const { folderId, ShowVersions, projectId } = params || {};
     if (folderId) {
       return await this.#requestApi<AppItem[]>(
         'GET',
@@ -866,6 +892,7 @@ export class EngineServicesClient {
       query: {
         itemType: ITEM_TYPE_APP,
         ...(ShowVersions && { ShowVersions }),
+        ...(projectId && { projectId }),
       },
     });
   }
@@ -1262,62 +1289,12 @@ export class EngineServicesClient {
     );
   }
 
-  /**
-   * Lists files belonging to a project. Respects per-entity permission
-   * overrides (role-level `resourcePermissions` DENY/ALLOW + folder
-   * descendants) — callers only see files their role grants them READ on.
-   *
-   * Contrast with {@link listFiles}, which targets the caller's personal
-   * items regardless of project context.
-   */
-  async listProjectFiles(
-    projectId: string,
-    params?: { archived?: boolean },
-  ) {
-    return await this.#requestApi<ItemWithVersions<Item>[]>(
-      'GET',
-      `${PROJECT_PATH}/${projectId}/files`,
-      { query: { archived: params?.archived } },
-    );
-  }
-
-  /**
-   * Lists folders belonging to a project. Applies per-entity permission
-   * filtering (role-level `resourcePermissions` DENY/ALLOW + folder
-   * descendants).
-   */
-  async listProjectFolders(
-    projectId: string,
-    params?: { archived?: boolean },
-  ) {
-    return await this.#requestApi<ItemFolder[]>(
-      'GET',
-      `${PROJECT_PATH}/${projectId}/folders`,
-      { query: { archived: params?.archived } },
-    );
-  }
-
-  /**
-   * Lists apps linked to a project via `project.apps`. Requires APP:READ in
-   * the project.
-   */
-  async listProjectApps(projectId: string) {
-    return await this.#requestApi<AppItem[]>(
-      'GET',
-      `${PROJECT_PATH}/${projectId}/apps`,
-    );
-  }
-
-  /**
-   * Lists components linked to a project via `project.components`. Requires
-   * EVENTS:READ in the project.
-   */
-  async listProjectComponents(projectId: string) {
-    return await this.#requestApi<ItemWithVersions<ComponentItem>[]>(
-      'GET',
-      `${PROJECT_PATH}/${projectId}/components`,
-    );
-  }
+  // Project-scoped listings happen via the main list methods — e.g.
+  // `listFiles({ projectId })`, `listFolders({ projectId })`,
+  // `listApps({ projectId })`, `listComponents({ projectId })`. Those
+  // call `GET /item?projectId=...` / `/item/folder?projectId=...` which
+  // work with both API tokens and Bearer JWTs and apply per-entity
+  // permission filtering on the server.
 
   // ─── Permissions ─────────────────────────────────────────────────
 

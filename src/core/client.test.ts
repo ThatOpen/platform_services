@@ -192,44 +192,51 @@ describe('EngineServicesClient — HTTP contract', () => {
     });
   });
 
-  describe('project-scoped list methods', () => {
-    it('listProjectFiles GETs /project/:projectId/files with optional archived flag', async () => {
+  describe('project-scoped list methods — via projectId query on /item and /item/folder', () => {
+    it('listFiles({ projectId }) forwards projectId on /item', async () => {
       fetchMock.mockResolvedValue(okResponse([]));
       const client = new EngineServicesClient(TOKEN, API);
-      await client.listProjectFiles('proj-1', { archived: true });
+      await client.listFiles({ projectId: 'proj-1', archived: true });
       const { url, init } = getCall(fetchMock);
       const { pathname, params } = parseUrl(url);
-      expect(pathname).toBe('/api/project/proj-1/files');
+      expect(pathname).toBe('/api/item');
       expect(init.method).toBe('GET');
+      expect(params.get('itemType')).toBe('FILE');
+      expect(params.get('projectId')).toBe('proj-1');
       expect(params.get('archived')).toBe('true');
     });
 
-    it('listProjectFolders GETs /project/:projectId/folders', async () => {
+    it('listFolders({ projectId }) forwards projectId on /item/folder', async () => {
       fetchMock.mockResolvedValue(okResponse([]));
       const client = new EngineServicesClient(TOKEN, API);
-      await client.listProjectFolders('proj-1');
+      await client.listFolders({ projectId: 'proj-1' });
       const { url, init } = getCall(fetchMock);
-      const { pathname } = parseUrl(url);
-      expect(pathname).toBe('/api/project/proj-1/folders');
+      const { pathname, params } = parseUrl(url);
+      expect(pathname).toBe('/api/item/folder');
       expect(init.method).toBe('GET');
+      expect(params.get('projectId')).toBe('proj-1');
     });
 
-    it('listProjectApps GETs /project/:projectId/apps', async () => {
+    it('listApps({ projectId }) forwards projectId on /item', async () => {
       fetchMock.mockResolvedValue(okResponse([]));
       const client = new EngineServicesClient(TOKEN, API);
-      await client.listProjectApps('proj-1');
-      const { url } = getCall(fetchMock);
-      const { pathname } = parseUrl(url);
-      expect(pathname).toBe('/api/project/proj-1/apps');
+      await client.listApps({ projectId: 'proj-1' });
+      const { url, params } = {
+        ...getCall(fetchMock),
+        ...parseUrl(getCall(fetchMock).url),
+      };
+      expect(url).toMatch(/\/api\/item\b/);
+      expect(params.get('itemType')).toBe('APP');
+      expect(params.get('projectId')).toBe('proj-1');
     });
 
-    it('listProjectComponents GETs /project/:projectId/components', async () => {
+    it('listComponents({ projectId }) forwards projectId on /item', async () => {
       fetchMock.mockResolvedValue(okResponse([]));
       const client = new EngineServicesClient(TOKEN, API);
-      await client.listProjectComponents('proj-1');
-      const { url } = getCall(fetchMock);
-      const { pathname } = parseUrl(url);
-      expect(pathname).toBe('/api/project/proj-1/components');
+      await client.listComponents({ projectId: 'proj-1' });
+      const { params } = parseUrl(getCall(fetchMock).url);
+      expect(params.get('itemType')).toBe('TOOL');
+      expect(params.get('projectId')).toBe('proj-1');
     });
   });
 
