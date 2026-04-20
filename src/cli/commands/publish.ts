@@ -8,6 +8,7 @@ import {
   updateLocalConfig,
 } from '../lib/config';
 import { createBundleZip } from '../lib/zip';
+import { declarationsPath, readDeclarations } from '../lib/declarations';
 import { EngineServicesClient } from '../../core/client';
 
 export const publishCommand = new Command('publish')
@@ -77,11 +78,26 @@ export const publishCommand = new Command('publish')
         process.exit(1);
       }
 
+      // Cloud components must declare their runtime parameters in a
+      // `declarations.json` file at the project root. The file is shipped
+      // alongside the bundle so the platform knows what parameters the
+      // component accepts.
+      let declarationsZipPath: string | undefined;
+      if (isComponent) {
+        try {
+          readDeclarations(cwd);
+        } catch (err) {
+          console.error((err as Error).message);
+          process.exit(1);
+        }
+        declarationsZipPath = declarationsPath(cwd);
+      }
+
       // Create ZIP
       const zipPath = join(cwd, 'dist', 'bundle.zip');
       console.log('Creating bundle ZIP...');
       try {
-        await createBundleZip(bundlePath, zipPath);
+        await createBundleZip(bundlePath, zipPath, declarationsZipPath);
       } catch (err) {
         console.error('Failed to create bundle ZIP:', (err as Error).message);
         process.exit(1);

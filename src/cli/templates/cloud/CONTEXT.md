@@ -6,8 +6,26 @@ It runs on the server as a Node.js process, triggered via the platform API.
 ## How this component works
 
 - **Entry point**: `src/main.ts` — must export an `async function main()`.
+- **Parameter schema**: `declarations.json` — the list of parameters this component accepts. Bundled next to the code so the platform, the UI, and `thatopen run` know what to pass in.
 - **Build output**: `dist/bundle.js` — an IIFE built by Vite with platform deps externalized.
 - **Execution**: The platform (or `thatopen run` locally) wraps the bundle in an execution engine that provides globals and calls `main()`.
+
+## Parameters (`declarations.json`)
+
+Every cloud component declares its runtime parameters in a root-level `declarations.json` file. The CLI includes this file in the zip at publish time, and the platform refuses to publish a component without it. It's a plain JSON array of `{ id, label, type }` entries:
+
+```json
+[
+  { "id": "projectName", "label": "Project Name", "type": "string" },
+  { "id": "iterations", "label": "Number of Iterations", "type": "number" }
+]
+```
+
+- `id` — the key users read off `executionParams` inside `main()`.
+- `label` — human-readable name shown to the user on the platform's execution form.
+- `type` — `"string"` or `"number"` (the only supported types for now).
+
+**Rule:** `declarations.json` and `src/main.ts` must stay in sync. When you add, remove, or rename a parameter in one, update the other. `thatopen publish` fails if `declarations.json` is missing, and `thatopen run --params '{...}'` warns if the keys or types don't match the schema.
 
 ## Commands
 

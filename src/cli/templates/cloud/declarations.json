@@ -1,0 +1,4 @@
+[
+  { "id": "projectName", "label": "Project Name", "type": "string" },
+  { "id": "iterations", "label": "Number of Iterations", "type": "number" }
+]

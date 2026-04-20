@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { requireResolvedConfig } from '../lib/config';
 import { buildEngineScript } from '../lib/engine-script';
+import { readDeclarations, validateParams } from '../lib/declarations';
 
 export const runCommand = new Command('run')
   .description('Build and run a cloud component locally')
@@ -24,12 +25,28 @@ export const runCommand = new Command('run')
       const config = requireResolvedConfig(cwd);
 
       // Parse execution params
-      let executionParams: object;
+      let executionParams: Record<string, unknown>;
       try {
         executionParams = JSON.parse(opts.params);
       } catch {
         console.error('Invalid JSON for --params.');
         process.exit(1);
+      }
+
+      // Compare against declarations.json if present. We warn instead of
+      // failing so the dev loop isn't blocked, but publish will fail if the
+      // file is missing entirely.
+      try {
+        const declarations = readDeclarations(cwd);
+        const warnings = validateParams(declarations, executionParams);
+        if (warnings.length > 0) {
+          console.warn('Parameter check:');
+          for (const w of warnings) console.warn(`  - ${w}`);
+        }
+      } catch (err) {
+        console.warn(
+          `Skipping parameter validation: ${(err as Error).message}`,
+        );
       }
 
       // Build
