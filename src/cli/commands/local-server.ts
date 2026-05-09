@@ -79,6 +79,11 @@ export const localServerCommand = new Command('local-server')
         footer: { js: 'var main = ThatOpenComponent.main;' },
         outfile: bundlePath,
         logLevel: 'info',
+        logOverride: {
+          // Same upstream @nodable/entities duplicate `euro:` key noise
+          // silenced in the `serve` command. Cosmetic, no runtime impact.
+          'duplicate-object-key': 'silent',
+        },
         external: [
           'thatopen-services',
           '@thatopen/components',

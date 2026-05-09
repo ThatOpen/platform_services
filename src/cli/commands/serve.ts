@@ -62,6 +62,11 @@ export const serveCommand = new Command('serve')
         // FragmentsManager.init caller) always passes an explicit worker URL via
         // FragmentsManager.getWorker(). Silencing avoids noise on every build.
         'empty-import-meta': 'silent',
+        // The HTML-entities table bundled by @nodable/entities (transitively
+        // via fast-xml-parser) has a duplicate `euro: '€'` entry. Inlined into
+        // both @thatopen/components and @thatopen/components-front, so every
+        // platform app build hits two of these. Cosmetic, no runtime impact.
+        'duplicate-object-key': 'silent',
       },
       plugins: [
         {
