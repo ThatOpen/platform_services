@@ -1,0 +1,54 @@
+[
+  {
+    "path": "AppManager/example.ts",
+    "description": ""
+  },
+  {
+    "path": "CDEManager/example.ts",
+    "description": "CDEManager — CDEManager is the central state machine for a Common Data Environment. It holds files, folders, metadata schemas, viewer groups, and user permissions, and exposes a typed state machine that all file operations — selecting, editing, uploading, viewing — route through. It has no DOM or Three.js dependencies and can run in Node, a browser, or a server-side worker wherever `@thatopen/components` is available."
+  },
+  {
+    "path": "CDEManager/examples/FileEditing/example.ts",
+    "description": "Bulk file editing — stage, preview, revert, and commit — A project manager preparing a deliverable handoff needs to update discipline tags across fifteen IFC files after a scope change, rename each to match the new naming convention, and archive three superseded models — all before anything is sent to the backend. Doing the changes one file at a time risks leaving the file list in a half-updated state if the session is interrupted, and there is no way to review exactly what will change before committing."
+  },
+  {
+    "path": "CDEManager/examples/FileMoves/example.ts",
+    "description": "Drag-and-drop file and folder moves — A coordinator restructures the project after a scope change: structural files move from the root into a dedicated discipline folder, a MEP sub-folder needs to be promoted to the top level, and a few documents need to come back to root to appear in the general view. Drag-and-drop is the natural gesture for all of this, but each drag session has intermediate stages — the file is \"in the air\", hovering over a candidate target — and every panel watching the file table should see the right state without coordinating directly with the drag component."
+  },
+  {
+    "path": "CDEManager/examples/FileOperations/example.ts",
+    "description": "File operations — inline edit, rename, view, download, archive — BIM coordinators reviewing a model drop repeat the same small actions throughout their session: correcting a discipline tag that changed after a scope revision, renaming a file to match the agreed convention, opening it alongside the structural model to check for clashes, handing it off to a sub-consultant, or removing a superseded version from the live set. If every panel in the platform handles these separately, two panels looking at the same file at the same time can show contradictory states — one says \"uploading\", another still shows the old name."
+  },
+  {
+    "path": "CDEManager/examples/FileTransfers/example.ts",
+    "description": "File uploads, versioning, and the download cache — A site coordinator drops a batch of files onto the CDE every Monday after the weekend review: some are entirely new models, some are revised versions of files already in the project, and sometimes the metadata group they upload into should be stamped automatically onto the new files. If the platform makes the coordinator sort this out manually, it slows the handoff and introduces naming errors. And if an upload fails halfway through a batch, the file table should land in a safe state rather than freeze at a loading spinner."
+  },
+  {
+    "path": "CDEManager/examples/FolderManagement/example.ts",
+    "description": "Folder management — create, rename, archive, and commit — A project reaches the construction phase and the coordination team needs to restructure the folder hierarchy: add a \"Facades\" discipline folder, rename \"Structural\" to its official abbreviation, and archive two superseded folders that have been merged. Doing these one at a time through separate API calls means the folder tree flickers between invalid states as each change lands — a freshly created folder appears before its sibling is renamed, and the archived folders briefly disappear before the new one is visible."
+  },
+  {
+    "path": "CDEManager/examples/MetadataSchema/example.ts",
+    "description": "Metadata schema — define, stage, and publish field definitions — Every project has its own vocabulary for describing files: discipline codes, revision phases, area zones, review statuses. A metadata schema defines which fields exist, what values they accept, and whether they are mandatory. Without a structured schema, each user invents their own labels and the file list becomes impossible to filter or report on consistently."
+  },
+  {
+    "path": "CDEManager/examples/MetadataViews/example.ts",
+    "description": "Metadata views — organize fields into named table layouts — A structural engineer and an MEP coordinator look at the same file list but care about completely different metadata. Showing every field to everyone produces a wide table that is hard to navigate. Metadata views let each role define which fields appear in which order — saving the layout so the table opens correctly next time without requiring a manual setup every session."
+  },
+  {
+    "path": "CDEManager/examples/ProjectConfig/example.ts",
+    "description": "Project configuration — read, write, and reload persistent data — A CDE application needs to store two kinds of configuration: project-wide settings that all team members share (the metadata schema, custom naming rules) and personal settings that belong to one user (which columns are visible, which metadata views are pinned). Both live inside the project's file storage under a reserved system folder, so they travel with the project and don't rely on a separate configuration service."
+  },
+  {
+    "path": "FileList/example.ts",
+    "description": ""
+  },
+  {
+    "path": "TabbedNavigation/example.ts",
+    "description": ""
+  },
+  {
+    "path": "ViewportsManager/example.ts",
+    "description": ""
+  }
+]
