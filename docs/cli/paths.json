@@ -1,0 +1,30 @@
+[
+  {
+    "path": "docs/cli/create.md",
+    "description": "Scaffold a new app or cloud component project from a template. Covers --template (app for browser BIM apps, cloud-component for server-side components), --beta for switching to private beta engine libraries at scaffold time, and using '.' as the project name to scaffold into the current directory."
+  },
+  {
+    "path": "docs/cli/local-server.md",
+    "description": "Start a local HTTP + Socket.IO server that replicates the platform's cloud execution API on port 4001, with esbuild watch mode. Connect an app to it via EngineServicesClient's localServerUrl option to execute and monitor a local cloud component without publishing."
+  },
+  {
+    "path": "docs/cli/login.md",
+    "description": "Authenticate with the ThatOpen platform by validating an access token against the API. Saves credentials globally (~/.thatopen/config.json) by default, or locally to the project's .thatopen file with --local. Local config takes priority over global."
+  },
+  {
+    "path": "docs/cli/publish.md",
+    "description": "Build and upload the project to the platform. Automatically detects app vs cloud component from the local .thatopen config. On first publish, saves the assigned item ID back to .thatopen so subsequent runs update the same item instead of creating a new one."
+  },
+  {
+    "path": "docs/cli/run.md",
+    "description": "Build and run a cloud component locally as a child process, mirroring the backend execution environment. Accepts execution parameters as JSON via --params, validates them against declarations.json, and streams progress output to the terminal."
+  },
+  {
+    "path": "docs/cli/serve.md",
+    "description": "Start a local dev server for a browser app. Uses esbuild in watch mode and serves the IIFE bundle on port 4000 with SSE live reload. To preview, open the project on the platform and click the debug button — the platform fetches the bundle from localhost."
+  },
+  {
+    "path": "docs/cli/swap.md",
+    "description": "Toggle or explicitly set the engine library mode between stable public packages (@thatopen/*) and private beta packages (@thatopen-platform/*-beta). Updates package.json and .thatopen, then runs npm install. Source code never changes — aliases handle resolution."
+  }
+]
