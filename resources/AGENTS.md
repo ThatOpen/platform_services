@@ -16,14 +16,16 @@ Do this before answering any question or writing any code. These are compact des
 
 | What | Where |
 |---|---|
-| Platform built-ins | `docs/builtin/paths.json` |
-| Platform client API | `docs/client/paths.json` |
-| CLI commands | `docs/cli/paths.json` |
+| Platform built-ins | `node_modules/@thatopen/services/docs/builtin/paths.json` |
+| Platform client API | `node_modules/@thatopen/services/docs/client/paths.json` |
+| CLI commands | `node_modules/@thatopen/services/docs/cli/paths.json` |
 | Engine components (`OBC`, `OBF`) | `https://raw.githubusercontent.com/ThatOpen/engine_components/refs/heads/main/examples/paths.json` |
 | Fragments (`FRAGS`) | `https://raw.githubusercontent.com/ThatOpen/engine_fragment/refs/heads/main/examples/paths.json` |
 | UI components (`BUI`) | `https://raw.githubusercontent.com/ThatOpen/engine_ui-components/refs/heads/main/examples/paths.json` — **skip** entries whose path contains `packages/obc` or `bim-grid` |
 
 Once you have these, you know everything available on the platform. Only then fetch a specific example file when you need implementation details.
+
+> **Path resolution:** all `path` entries inside the local indexes (`docs/`, `src/`) are relative to the `@thatopen/services` package root — prepend `node_modules/@thatopen/services/` when reading any of those files.
 
 ---
 
