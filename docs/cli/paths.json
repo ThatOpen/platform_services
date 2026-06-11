@@ -21,7 +21,7 @@
   },
   {
     "path": "docs/cli/serve.md",
-    "description": "Start a local dev server for a browser app. Uses esbuild in watch mode and serves the IIFE bundle on port 4000 with SSE live reload. To preview, open the project on the platform and click the debug button — the platform fetches the bundle from localhost."
+    "description": "Start a local dev server for a browser app. Uses esbuild in watch mode and serves the IIFE bundle on port 4000 with SSE live reload. To connect: open the project on dev.platform.thatopen.com, click the Local App icon, then Get Started."
   },
   {
     "path": "docs/cli/swap.md",
