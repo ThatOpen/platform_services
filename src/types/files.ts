@@ -13,6 +13,10 @@ export type CreateHiddenItemResult = {
   hiddenFileId: string;
 };
 
+export type CreateHiddenItemsBatchResult = {
+  results: { originalName: string; hiddenFileId: string }[];
+};
+
 export type MetadataValue = string | number | boolean | null;
 
 export type Metadata = Record<string, MetadataValue>;

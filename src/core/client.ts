@@ -18,6 +18,7 @@ import {
 import { CreateItemResponse, UpdateItemResponse } from '../types/response';
 import {
   CreateHiddenItemResult,
+  CreateHiddenItemsBatchResult,
   HiddenFileEntity,
   Metadata,
 } from '../types/files';
@@ -1175,6 +1176,30 @@ export class EngineServicesClient {
     return await this.#requestApi<CreateHiddenItemResult>(
       'POST',
       `${ITEM_PATH}/${HIDDEN_PATH}`,
+      {
+        body: formData,
+      },
+    );
+  }
+
+  /**
+   * Creates many hidden files attached to a parent item in a single request.
+   * Use this instead of many `createHiddenFile` calls when uploading large sets
+   * (e.g. 3D Tiles); upload in chunks of up to 100 files per call.
+   * @param files - The files to upload.
+   * @param parentFileId - The parent item's unique identifier.
+   * @returns One result per uploaded file, in order, each with its hidden file ID.
+   */
+  async createHiddenFilesBatch(files: (File | Blob)[], parentFileId: string) {
+    const formData = new FormData();
+    for (const file of files) {
+      formData.append('files', file);
+    }
+    formData.append('parentItemId', parentFileId);
+
+    return await this.#requestApi<CreateHiddenItemsBatchResult>(
+      'POST',
+      `${ITEM_PATH}/${HIDDEN_PATH}/batch`,
       {
         body: formData,
       },
