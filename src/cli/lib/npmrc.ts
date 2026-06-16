@@ -1,4 +1,9 @@
-import { writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  existsSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { EngineServicesClient } from '../../core/client';
 import { RequestError } from '../../core/request-error';
@@ -8,6 +13,27 @@ export type NpmrcResult =
   | { status: 'written'; scope: string }
   | { status: 'forbidden' }
   | { status: 'error'; message: string };
+
+/**
+ * Make sure `<dir>/.gitignore` ignores `.npmrc` before we write a credential
+ * into it. The scaffold template already covers this for `create`, but
+ * `swap`/`login` run in existing projects whose `.gitignore` we don't own — so
+ * without this the token could be committed. Creates `.gitignore` if absent.
+ */
+function ensureNpmrcIgnored(dir: string): void {
+  const gitignorePath = join(dir, '.gitignore');
+  if (!existsSync(gitignorePath)) {
+    writeFileSync(gitignorePath, '.npmrc\n');
+    return;
+  }
+  const content = readFileSync(gitignorePath, 'utf-8');
+  const alreadyIgnored = content
+    .split(/\r?\n/)
+    .some((line) => line.trim() === '.npmrc');
+  if (alreadyIgnored) return;
+  const prefix = content.length === 0 || content.endsWith('\n') ? '' : '\n';
+  appendFileSync(gitignorePath, `${prefix}.npmrc\n`);
+}
 
 /**
  * Fetches the Founders npm credentials and writes them to `<dir>/.npmrc`, so
@@ -25,6 +51,7 @@ export async function setupNpmrc(
 ): Promise<NpmrcResult> {
   try {
     const creds = await client.getNpmCredentials();
+    ensureNpmrcIgnored(dir);
     writeFileSync(join(dir, '.npmrc'), creds.npmrc, { mode: 0o600 });
     return { status: 'written', scope: creds.scope };
   } catch (err) {
