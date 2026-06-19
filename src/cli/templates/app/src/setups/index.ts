@@ -4,6 +4,7 @@ export * from "./cloud-runner";
 export * from "./properties-panel";
 export * from "./fps-indicator";
 export * from "./active-tool-hud";
+export * from "./diagnostics";
 export * from "./files-panel";
 export * from "./model-tree";
 export * from "./right-sidebar";

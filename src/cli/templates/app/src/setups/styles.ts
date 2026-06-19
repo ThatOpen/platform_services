@@ -93,12 +93,14 @@ export const styles = (
   // makes three force-clear the capture G-buffer mid-pass and the whole model
   // vanishes (#30). Keep scene.background null and own the clear here.
   scene.background = null;
-  // Apply the default opaque dark background ONCE (never on a rebuild — that was
-  // the #30 reset). The remembered colour itself is the module-scoped
-  // `stylesLastBg`, so a rebuild never clobbers a user pick.
+  // Apply the default background ONCE (never on a rebuild — that was the #30
+  // reset). Default is TRANSPARENT (clear alpha 0) to match the
+  // `transparentBackground` setting's default:true, so on load the viewport shows
+  // whatever is behind it instead of an opaque black. The remembered hue lives in
+  // the module-scoped `stylesLastBg` for when transparency is toggled off.
   if (!stylesBgInitialized) {
     stylesBgInitialized = true;
-    three().setClearColor(stylesLastBg, 1);
+    three().setClearColor(0x000000, 0);
   }
 
   const A = OBF.PostproductionAspect;

@@ -279,7 +279,7 @@ export const graphicsPanel = (components: OBC.Components, fps?: FpsIndicator) =>
             label: "Show FPS",
             group: "Quality",
             type: "bool",
-            default: true,
+            default: false,
             get: () => fps.visible,
             set: (v: boolean) => fps.setVisible(v),
           });

@@ -27,6 +27,7 @@ export const fpsIndicator = (parent: HTMLElement): FpsIndicator => {
     color: var(--bim-ui_bg-contrast-100, #e3e3e3);
     font: 600 0.72rem/1.2 ui-monospace, monospace;
     pointer-events: none; user-select: none;
+    display: none;
   `;
   el.textContent = "-- FPS";
   // The viewer is position:relative (set in viewports-manager for the anchor
@@ -34,7 +35,7 @@ export const fpsIndicator = (parent: HTMLElement): FpsIndicator => {
   if (!parent.style.position) parent.style.position = "relative";
   parent.append(el);
 
-  let visible = true;
+  let visible = false;
   let frames = 0;
   let last = performance.now();
   const tick = (now: number) => {
