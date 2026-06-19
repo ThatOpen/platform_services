@@ -1,5 +1,5 @@
 import * as OBC from "@thatopen/components";
-import { AppManager } from "@thatopen/services";
+import { getAppManager } from "../../app";
 import { CloudRunnerStatus } from "./src";
 
 export class CloudRunner extends OBC.Component {
@@ -24,9 +24,13 @@ export class CloudRunner extends OBC.Component {
   }
 
   async run(useLocal: boolean) {
-    // Resolve client at call time via AppManager — never store it as a field.
-    const app = this.components.get(AppManager);
-    const client = app.client;
+    // Resolve client at call time via the app shim — never store it as a field.
+    const client = getAppManager(this.components).client;
+    if (!client) {
+      this.status = "No platform client available.";
+      this._trigger();
+      return;
+    }
 
     client.localServerUrl = useLocal ? this.localServerUrl : null;
 

@@ -34,6 +34,19 @@ export const createCommand = new Command('create')
       process.exit(1);
     }
 
+    // The app template (the full BIM viewer) currently depends on engine APIs
+    // that only exist in the beta libraries. Until the public engine catches up
+    // (October release), scaffolding the app without --beta would produce a
+    // project that doesn't type-check or run — so require --beta explicitly.
+    if (template === 'app' && !opts.beta) {
+      console.error(
+        'The "app" template currently requires the beta engine libraries.\n\n' +
+        `  thatopen create ${projectName} --beta\n\n` +
+        'Public (non-beta) engine support is coming with the October release.',
+      );
+      process.exit(1);
+    }
+
     const isCloud = template === 'cloud-component';
     const projectKind = isCloud ? 'cloud component' : 'app';
     const useCurrentDir = projectName === '.';

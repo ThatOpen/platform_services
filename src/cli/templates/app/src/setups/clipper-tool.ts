@@ -94,6 +94,11 @@ export const clipperTool = (components: OBC.Components): ClipperTool => {
   clipper.localClippingPlanes = true; // before any plane is created
   clipper.enabled = true;
   clipper.visible = true;
+  // Constant-size plane representation (world units): disable auto-scaling (which
+  // otherwise sizes each plane to the model/surface) and pin a fixed size — tune
+  // the single value to taste.
+  clipper.autoScalePlanes = false;
+  clipper.size = 5;
 
   const styler = components.get(OBF.ClipStyler);
   const classifier = components.get(OBC.Classifier);
@@ -244,7 +249,16 @@ export const clipperTool = (components: OBC.Components): ClipperTool => {
     // section appears immediately instead of staying blank until a camera move
     // invalidates the deferred frame.
     void Promise.resolve(edges.update())
-      .then(() => getWorld()?.renderer?.update())
+      .then(() => {
+        // The regenerated section fill/edge meshes keep a stale bounding sphere,
+        // so three.js frustum-culls them even when they're on screen (the fill
+        // flickers out as the camera moves). Disable culling on them — they're
+        // tiny section overlays, so the cull saving is irrelevant.
+        edges.three.traverse((o) => {
+          o.frustumCulled = false;
+        });
+        getWorld()?.renderer?.update();
+      })
       .catch((error) =>
         console.warn("[clipper] section build skipped:", error),
       );
