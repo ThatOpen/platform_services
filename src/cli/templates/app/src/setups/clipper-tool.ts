@@ -89,7 +89,7 @@ export const ensureSectionStyle = (components: OBC.Components) => {
   });
 };
 
-export const clipperTool = (components: OBC.Components): ClipperTool => {
+const clipperToolImpl = (components: OBC.Components): ClipperTool => {
   const clipper = components.get(OBC.Clipper);
   clipper.localClippingPlanes = true; // before any plane is created
   clipper.enabled = true;
@@ -752,3 +752,22 @@ export const clipperTool = (components: OBC.Components): ClipperTool => {
     isStylingVisible: () => styler.visible,
   };
 };
+
+// Real OBC.Component wrapper so the ClipperTool wrapper is a per-`components`
+// singleton, resolved by UUID via `components.get(...)`. Because `components` is
+// a single shared instance across bundle boundaries, the toolbar built-in and
+// the app's side panels (clipper-panel, objects) all get the SAME ClipperTool.
+export class ClipperToolComponent extends OBC.Component {
+  static readonly uuid = "9b2c7e10-3a4f-4c21-8b6d-1f0a2c3d4e51" as const;
+  enabled = true;
+  readonly tool: ClipperTool;
+  constructor(components: OBC.Components) {
+    super(components);
+    components.add(ClipperToolComponent.uuid, this);
+    this.tool = clipperToolImpl(components);
+  }
+}
+
+/** Per-Components singleton accessor for the clipping tool. */
+export const clipperTool = (components: OBC.Components): ClipperTool =>
+  components.get(ClipperToolComponent).tool;

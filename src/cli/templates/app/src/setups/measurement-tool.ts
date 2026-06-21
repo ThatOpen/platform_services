@@ -88,7 +88,7 @@ type Measurer =
   | OBF.AngleMeasurement
   | OBF.VolumeMeasurement;
 
-export const measurementTool = (
+const measurementToolImpl = (
   components: OBC.Components,
 ): MeasurementTool => {
   const length = components.get(OBF.LengthMeasurement);
@@ -568,3 +568,21 @@ export const measurementTool = (
     },
   };
 };
+
+// Real OBC.Component wrapper → per-`components` singleton resolved by UUID. The
+// toolbar built-in and the side panels (measurement-settings, objects) share the
+// SAME MeasurementTool because `components` is a single cross-bundle instance.
+export class MeasurementToolComponent extends OBC.Component {
+  static readonly uuid = "9b2c7e10-3a4f-4c21-8b6d-1f0a2c3d4e52" as const;
+  enabled = true;
+  readonly tool: MeasurementTool;
+  constructor(components: OBC.Components) {
+    super(components);
+    components.add(MeasurementToolComponent.uuid, this);
+    this.tool = measurementToolImpl(components);
+  }
+}
+
+/** Per-Components singleton accessor for the measurement tool. */
+export const measurementTool = (components: OBC.Components): MeasurementTool =>
+  components.get(MeasurementToolComponent).tool;

@@ -2,6 +2,9 @@
 
 Client library and CLI for building BIM apps and cloud components on [That Open Platform](https://platform.thatopen.com). Apps run inside the platform's browser environment; cloud components run server-side and can be triggered from any app.
 
+> **Using an AI assistant?** Point it at this single file and it can take you from nothing to a running app:
+> → [`docs/ai-quickstart.md`](https://raw.githubusercontent.com/ThatOpen/engine_services/main/docs/ai-quickstart.md)
+
 ## Quick Start
 
 ### 1. Install the CLI

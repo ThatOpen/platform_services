@@ -137,14 +137,20 @@ export class ToolModeManager {
   }
 }
 
-const instances = new WeakMap<OBC.Components, ToolModeManager>();
+// Real OBC.Component wrapper → per-`components` singleton resolved by UUID, so
+// the coordinator is shared across bundle boundaries (toolbar built-in + tools +
+// the app's panels all drive the SAME manager).
+export class ToolModeManagerComponent extends OBC.Component {
+  static readonly uuid = "9b2c7e10-3a4f-4c21-8b6d-1f0a2c3d4e53" as const;
+  enabled = true;
+  readonly manager: ToolModeManager;
+  constructor(components: OBC.Components) {
+    super(components);
+    components.add(ToolModeManagerComponent.uuid, this);
+    this.manager = new ToolModeManager(components);
+  }
+}
 
 /** Per-Components singleton accessor. */
-export const toolModeManager = (components: OBC.Components): ToolModeManager => {
-  let manager = instances.get(components);
-  if (!manager) {
-    manager = new ToolModeManager(components);
-    instances.set(components, manager);
-  }
-  return manager;
-};
+export const toolModeManager = (components: OBC.Components): ToolModeManager =>
+  components.get(ToolModeManagerComponent).manager;

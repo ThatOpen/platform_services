@@ -8,26 +8,6 @@ import * as BUI from "@thatopen/ui";
 import * as MARKERJS from "@markerjs/markerjs3";
 import { PlatformClient, UIManager } from "@thatopen/services";
 import { setAppContext } from "./app";
-import {
-  propertiesPanel,
-  modelTree,
-  filesPanel,
-  graphicsPanel,
-  clipperTool,
-  clipperPanel,
-  commandsPanel,
-  measurementTool,
-  dataTablePanel,
-  fpsIndicator,
-  activeToolHud,
-  navigationGizmo,
-  visibilityToolbar,
-  walkthrough,
-} from "./setups";
-import { objectsPanel } from "./setups/objects-panel";
-import { inspectionInstances, inspectionActions } from "./setups/inspection";
-import { measurementSettingsPanel } from "./setups/measurement-settings-panel";
-import { settingsPanel } from "./setups/settings-panel";
 
 // ─── A2 migration — PHASES 1+2: boot on UIManager + re-dock panels ───────────
 // Juan consolidated the old AppManager (layout) + ViewportsManager (viewport)
@@ -98,13 +78,10 @@ async function main() {
   const container = document.getElementById("that-open-app") ?? document.body;
   container.appendChild(app);
 
-  // Wait for top-viewer's world before building world-dependent tools/panels.
-  const world = await firstWorld(components.get(OBC.Worlds));
-  // Auto-anchor: the orbit pivot follows the surface picked on left-press
-  // (library dynamicAnchor). top-viewer doesn't enable it, so set it here.
-  world.dynamicAnchor = true;
-  // …and show that pivot as an on-screen dot (projected from 3D each frame).
-  setupAnchorDot(world, viewerEl);
+  // Wait for top-viewer's world to exist before building world-dependent panels.
+  // The viewer tool suite + dynamic-anchor pivot dot are now baked into
+  // <top-viewer> (setupViewerTools), so the app no longer wires them.
+  await firstWorld(components.get(OBC.Worlds));
 
   // Platform client + project data for the AppManager-shim consumers
   // (CloudRunner, data-table-panel, app-info-section).
@@ -117,59 +94,47 @@ async function main() {
   }
   setAppContext(client, projectData);
 
-  // Headless tools — drive the panels; they resolve the world via `components`.
-  const clipTool = clipperTool(components);
-  const measureTool = measurementTool(components);
+  // Pluggable loaders for <top-models-list>. The built-in ships the lightweight
+  // defaults (.frag load, IFC→fragments convert); heavy/app-specific loaders are
+  // registered here so they stay OUT of the built-in's bundle. The reality-capture
+  // .3tz viewer pulls Spark + 3d-tiles-renderer, so it's lazy-imported app-side
+  // and plugged in via the loader registry. Alignment persists through the panel's
+  // app-data via the loader context (getAlignment/setAlignment).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let rcViewer: any = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const modelLoaders: Record<string, any> = {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    "3tz": async (fileId: string, ctx: any) => {
+      if (!rcViewer) {
+        const { realityCaptureViewer } = await import(
+          "./setups/reality-capture-viewer"
+        );
+        rcViewer = realityCaptureViewer(ctx.components, client);
+      }
+      const saved = ctx.getAlignment(fileId) as number[] | undefined;
+      await rcViewer.loadIntoWorld(fileId, {
+        keepPostproduction: true,
+        transform: saved ? new THREE.Matrix4().fromArray(saved) : undefined,
+        onTransformChange: (m: THREE.Matrix4) =>
+          ctx.setAlignment(fileId, m.toArray()),
+      });
+    },
+  };
 
-  // Panels.
-  const treeEl = modelTree(components);
-  const propsEl = propertiesPanel(components);
-  const filesEl = filesPanel(components, client) as unknown as HTMLElement;
-  const dataTableEl = dataTablePanel(components) as unknown as HTMLElement;
-  // FPS counter — mounted into the viewer overlay; the Graphics panel "Show FPS"
-  // switch drives it (pass the controller in).
-  const fps = fpsIndicator(viewerEl);
-  const graphicsEl = graphicsPanel(components, fps) as unknown as HTMLElement;
-  const clippingEl = clipperPanel(components, clipTool) as unknown as HTMLElement;
-  const commandsEl = commandsPanel(components) as unknown as HTMLElement;
-  const measureSettingsEl = measurementSettingsPanel(
-    measureTool,
-  ) as unknown as HTMLElement;
-  const inspection = inspectionInstances(clipTool, measureTool);
-  const objectsEl = objectsPanel(inspection) as unknown as HTMLElement;
-  const settingsEl = settingsPanel([
-    { label: "Graphics", icon: "mdi:tune", el: graphicsEl },
-    { label: "Clip styling", icon: "mdi:scissors-cutting", el: clippingEl },
-    { label: "Measurement", icon: "mdi:ruler", el: measureSettingsEl },
-    { label: "Commands", icon: "mdi:keyboard", el: commandsEl },
-  ]) as unknown as HTMLElement;
-
-  for (const el of [
-    treeEl,
-    propsEl,
-    filesEl,
-    dataTableEl,
-    objectsEl,
-    settingsEl,
-  ] as HTMLElement[]) {
-    el.style.width = "100%";
-    el.style.height = "100%";
-    // top-app's grid areas are overflow:hidden; border-box keeps the panel's own
-    // border inside the area so it isn't clipped on the bottom/right edges.
-    el.style.boxSizing = "border-box";
-  }
-
-  // Re-dock: same stable viewer + the panels, under the bim-viewer's named
-  // layouts with the activity-bar sidebar (Explorer · Assets · Data · Settings).
-  const wrap = (el: HTMLElement) => () => BUI.html`${el}`;
+  // Re-dock: the stable viewer + the panels, under the bim-viewer's named layouts
+  // with the activity-bar sidebar (Explorer · Assets · Data · Settings). All panels
+  // are now built-ins that self-wire from top-app's componentsContext/clientContext
+  // — no `components` plumbing in the app.
   app.elements = {
     viewer: () => BUI.html`${viewerEl}`,
-    tree: wrap(treeEl),
-    properties: wrap(propsEl),
-    files: wrap(filesEl),
-    dataTable: wrap(dataTableEl),
-    objects: wrap(objectsEl),
-    settings: wrap(settingsEl),
+    tree: () => BUI.html`<top-model-tree></top-model-tree>`,
+    properties: () => BUI.html`<top-properties-panel></top-properties-panel>`,
+    files: () =>
+      BUI.html`<top-models-list .loaders=${modelLoaders}></top-models-list>`,
+    dataTable: () => BUI.html`<top-data-table-panel></top-data-table-panel>`,
+    objects: () => BUI.html`<top-objects-panel></top-objects-panel>`,
+    settings: () => BUI.html`<top-settings-panel></top-settings-panel>`,
   };
   // No `label` → the sidebar renders icon-only activity-bar buttons (matching
   // the pre-A2 look), background only on the active one.
@@ -194,35 +159,15 @@ async function main() {
   app.layout = "Explorer";
   app.sidebar = true;
 
-  // ── Viewer-overlay tools — appended to the top-viewer host, so they slot into
-  // top-viewer's pointer-events:none overlay over the canvas (interactive parts
-  // opt back into pointer events themselves). ────────────────────────────────
-  activeToolHud(viewerEl, components);
+  // ── Viewer toolbar — now a built-in slotted INTO <top-viewer> (it consumes the
+  // world + components contexts top-viewer provides). The rich bottom toolbar +
+  // active-tool HUD + clip/measure/walkthrough tools all live in
+  // <top-viewer-toolbar>; the side panels share the SAME tool singletons via
+  // components.get (OBC.Component-wrapped).
+  viewerEl.appendChild(document.createElement("top-viewer-toolbar"));
 
-  let walk;
-  try {
-    walk = walkthrough(components);
-  } catch (e) {
-    console.warn("[a2] walkthrough controller failed to init", e);
-  }
-
-  // Floating bottom toolbar (tabbed): "View" = visibility (hide/show/ghost/
-  // isolate + projection + walkthrough); "Inspect" = Select / Clip / Measure,
-  // routed through the tool-mode manager.
-  visibilityToolbar(
-    components,
-    viewerEl,
-    walk,
-    undefined,
-    inspectionActions(clipTool, measureTool),
-  );
-
-  // Navigation gizmo / view-cube (top-right): live orientation + click-to-orient.
-  try {
-    navigationGizmo(components, viewerEl);
-  } catch (e) {
-    console.warn("[a2] navigationGizmo failed to mount", e);
-  }
+  // Navigation gizmo is now baked into <top-viewer> (setupViewerTools), so the
+  // app no longer mounts it. (Cascade: the rest of the overlay tools follow.)
 
   // Auto-load one model (top-viewer's world wires fragments→scene itself).
   void autoLoadFirstModel(components, client);
@@ -243,68 +188,6 @@ function firstWorld(worlds: any): Promise<any> {
   });
 }
 
-/**
- * On-screen pivot dot for the dynamic anchor: an HTML element projected from the
- * 3D anchor point each frame. Appended to the top-viewer host so it slots into
- * the viewer overlay over the canvas. Revealed once a drag starts (so a click-to-
- * select doesn't flash it) and kept glued to the pivot as the camera orbits.
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function setupAnchorDot(world: any, element: HTMLElement) {
-  const dot = document.createElement("div");
-  dot.style.cssText =
-    "position:absolute; width:13px; height:13px; border-radius:50%;" +
-    "background:#6528d7; transform:translate(-50%,-50%);" +
-    "pointer-events:none; display:none; z-index:5;" +
-    "box-shadow:0 0 0 2px rgba(255,255,255,0.35);";
-  element.appendChild(dot);
-
-  let anchor: THREE.Vector3 | null = null;
-  const place = () => {
-    if (!anchor) return;
-    const ndc = anchor.clone().project(world.camera.three);
-    dot.style.left = `${(ndc.x * 0.5 + 0.5) * element.clientWidth}px`;
-    dot.style.top = `${(-ndc.y * 0.5 + 0.5) * element.clientHeight}px`;
-  };
-
-  let shown = false;
-  world.onDynamicAnchorSet.add((p: THREE.Vector3) => {
-    anchor = p.clone();
-    shown = false;
-    place();
-  });
-  world.onDynamicAnchorClear.add(() => {
-    anchor = null;
-    shown = false;
-    dot.style.display = "none";
-  });
-
-  // Reveal only once a real drag starts (DRAG px), so a click-to-select doesn't
-  // flash the dot.
-  const DRAG = 6;
-  let press: { x: number; y: number } | null = null;
-  element.addEventListener("pointerdown", (e) => {
-    if (e.button === 0) press = { x: e.clientX, y: e.clientY };
-  });
-  element.addEventListener("pointermove", (e) => {
-    if (!press || !anchor || shown) return;
-    const dx = e.clientX - press.x;
-    const dy = e.clientY - press.y;
-    if (dx * dx + dy * dy >= DRAG * DRAG) {
-      shown = true;
-      place();
-      dot.style.display = "block";
-    }
-  });
-  const clearPress = () => {
-    press = null;
-  };
-  element.addEventListener("pointerup", clearPress);
-  element.addEventListener("pointercancel", clearPress);
-
-  // Keep the dot glued to the 3D pivot as the camera orbits around it.
-  world.renderer?.onBeforeUpdate.add(place);
-}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function autoLoadFirstModel(components: OBC.Components, client: any) {
