@@ -1,5 +1,11 @@
 # thatopen-services
 
+## 0.3.6
+
+### Patch Changes
+
+- Add `getHiddenFileSignedUrl(hiddenId, expiresIn?)` to the client — returns a short-lived signed URL so large hidden files (e.g. a point cloud's `octree.bin`) can be fetched directly with native HTTP `Range` requests instead of downloading the whole object.
+
 ## 0.2.0
 
 ### Minor Changes
