@@ -70,5 +70,9 @@
   {
     "path": "src/built-in/UIManager/src/app/examples/Sidebar/example.ts",
     "description": "Sidebar navigation — Product teams building BIM apps often need multiple distinct views — a 3D model viewer, a data browser, a settings screen — but wiring a custom nav bar and managing view transitions from scratch adds complexity before any real feature work begins."
+  },
+  {
+    "path": "src/built-in/UIManager/src/models-list/example.ts",
+    "description": "top-models-list — top-models-list is the project files panel: it lists the project's files, uploads new ones, converts IFC to fragments, and loads `.frag` models into the 3D scene. Its loaders are PLUGGABLE — the panel owns the UI and the orchestration (progress, refresh, association), but the HOST decides how each file format is loaded, so you can teach it new formats without forking the built-in."
   }
 ]
