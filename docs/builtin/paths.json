@@ -36,6 +36,10 @@
     "description": "Project configuration — read, write, and reload persistent data — A CDE application needs to store two kinds of configuration: project-wide settings that all team members share (the metadata schema, custom naming rules) and personal settings that belong to one user (which columns are visible, which metadata views are pinned). Both live inside the project's file storage under a reserved system folder, so they travel with the project and don't rely on a separate configuration service."
   },
   {
+    "path": "src/built-in/ClashesManager/example.ts",
+    "description": "ClashesManager — Structural engineers and BIM coordinators routinely detect geometric clashes between disciplines — structural steel penetrating ductwork, pipes clashing with slabs — and need to track the status of each issue through resolution without leaving their BIM environment."
+  },
+  {
     "path": "src/built-in/UIManager/src/app/example.ts",
     "description": "top-app — Front-end developers building BIM web apps need to coordinate several async initialization steps before the UI can be shown — loading the engine, preparing fragment workers, registering loaders — and users need visible feedback on what is happening during that wait, rather than a blank screen."
   },
@@ -70,6 +74,10 @@
   {
     "path": "src/built-in/UIManager/src/app/examples/Sidebar/example.ts",
     "description": "Sidebar navigation — Product teams building BIM apps often need multiple distinct views — a 3D model viewer, a data browser, a settings screen — but wiring a custom nav bar and managing view transitions from scratch adds complexity before any real feature work begins."
+  },
+  {
+    "path": "src/built-in/UIManager/src/clashes-panel/example.ts",
+    "description": "clashes-panel — BIM coordinators need a dedicated review environment where they can see all detected clashes, filter by status, navigate to each issue in the 3D viewer, and mark items as resolved — without writing any UI code themselves."
   },
   {
     "path": "src/built-in/UIManager/src/models-list/example.ts",
