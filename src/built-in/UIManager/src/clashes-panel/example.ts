@@ -40,7 +40,7 @@ const ClashesManager = clashesManagerDef.componentDefinition;
   Two conditions must be met before the panel mounts:
 
   1. **`UIManager` must be in the setup call.** It registers all platform web
-     components, including `<clashes-panel>` itself. Without it the element is
+     components, including `<top-clashes-panel>` itself. Without it the element is
      unknown to the browser and renders as an empty box.
 
   2. **`ClashesManager.init(client)` must have resolved.** The panel reads all
@@ -98,7 +98,7 @@ app.setup = (waitUntil) => {
 
 app.elements = {
   viewer:  () => html`<top-viewer><top-viewer-tools></top-viewer-tools></top-viewer>`,
-  clashes: () => html`<clashes-panel></clashes-panel>`,
+  clashes: () => html`<top-clashes-panel></top-clashes-panel>`,
 };
 
 app.layouts = {

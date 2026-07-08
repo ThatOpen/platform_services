@@ -71,7 +71,7 @@ console.log(
 /* MD
   ### 🖥️ Adding the built-in panel (recommended)
 
-  Once `init` has been called, the `<clashes-panel>` web component is the
+  Once `init` has been called, the `<top-clashes-panel>` web component is the
   recommended way to interact with `ClashesManager`. It covers the full
   review workflow — detection matrix, clash table, sphere markers, status
   filters, run progress — with zero additional wiring.
