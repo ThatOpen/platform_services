@@ -228,6 +228,32 @@ describe('PlatformClient — bearer-configured EngineServicesClient', () => {
     });
   });
 
+  describe('account routes (JWT-only; lives on PlatformClient only)', () => {
+    it('getAvatar GETs /account/:id/avatar and returns the image blob', async () => {
+      const blob = new Blob(['img-bytes'], { type: 'image/png' });
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () => '',
+        blob: async () => blob,
+      } as unknown as Response);
+
+      const client = new PlatformClient(JWT, API);
+      const result = await client.getAvatar('acc-1');
+
+      expect(result).toBe(blob);
+      const call = fetchMock.mock.calls[0];
+      const { pathname } = parseUrl(call[0] as string);
+      expect(pathname).toBe('/api/account/acc-1/avatar');
+      expect((call[1] as RequestInit).method).toBe('GET');
+      expect(
+        ((call[1] as RequestInit).headers as Record<string, string>)
+          .Authorization,
+      ).toBe(`Bearer ${JWT}`);
+    });
+  });
+
   it('TypeScript: constructor has no API-token / useBearer escape hatches', () => {
     // The constructor only takes (bearerToken, apiUrl, props?). `useBearer`
     // is omitted from the props type — callers can't turn bearer off.

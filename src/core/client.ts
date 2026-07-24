@@ -314,9 +314,11 @@ export class EngineServicesClient {
         | 'multipart/form-data'
         | 'application/x-www-form-urlencoded';
       retries?: number;
+      responseType?: 'json' | 'blob';
     },
   ): Promise<T> {
-    const { body, query, contentType, retries } = requestData || {};
+    const { body, query, contentType, retries, responseType } =
+      requestData || {};
     const url = this.#buildUrl(path);
 
     const cleanQuery = this.#cleanData(query);
@@ -350,6 +352,10 @@ export class EngineServicesClient {
           response.statusText,
           textResponse,
         );
+      }
+
+      if (responseType === 'blob') {
+        return (await response.blob()) as T;
       }
 
       return response
@@ -387,6 +393,7 @@ export class EngineServicesClient {
         | 'multipart/form-data'
         | 'application/x-www-form-urlencoded';
       retries?: number;
+      responseType?: 'json' | 'blob';
     },
   ): Promise<T> {
     return this.#requestApi<T>(method, path, requestData);

@@ -139,6 +139,20 @@ export class PlatformClient extends EngineServicesClient {
     );
   }
 
+  // ─── Account ──────────────────────────────────────────────────────
+
+  /**
+   * Fetches a user's profile picture as raw image bytes, for showing member
+   * avatars inside an app. The route is bearer-authed, so it can't be used as
+   * an `<img src>` — turn the blob into an object URL with
+   * `URL.createObjectURL(blob)`. Rejects when the account has no avatar.
+   */
+  async getAvatar(accountId: string): Promise<Blob> {
+    return await this.request<Blob>('GET', `account/${accountId}/avatar`, {
+      responseType: 'blob',
+    });
+  }
+
   // ─── Permissions (JWT-only backend routes) ───────────────────────
 
   /**
