@@ -702,7 +702,6 @@ export declare function saveClashData(client: PlatformClient, projectId: string,
     clashes: Clash[];
 }, onJobsReconciled: (toAdd: ClashJob[], toRemove: Set<string>) => void): Promise<void>;
 
-export { CLASH_DATA_PATH };
 
 declare class _ClashesManager extends OBC.Component {
     static readonly uuid: "2c9f4e8d-3a1b-4c5e-9d7f-0a2b6c8e1d3f";
@@ -991,7 +990,7 @@ export declare const BCF_DATA_PATH = "topics/main.bcf";
  *  not a valid BCF zip — so there's nothing to load yet in that case. */
 export declare function loadBcfTopics(client: PlatformClient, projectId: string, components: OBC.Components): Promise<void>;
 
-export { BCF_DATA_PATH };
+
 /**
  * Wires up everything `top-topics-panel` (and `clashes-panel`'s "create
  * topic from clash" feature) needs to work out of the box: `BCFTopics`
