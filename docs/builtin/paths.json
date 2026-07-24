@@ -72,6 +72,10 @@
     "description": "Toasts and cross-component notifications — Developers building BIM processing UIs need to surface status updates, errors, and async feedback to users from different points in the component tree — but reaching back to the app root to trigger a notification from a deeply nested component requires threading a reference through every layer in between."
   },
   {
+    "path": "src/built-in/UIManager/src/app/examples/ProjectFileStorage/example.ts",
+    "description": "Persisting project-scoped data with projectStorageContext — Most non-trivial apps built on top-app eventually need to persist some of their own data inside the project — user preferences, cached results, domain state that isn't a 3D model or a regular CDE file. The naive approach is for each panel/manager to talk to the CDE client directly: resolve or create a folder under `__project_data`, resolve or create the file, decide between uploading a new file and versioning an existing one. That's the same handful of steps every single consumer ends up re-implementing."
+  },
+  {
     "path": "src/built-in/UIManager/src/app/examples/Sidebar/example.ts",
     "description": "Sidebar navigation — Product teams building BIM apps often need multiple distinct views — a 3D model viewer, a data browser, a settings screen — but wiring a custom nav bar and managing view transitions from scratch adds complexity before any real feature work begins."
   },
@@ -82,5 +86,9 @@
   {
     "path": "src/built-in/UIManager/src/models-list/example.ts",
     "description": "top-models-list — top-models-list is the project's 3D-viewable-files tree: it mirrors the real storage folder structure, converts IFC to fragments, and loads `.frag`/`.potree`/`.splat` models into the 3D scene. Its loaders are PLUGGABLE — the panel owns the UI and the orchestration (progress, refresh, association), but the HOST decides how each extra file format is loaded, so you can teach it new formats without forking the built-in."
+  },
+  {
+    "path": "src/built-in/UIManager/src/topics-panel/example.ts",
+    "description": "topics-panel — Every coordination workflow needs a place to track issues, clashes, and action items against a 3D model — who's responsible, what still needs review, and where in the model it actually is. Building that from scratch means a BCF-compatible data model, a form, comment threads, viewpoint capture/navigation, document links, and a persistence layer — all before a single issue gets tracked."
   }
 ]

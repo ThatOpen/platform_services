@@ -374,6 +374,11 @@ declare class _CDEManager extends OBC.Component implements OBC.Transitionable<CD
         success: boolean;
         error?: string;
     }>;
+    /** Fires when `_derivedFileIds` finishes a (re)sync — consumers that filter
+     *  or resolve by source↔derived link (e.g. `top-files-panel` hiding an
+     *  already-linked `.frag` row) should reload on this, since it can complete
+     *  after `onFilesChanged` already fired with the (still unsynced) list. */
+    readonly onDerivedFileIdsChanged: OBC.Event<Record<string, string>>;
     readonly conversionProgress: Map<string, number>;
     enabled: boolean;
     projectName: string;
@@ -394,6 +399,14 @@ declare class _CDEManager extends OBC.Component implements OBC.Transitionable<CD
     }[];
     get viewableExtensions(): Set<string>;
     private _files;
+    /** ifcFileId → its linked derivedFileId (FRAG today; other source formats
+     *  once they get a converter too), read from each IFC's own version
+     *  metadata. Kept as an in-memory cache — synced by `_syncDerivedFileIds`
+     *  whenever `_files` is (re)set, or right after a conversion succeeds —
+     *  rather than fetched live per call, so `resolveViewFile` can stay a plain
+     *  synchronous lookup (same contract as before, no ripple into
+     *  `sendMachineEvent`'s callers). */
+    private _derivedFileIds;
     private _folders;
     private _fileHistory;
     private _metadataSchema;
@@ -427,6 +440,8 @@ declare class _CDEManager extends OBC.Component implements OBC.Transitionable<CD
     get machineState(): CDEMachineState;
     get files(): CDEFile[];
     set files(value: CDEFile[]);
+    /** ifcFileId → derivedFileId — see `_derivedFileIds`. */
+    get derivedFileIds(): Record<string, string>;
     get folders(): ItemFolder[];
     set folders(value: ItemFolder[]);
     get showArchived(): boolean;
@@ -467,10 +482,12 @@ declare class _CDEManager extends OBC.Component implements OBC.Transitionable<CD
     loadUserConfig(): Promise<{
         visibleColumns?: string[];
         metadataViews?: CDEMetadataView[];
+        hideDerivedFiles?: boolean;
     } | null>;
     saveUserConfig(config: {
         visibleColumns?: string[];
         metadataViews?: CDEMetadataView[];
+        hideDerivedFiles?: boolean;
     }): Promise<string | undefined>;
     loadMetadataSchema(): Promise<void>;
     initMetadataViews(views: CDEMetadataView[], activeId: string | null): void;
@@ -485,7 +502,23 @@ declare class _CDEManager extends OBC.Component implements OBC.Transitionable<CD
         file: CDEFile;
         existing: CDEFile;
     }[];
+    /** Which file to actually load when the user views `file` — its linked FRAG
+     *  if it has one, else the IFC itself. Reads `_derivedFileIds` (the IFC's
+     *  own version metadata, kept in sync — see `_syncDerivedFileIds`), NOT a
+     *  name+folder match anymore. Stays synchronous: `_derivedFileIds` is a
+     *  pre-synced in-memory cache, so this is a plain lookup, keeping the
+     *  contract every existing caller (`sendMachineEvent`'s `VIEW` case,
+     *  `top-files-panel`'s "add to view" actions) already relies on. */
     resolveViewFile(file: CDEFile): CDEFile;
+    /** Populates `_derivedFileIds` from every IFC's own version metadata — the
+     *  source of truth for the IFC↔FRAG link (same mechanism as `models-list`'s
+     *  `_syncDerivedFileIds`). Reads the unified `derivedFileId` key, falling
+     *  back to the legacy `fragmentsFileId` key that `IfcFragmenter` still
+     *  stamps until it's updated (see issue #3, Task 3). Called whenever
+     *  `_files` is (re)set and right after a conversion succeeds — never
+     *  cached indefinitely, so a reconversion or manual metadata edit is picked
+     *  up on the next sync instead of going stale. */
+    private _syncDerivedFileIds;
     private _saveConversionIndex;
     private _loadConversionIndex;
     private _resumePendingConversions;
@@ -615,6 +648,62 @@ export interface MarkerGroup {
     status?: ClashStatus;
 }
 
+/** `clashes.frag`'s path relative to `__project_data/`, for consumers that
+ *  persist it via `projectStorageContext` instead of talking to `client`
+ *  directly (see `buildClashBuffer`). */
+export declare const CLASH_DATA_PATH = "collider/clashes.frag";
+export interface ExecutionEntry {
+    jobId: string;
+    executionId: string;
+    startedAt: string;
+}
+/** `cachedFileId`, when given, skips folder/file resolution (3 of the 4
+ *  network round-trips this normally takes) — the file's ID never changes
+ *  once created, so callers that already know it (see `ClashesManager`'s
+ *  `_clashFragFileId`) should always pass it. */
+export declare function ensureClashFragFileId(client: PlatformClient, projectId: string, cachedFileId?: string): Promise<string>;
+export declare function getExecutions(client: PlatformClient, projectId: string | undefined): Promise<ExecutionEntry[]>;
+export interface ClashData {
+    jobs: ClashJob[];
+    runs: ClashRun[];
+    clashes: Clash[];
+    queries: ClashQuery[];
+    matrices: ClashMatrix[];
+    /** Resolved once here — callers should cache and pass back into
+     *  `loadClashData`/`buildClashBuffer` as `cachedFileId` to skip
+     *  re-resolving it (see `ensureClashFragFileId`). */
+    fileId: string;
+}
+export declare function loadClashData(client: PlatformClient, projectId: string, cachedFileId?: string): Promise<ClashData>;
+/**
+ * Diffs `data` against the persisted `clashes.frag` and builds the updated
+ * buffer, WITHOUT uploading it — callers decide how/where to persist the
+ * result (direct `client.updateFile`, via `projectStorageContext`, etc).
+ * Still reads the current file via `client` to diff against (job/id
+ * reconciliation needs the previous state), same as `saveClashData` always did.
+ */
+export declare function buildClashBuffer(client: PlatformClient, projectId: string, data: {
+    queries: ClashQuery[];
+    matrices: ClashMatrix[];
+    jobs: ClashJob[];
+    clashes: Clash[];
+}, onJobsReconciled: (toAdd: ClashJob[], toRemove: Set<string>) => void, cachedFileId?: string): Promise<{
+    blob: Blob;
+    fileId: string;
+}>;
+/** Default persistence path: builds the buffer and uploads it straight to
+ *  `client`. Kept as the manager's out-of-the-box behavior for any consumer
+ *  that never overrides `ClashesManager.save` (e.g. doesn't route through
+ *  `projectStorageContext`). */
+export declare function saveClashData(client: PlatformClient, projectId: string, data: {
+    queries: ClashQuery[];
+    matrices: ClashMatrix[];
+    jobs: ClashJob[];
+    clashes: Clash[];
+}, onJobsReconciled: (toAdd: ClashJob[], toRemove: Set<string>) => void): Promise<void>;
+
+export { CLASH_DATA_PATH };
+
 declare class _ClashesManager extends OBC.Component {
     static readonly uuid: "2c9f4e8d-3a1b-4c5e-9d7f-0a2b6c8e1d3f";
     enabled: boolean;
@@ -660,6 +749,10 @@ declare class _ClashesManager extends OBC.Component {
     get ready(): boolean;
     private _client?;
     private _projectId?;
+    /** `clashes.frag`'s file ID, resolved once by `init()`/`reload()`'s
+     *  `loadClashData` call. Never changes once the file exists — passing it
+     *  into `buildClashBuffer` skips 3 of its 4 network round-trips. */
+    private _clashFragFileId?;
     private _reconnectingJobIds;
     private _queries;
     private _matrices;
@@ -675,9 +768,25 @@ declare class _ClashesManager extends OBC.Component {
     get matrices(): ClashMatrix[];
     set matrices(value: ClashMatrix[]);
     private _scheduleSave;
+    /** Chains onto any save already in flight instead of firing a second,
+     *  concurrent `_doSave()` — two overlapping calls would race on
+     *  `buildClashBuffer`'s read-diff-reconcile cycle (real network I/O;
+     *  `onJobsReconciled` mutating `this.jobs` from two stale reads at once)
+     *  and on the upload itself. It also keeps `flush()` correct: it just
+     *  awaits `_savePromise`, so if that got overwritten by a newer, unrelated
+     *  save instead of chained, flush() could resolve while an earlier save
+     *  was still genuinely in flight. */
+    private _queueSave;
     private _doSave;
     /** Cancela el debounce pendiente y ejecuta el save inmediatamente. Espera a que complete. */
     flush(): Promise<void>;
+    /**
+     * Builds the current `clashes.frag` buffer (diffed/reconciled against what's
+     * persisted) WITHOUT uploading it. For consumers (e.g. `clashes-panel`) that
+     * override `save` to persist via `projectStorageContext` instead of the
+     * default direct-`client` path.
+     */
+    buildClashBuffer(): Promise<Blob>;
     get jobs(): ClashJob[];
     set jobs(value: ClashJob[]);
     get runs(): ClashRun[];
@@ -686,8 +795,12 @@ declare class _ClashesManager extends OBC.Component {
     set clashes(value: Clash[]);
     queryById(id: string): ClashQuery | undefined;
     private _clashStylesRegistered;
-    private readonly STYLE_A;
-    private readonly STYLE_B;
+    /** Green — elementA's highlight color. Public so consumers (e.g. "create
+     *  topic from clash") can build a matching BCF viewpoint `componentColors`
+     *  entry without duplicating the hex value. */
+    readonly STYLE_A = "#22c55e";
+    /** Red — elementB's highlight color. Same reasoning as `STYLE_A`. */
+    readonly STYLE_B = "#ef4444";
     private _clashStyle;
     highlightAllClashes(clashes: Clash[]): void;
     ghostClashes(clashes: Clash[]): Promise<void>;
@@ -868,6 +981,61 @@ export type HelloWorld = InstanceType<typeof _HelloWorld>;
  * Replace this with real components once the infrastructure is verified.
  */
 export const HelloWorld = { uuid: '2c4ae432-fc24-43e9-9783-0c960c674e96' } as typeof _HelloWorld & { uuid: '2c4ae432-fc24-43e9-9783-0c960c674e96' };
+
+/** `main.bcf`'s path relative to `__project_data/` — shared with
+ *  `requestBcfSave` (`UIManager/src/utils/bcf-storage.ts`) so both sides of
+ *  the save/load round-trip agree on where the file lives. */
+export declare const BCF_DATA_PATH = "topics/main.bcf";
+/** Downloads `__project_data/topics/main.bcf` and loads it into `BCFTopics`,
+ *  if it already has content. A freshly-created file is empty (0 bytes) —
+ *  not a valid BCF zip — so there's nothing to load yet in that case. */
+export declare function loadBcfTopics(client: PlatformClient, projectId: string, components: OBC.Components): Promise<void>;
+
+export { BCF_DATA_PATH };
+/**
+ * Wires up everything `top-topics-panel` (and `clashes-panel`'s "create
+ * topic from clash" feature) needs to work out of the box: `BCFTopics`
+ * configuration (version, author, assignable users — all from real project
+ * data), loading whatever BCF was previously saved for this project, and
+ * resolving `Viewpoints.world` — including backfilling it onto viewpoints
+ * restored from a saved BCF before the 3D world existed yet (`top-viewer`
+ * only creates its `World` once `top-app` finishes mounting, which is later
+ * than `init()` typically runs).
+ */
+declare class _TopicsManager extends OBC.Component {
+    static readonly uuid: "69af63aa-19ba-4fc7-b17b-75647bac1d76";
+    enabled: boolean;
+    /**
+     * Consumer apps call this once — same pattern as `ClashesManager.init(client)`
+     * — instead of wiring `BCFTopics.setup()`, loading the saved BCF, and
+     * backfilling viewpoint worlds by hand.
+     */
+    init(client: PlatformClient): Promise<void>;
+    private _firstWorld;
+}
+
+/**
+ * Wires up everything `top-topics-panel` (and `clashes-panel`'s "create
+ * topic from clash" feature) needs to work out of the box: `BCFTopics`
+ * configuration (version, author, assignable users — all from real project
+ * data), loading whatever BCF was previously saved for this project, and
+ * resolving `Viewpoints.world` — including backfilling it onto viewpoints
+ * restored from a saved BCF before the 3D world existed yet (`top-viewer`
+ * only creates its `World` once `top-app` finishes mounting, which is later
+ * than `init()` typically runs).
+ */
+export type TopicsManager = InstanceType<typeof _TopicsManager>;
+/**
+ * Wires up everything `top-topics-panel` (and `clashes-panel`'s "create
+ * topic from clash" feature) needs to work out of the box: `BCFTopics`
+ * configuration (version, author, assignable users — all from real project
+ * data), loading whatever BCF was previously saved for this project, and
+ * resolving `Viewpoints.world` — including backfilling it onto viewpoints
+ * restored from a saved BCF before the 3D world existed yet (`top-viewer`
+ * only creates its `World` once `top-app` finishes mounting, which is later
+ * than `init()` typically runs).
+ */
+export const TopicsManager = { uuid: '69af63aa-19ba-4fc7-b17b-75647bac1d76' } as typeof _TopicsManager & { uuid: '69af63aa-19ba-4fc7-b17b-75647bac1d76' };
 
 declare class _UIManager extends OBC.Component {
     #private;

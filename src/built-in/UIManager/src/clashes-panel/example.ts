@@ -9,7 +9,8 @@
   connects to `ClashesManager` automatically and manages the entire review
   workflow: the detection matrix, the clash table with status filters, sphere
   markers and element highlights in the viewer, run controls with live progress,
-  and a loading skeleton while fresh data reloads after a run completes.
+  a loading skeleton while fresh data reloads after a run completes, and
+  turning a cluster of clashes into a tracked BCF topic in one click.
 
   This tutorial covers the prerequisites before mounting the panel; dropping it
   into a `top-app` layout alongside a 3D viewer; and a detailed breakdown of
@@ -26,14 +27,14 @@ import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
 import * as FRAGS from "@thatopen/fragments";
 import * as BUI from "@thatopen/ui";
-import { PlatformClient, UIManager, ClashesManager } from "@thatopen/services";
+import { PlatformClient, UIManager, ClashesManager, TopicsManager } from "@thatopen/services";
 import type { App } from "../app/index";
 
 
 /* MD
   ### ✅ Prerequisites
 
-  Two conditions must be met before the panel mounts:
+  Three conditions must be met before the panel mounts:
 
   1. **`UIManager` must be in the setup call.** It registers all platform web
      components, including `<top-clashes-panel>` itself. Without it the element is
@@ -44,7 +45,14 @@ import type { App } from "../app/index";
      finished, the panel mounts into an empty state and never catches up because
      it only subscribes to change events — it does not poll.
 
-  Both conditions are naturally satisfied when you call `init` before appending
+  3. **`TopicsManager.init(client)` must have resolved too.** The panel's
+     "Create topic" button (turns a selection of clashes into a tracked BCF
+     topic) needs `Viewpoints.world` set to capture the camera, and `BCFTopics`
+     configured with `version: "3"` for the clash↔topic link to survive a
+     reload — `TopicsManager.init` is what sets both up. Skip it and the button
+     still works, but the topic it creates is subtly broken.
+
+  All three are naturally satisfied when you call both `init`s before appending
   `top-app` to the document, which is the pattern shown below.
 */
 
@@ -54,12 +62,17 @@ const { components } = (await client.setup(
   { OBC, OBF, BUI, THREE, FRAGS },
   { uuid: UIManager.uuid },
   { uuid: ClashesManager.uuid },
+  { uuid: TopicsManager.uuid },
 )) as { components: OBC.Components };
 
 components.get(UIManager).init();
 
-// init must resolve before top-app (and therefore clashes-panel) mounts.
-await components.get(ClashesManager).init(client);
+// Both inits must resolve before top-app (and therefore clashes-panel) mounts.
+// Independent of each other — safe to run in parallel.
+await Promise.all([
+  components.get(ClashesManager).init(client),
+  components.get(TopicsManager).init(client),
+]);
 
 /* MD
   ### 🖥️ Wiring the panel
@@ -150,9 +163,19 @@ document.body.style.margin = "0";
   models are present, and are cleaned up automatically if a model is disposed
   while the panel is open.
 
-  **Save indicator** — a subtle indicator appears while auto-save is in progress
-  (`onSaveStart`) and disappears once the write confirms (`onSaveComplete`), so
-  users know their status changes and query edits are persisted.
+  **Create topic from clash** — selecting one or more clashes and clicking
+  "Create topic" builds a BCF topic with an auto-generated title/description
+  summarizing the pair(s) and a viewpoint capturing the same selection and
+  red/green coloring shown in the table. The link back to the source clash(es)
+  is recorded separately so it survives independently of the topic's own BCF
+  fields. The button is disabled while the camera is still flying to a
+  selection or no models are loaded yet, so it can't fire on an empty scene.
+
+  **Save indicator** — every persisted change (clashes, queries, matrices,
+  topics created from a selection) routes through `top-app`'s shared
+  `projectStorageContext`, the same one `topics-panel` uses. A small indicator
+  reflects the real debounce-then-upload cycle: just an icon while a save is
+  pending, the full "Saving..." pill once the upload is actually in flight.
 
   **Disconnection cleanup** — when the panel is removed from the DOM it calls
   `hideMarkers` and `clearClashHighlight` on the manager, leaving the 3D scene
