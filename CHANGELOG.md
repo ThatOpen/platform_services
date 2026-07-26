@@ -1,5 +1,11 @@
 # thatopen-services
 
+## 0.4.0
+
+### Minor Changes
+
+- e4452e7: Add `PlatformClient.getAvatar(accountId)` to fetch a user's profile picture as an image `Blob`, so apps can render member avatars.
+
 ## 0.3.15
 
 ### Patch Changes
