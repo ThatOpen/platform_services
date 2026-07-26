@@ -21,8 +21,9 @@ jobs:
           node-version: 20
           registry-url: https://registry.npmjs.org
 
-      # Trusted publishing over OIDC needs npm >= 11.5.1; Node 20 ships an older npm.
-      - run: npm install -g npm@latest
+      # Trusted publishing over OIDC needs npm >= 11.5.1; Node 20 ships an older
+      # npm. Pin 11.5.1 — npm@latest (12.x) requires Node 22+.
+      - run: npm install -g npm@11.5.1
 
       - run: yarn install --frozen-lockfile
 
