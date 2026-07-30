@@ -9,6 +9,7 @@ import { runCommand } from './commands/run';
 import { localServerCommand } from './commands/local-server';
 import { swapCommand } from './commands/swap';
 import { revitCommand } from './commands/revit';
+import { rhinoCommand } from './commands/rhino';
 
 const pkg = JSON.parse(
   readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'),
@@ -48,5 +49,6 @@ program.addCommand(runCommand);
 program.addCommand(localServerCommand);
 program.addCommand(swapCommand);
 program.addCommand(revitCommand);
+program.addCommand(rhinoCommand);
 
 program.parse(process.argv);

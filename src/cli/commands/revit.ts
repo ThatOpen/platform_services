@@ -1,6 +1,15 @@
+import { execFileSync } from 'node:child_process';
+import { existsSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { Command } from 'commander';
+import { EngineServicesClient } from '../../core/client';
 import { requireResolvedConfig } from '../lib/config';
+import { assertHostClosed, fetchPluginPackage } from '../lib/plugin-install';
 import { callAddin, configureAddin } from '../lib/revit-addin';
+
+/** One package per plug-in: they share no version relationship, only the platform and the .frag
+ *  format, whose compatibility is carried by the schema string inside each file. */
+const REVIT_ADDIN_PACKAGE = '@thatopen-platform/flow-revit';
 
 /**
  * `thatopen revit ...` — Revit collaboration commands. They drive the local
@@ -134,4 +143,44 @@ revitCommand
     await connect();
     const r = await callAddin('untake', { workset: opts.workset });
     console.log(`Released workset "${r.released}".`);
+  });
+
+/**
+ * Installing is the CLI's job rather than the add-in's, and not by preference. Revit holds the
+ * add-in's assemblies open for the whole session, so the add-in can never replace itself — it can
+ * only notice it is out of date and say so. The CLI runs with Revit closed, which is the one moment
+ * the files can actually be written.
+ */
+revitCommand
+  .command('install')
+  .alias('update')
+  .description('Install or update the That Open Revit add-in (Revit must be closed)')
+  .option('--version <version>', 'A specific version instead of the latest', 'latest')
+  .action(async (opts: { version: string }) => {
+    const cfg = requireResolvedConfig();
+    assertHostClosed('Revit', 'Revit');
+
+    const client = new EngineServicesClient(cfg.accessToken, cfg.apiUrl);
+    console.log(`Fetching ${REVIT_ADDIN_PACKAGE}@${opts.version}...`);
+    const { dir, cleanup } = await fetchPluginPackage(
+      client,
+      REVIT_ADDIN_PACKAGE,
+      opts.version,
+    );
+
+    try {
+      const installer = join(dir, 'install.ps1');
+      if (!existsSync(installer)) {
+        throw new Error(`The package has no install.ps1. Got: ${readdirSync(dir).join(', ')}`);
+      }
+      // The package ships its own installer, so the CLI does not need to know where Revit keeps
+      // its add-ins, nor which files there are. One place knows that, and it travels with the
+      // build it belongs to.
+      execFileSync('powershell', ['-ExecutionPolicy', 'Bypass', '-File', installer], {
+        stdio: 'inherit',
+      });
+      console.log('\nStart Revit. The That Open tab will be there.');
+    } finally {
+      cleanup();
+    }
   });
