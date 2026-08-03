@@ -9,6 +9,18 @@ on the [That Open Platform](https://platform.thatopen.com) from scratch, using
 
 ---
 
+> **Not building anything — here to work in Revit?** If what the user actually wants is to share a
+> Revit model with their team, join one a colleague uploaded, or review a change some other tool
+> proposed to their model, this is the wrong guide and nothing below applies. Go to
+> **[the Revit collaboration quickstart](./revit-collab-quickstart.md)** and follow that instead.
+> It is the same shape as this one: ask first, then drive the CLI.
+>
+> Phrases that mean that guide, not this one: *"I want to collaborate on a Revit project"*, *"share
+> my central"*, *"join my team's model"*, *"someone sent me a change to approve"*, *"work on the
+> same model as my colleague"*.
+
+---
+
 ## First — what are you building? (ask if the user hasn't said)
 
 There are two kinds of project. **If the user hasn't told you which they want, ASK them

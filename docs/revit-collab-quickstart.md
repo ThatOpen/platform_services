@@ -1,256 +1,339 @@
 # That Open — Revit Collaboration Quickstart (for AI assistants)
 
-You are an AI assistant. A user pointed you at this guide so you can set up or join
-**real‑time Revit collaboration** through the That Open platform. Follow the steps **in
-order**. Ask the user for anything you don't already have. **You may run the setup commands
-yourself** (install the CLI, install the add‑in, launch Revit) — do it, don't just tell the
-user to, *except* where a step says only the user can. Everything is driven by the
-`thatopen` CLI.
+You are an AI assistant. A user pointed you at this guide so you can set up or join **real-time
+Revit collaboration** through the That Open platform, and review the **proposals** other tools send
+into their model. Follow the steps **in order**. Ask the user for anything you don't already have.
+**You may run the setup commands yourself** — install the CLI, install the add-in, launch Revit —
+*except* where a step says only the user can.
+
+Needs add-in **1.2.17 or later**. `thatopen revit status` prints `addinVersion`; if it is older,
+Step 2 updates it. Several things below did not exist or behaved differently before that.
 
 ## What this does
-Multiple people work on **one shared Revit central model** using Revit's native
-worksharing. The central lives on the That Open platform. Each person has their own local;
-when they **sync**, their changes go up and their teammates' come down. All syncs are
-**queued**, so the central never conflicts or diverges.
+
+Two halves, and they are independent. A team can use the first without ever touching the second.
+
+**Collaboration.** Several people work on **one shared Revit central** using Revit's own
+worksharing. The central lives on the platform. Everyone has their own local; syncing sends their
+changes up and brings the team's down. Syncs are **queued**, so the central never diverges.
+
+**Proposals.** A change authored *outside* Revit arrives as a proposal: a list of adds, edits and
+deletions naming Revit elements. Somebody in Revit reads it and decides. Nothing is applied behind
+anyone's back, and applying it is an ordinary Revit edit that syncs like any other.
+
+The proposal system is **open on the authoring side on purpose**. This package does not care what
+wrote one — a Rhino plug-in, a cloud component, a script, a web app. What it defines is the format
+and what Revit does when one arrives. Rhino is the example that exists today; it is an example, not
+the point.
 
 ## Rules (follow throughout)
+
 - **Never** print, echo, store, or commit the user's access token.
 - **Ask, don't assume.** Missing a project id, file path, or central name? Ask first.
-- **Use only the `thatopen` CLI** for platform actions. Don't call HTTP APIs by hand.
-- You may **install software and launch Revit** on the user's machine — briefly tell the
-  user what you're about to run before you run it.
-- After each command, **check the output** before moving on.
+- Prefer the **`thatopen` CLI** for platform actions. For the things it does not cover — proposals,
+  and reading who holds what — talk to the **add-in's local API** as described in *Talking to the
+  add-in directly* below. Do not call the platform's own HTTP API by hand.
+- You may **install software and launch Revit** on the user's machine. Say what you are about to
+  run, briefly, before you run it.
+- After each command, **check the output** before moving on. A command that answered is not the
+  same as a command that did what you wanted.
 
 ---
 
 ## Step 0 — Ask what the user wants to do
-Ask the user:
+
 > "What would you like to do?
 > (A) **Share** a Revit model with my team for the first time.
 > (B) **Connect** to a shared central a teammate already uploaded.
-> (C) I **already have my local open** in Revit — just sync it."
+> (C) I **already have my local open** in Revit — just sync it.
+> (D) **Review a proposal** somebody sent into my model."
 
-Then collect the inputs for their choice (ask now — you'll need them below):
+Then collect what that choice needs. Ask now; you will need it below.
 
-- **(A) Share:** the **absolute path** to the `.rvt` to share, and a short lowercase
-  **name** for the shared central (e.g. `tower-central`). Also the platform **Project ID**
-  (see below). The file may or may not already be a workshared central — you'll check that
-  in Step 3; either way **the user's original file is never modified** (a copy is uploaded).
+- **(A) Share:** the **absolute path** to the `.rvt`, a short lowercase **name** for the shared
+  central (e.g. `tower-central`), and the platform **Project ID** (in the project's settings and in
+  its URL in the dashboard). The file may or may not already be a workshared central — Step 3
+  checks. Either way **the user's original file is never modified**; a copy is uploaded.
 
-- **(B) Connect:** ask the user to identify the existing central by **one** of:
-  - the **project folder id** of the central — the `revit-<name>` folder inside the
-    project's `bimterop` folder in the That Open dashboard (copy its id from the folder), **or**
-  - the **local path** to the shared central on their PC, if they already have it
-    (looks like `C:\ThatOpenShared\<project>\<name>\<file>.rvt`).
+- **(B) Connect:** identify the existing central by **one** of:
+  - the **project folder id** of the central — the `revit-<name>` folder inside the project's
+    `bimterop` folder in the dashboard, or
+  - the **local path**, if they already have it: `C:\ThatOpenShared\<project>\<name>\<file>.rvt`.
 
-  (If they already have their local *open* in Revit, that's really case **(C)** — just sync.)
+- **(C)** and **(D):** nothing extra, but Revit must have their local open.
 
-- **(A) — Project ID:** find it in the That Open dashboard — open the project; the ID is in
-  the project settings and the project URL. The user's token (Step 2) must belong to an
-  account with access to this project, or platform calls fail with **403** (see
-  Troubleshooting). For **(B)** the folder id / local path already encodes the project, so
-  you don't need to ask the Project ID separately.
-
-- **(C):** nothing extra — Revit must have their local open.
-
-Do **not** ask for the access token yet (that's Step 2).
+Do **not** ask for the access token yet. That is Step 1.
 
 ---
 
-## Step 1 — Make sure the tools are ready (do this yourself)
-1. **CLI.** Run:
+## Step 1 — CLI and login
+
+1. **CLI:**
    ```
    npm install -g @thatopen/services@latest
    ```
-   Verify `thatopen --version` prints a version. (Needs Node.js 18+; if `node -v` fails,
-   ask the user to install Node.js, then continue.)
+   Check `thatopen --version` prints something. Needs Node.js 18+; if `node -v` fails, ask the user
+   to install Node.js first.
 
-2. **Revit + add‑in.** Run:
-   ```
-   thatopen revit status
-   ```
-   - Prints `"loaded": true` → the add‑in is running. Go to **Step 2**.
-   - Errors **"The That Open Revit add‑in is not running"** → work through (a) then (b):
+2. **Token.** Ask for it, and say exactly where to get it:
 
-   **(a) Is Revit 2026 open?** If not, launch it (Windows):
-   ```
-   powershell -Command "Start-Process 'C:\Program Files\Autodesk\Revit 2026\Revit.exe'"
-   ```
-   Cold start can take 1–3 minutes. Wait, then re‑run `thatopen revit status`. If it now
-   says `"loaded": true`, go to Step 2.
+   > "To log in I need your That Open **access token**:
+   > 1. Open your dashboard — **production:** https://platform.thatopen.com ·
+   >    **dev:** https://dev.platform.thatopen.com (use the one that matches your team).
+   > 2. Go to **Data → API Tokens**.
+   > 3. **Create a new token**, copy it, and paste it here."
 
-   **(b) Revit is open but status still errors → the add‑in isn't installed. Install it:**
-   - The add‑in files ship in **this same folder** as this guide (`install.ps1`,
-     `RevitFlowAddin.dll`, `RevitFlowCore.dll`, `revitflow.addin`). From this folder, run:
-     ```
-     powershell -ExecutionPolicy Bypass -File install.ps1
-     ```
-     *(If you don't have those files, download the plugin zip here, unzip it, then run
-     `install.ps1` from the unzipped folder:
-     https://drive.google.com/file/d/1HL_Ti7N_qN0Q-X7vNYOQst3yEgIY-xXO/view?usp=drive_link )*
-   - **Restart Revit** so it loads the add‑in: close Revit, then launch it again with the
-     `Start-Process` command above.
-   - On the first launch after installing, Revit shows an **"unsigned add‑in"** prompt.
-     **Only the user can click it — ask them to choose "Always Load".**
-   - Re‑run `thatopen revit status` every ~10s until it prints `"loaded": true`.
+   ```
+   thatopen login --token <TOKEN>
+   ```
+   Production is the default. For dev, add `--api-url https://dev.platform.thatopen.com`.
+
+**Log in before Step 2**, not after: installing the add-in downloads a private package and needs
+these credentials.
 
 ---
 
-## Step 2 — Log in
-The user needs a personal **access token** from the That Open platform. Ask them for it and
-tell them exactly where to get it:
+## Step 2 — The add-in
 
-> "To log in I need your That Open **access token**. To create one:
-> 1. Open your That Open dashboard in a browser — **production:** https://platform.thatopen.com
->    · **dev:** https://dev.platform.thatopen.com (use the one that matches your team).
-> 2. Go to **Data → API Tokens**.
-> 3. Click **Create a new token** and **copy** it.
-> 4. Paste it here."
+```
+thatopen revit status
+```
 
-**Never print, echo, or store the token.** Once the user pastes it, run:
+- Prints `"loaded": true` → the add-in is running. Check `addinVersion` is **1.2.17 or later**; if
+  not, update it with the same command as below. Then go to Step 3.
+- Errors *"The That Open Revit add-in is not running"* → work through (a), then (b).
+
+**(a) Is Revit 2026 open?** If not, launch it:
 ```
-thatopen login --token <TOKEN>
+powershell -Command "Start-Process 'C:\Program Files\Autodesk\Revit 2026\Revit.exe'"
 ```
-- **Production is the default.** For the **dev** environment, also add:
-  `--api-url https://dev.platform.thatopen.com`
-- Success prints `Logged in successfully…`. If it fails with **"Unauthorized"**, the token
-  is invalid or for the other environment — see **Troubleshooting**, then ask for a fresh
-  token and retry.
+A cold start takes a while. Re-run `thatopen revit status`.
+
+**(b) Revit is open but status still errors → install the add-in.** Revit must be **closed** for
+this, because it holds its add-in files open while it runs. Ask the user to close it, then:
+```
+thatopen revit install
+```
+This fetches the current package from the registry and runs the installer that ships inside it.
+`--version <v>` pins a specific one; the default is the latest.
+
+Then **launch Revit again**. On the first start after an install, Revit shows an **unsigned add-in**
+prompt. **Only the user can answer it — ask them to choose "Always Load".** There is no way around
+it from a script, and it comes back after every update until the add-in is signed.
+
+Re-run `thatopen revit status` every ten seconds or so until `"loaded": true`.
 
 ---
 
 ## Step 3 — Do the action
 
 ### (A) Share a model — `inspect`, then `publish-central`
-First check whether the file is already a workshared central:
+
 ```
 thatopen revit inspect --file "<FILE>"
 ```
-- **`"isCentral": true`** → it's already a central. Tell the user: *"This is already a
-  central; I'll upload a copy to the shared location — your original file won't be touched."*
-  Then publish (no `--convert` needed):
+
+- **`"isCentral": true`** → already a central. Tell the user you will upload a copy and their
+  original is untouched, then:
   ```
   thatopen revit publish-central --project <PROJECT> --doc <DOC> --file "<FILE>"
   ```
-- **`"isCentral": false`** → it's a plain model. **Tell the user and ask for consent:**
-  *"This file isn't a shared central yet. To share it I need to turn it into one. I'll do
-  that on a COPY, so your original file stays exactly as it is. Shall I go ahead?"*
-  Only after the user agrees, publish **with `--convert`**:
+- **`"isCentral": false`** → a plain model. **Ask for consent first:** *"This file isn't a shared
+  central yet. To share it I need to turn it into one. I'll do that on a COPY, so your original
+  stays exactly as it is. Shall I go ahead?"* Only then:
   ```
   thatopen revit publish-central --project <PROJECT> --doc <DOC> --file "<FILE>" --convert
   ```
 
-`<DOC>` is the short central name from Step 0; `<FILE>` is the `.rvt` path. Publishing saves
-the central at the shared canonical location, uploads it, and opens **your** local in Revit
-(takes a bit). Success: `Published (…). Central: … (version N). Your original file was not
-modified.` Tell teammates to connect with the **project folder id** shown in the dashboard,
-or with `thatopen revit join --project <PROJECT> --doc <DOC>`.
-
-> If you skip `inspect` and the file isn't a central, `publish-central` will refuse with a
-> message telling you to re-run with `--convert` — still ask the user first.
+Publishing uploads the central and opens **the user's own local** in Revit. Success ends with
+`Published (…). Central: … (version N). Your original file was not modified.` Teammates connect with
+the folder id from the dashboard, or with `--project` and `--doc`.
 
 ### (B) Connect to a central — `join`
-Use whichever identifier the user gave you in Step 0:
+
 ```
-thatopen revit join --folder-id <FOLDER_ID>          # the revit-<name> folder id in the project
-thatopen revit join --path "<C:\ThatOpenShared\...\central.rvt>"   # a local shared-central path
+thatopen revit join --folder-id <FOLDER_ID>
+thatopen revit join --path "C:\ThatOpenShared\<project>\<name>\<file>.rvt"
 ```
-(Advanced: `--project <PROJECT> --doc <DOC>` also works if the user knows both.)
-This downloads the central, creates the user's **local**, and opens it in Revit.
-Success: `Joined. Your local was created and opened in Revit: …`.
+`--project <PROJECT> --doc <DOC>` also works when the user knows both. This downloads the central,
+creates the user's local, and opens it.
 
 ### (C) Already have a local open — `sync`
+
 ```
 thatopen revit sync
 ```
-Reads everything from the open local. Nothing else needed.
+
+### (D) Review a proposal
+
+Go to **Step 6**.
 
 ---
 
 ## Step 4 — Work, then sync
-Tell the user to **model normally** in the local Revit opened. To send their changes to the
-team and pull the team's changes, run:
-```
-thatopen revit sync
-```
-…or click **"Sync to team"** in the **"That Open"** panel of Revit's **Add‑Ins** tab.
-Success: `Synced.  vN → vM.` Repeat as often as they like; syncs are queued, no conflicts.
+
+Tell the user to **model normally**. To send their changes and pull the team's, they use **Revit's
+own Synchronize with Central** on the Collaborate tab, exactly as on any worksharing job. The add-in
+listens for it: it takes a turn in the team queue and brings the central up to date *before* Revit
+merges, then publishes the result. A corner notice reports each step and ends with
+`Synced.  vN → vM.`
+
+There is no "sync to team" button, on purpose. Two buttons that must mean the same thing are a
+question nobody should have to answer twice a day.
+
+For a script or an agent, the same round trip is `thatopen revit sync`.
 
 ---
 
-## Step 5 — Worksets (so two people don't edit the same thing)
-Syncs never corrupt the central, but if **two people edit the SAME element** without
-coordinating, the second one's sync is rejected and their local can get stuck. To avoid
-that, claim the part of the model you're about to edit using **worksets** — the unit of
-ownership. Typically one workset per area or per person (this central already has one per
-floor/level).
+## Step 5 — Worksets, so two people don't edit the same thing
 
-**See the worksets and who owns each:**
+**Claiming one is Revit's own dialog:** Collaborate → Worksets, tick *Editable* on the row you want.
+Same dialog, same rules and same messages as any Revit job. Ownership reaches everybody within
+seconds, because the add-in replicates the worksharing files the central keeps beside it and each
+Revit re-reads them by itself.
+
+Only **one person at a time** owns a workset, and **Revit** enforces it: a teammate who tries to
+take what you hold is told who holds it. That also means only *you* can give yours back — there is
+no API that relinquishes on somebody else's behalf, so "ask them to release it" is the real answer
+rather than a workaround.
+
+**Release** by relinquishing in Revit, or simply by syncing, which relinquishes as part of the
+dialog's terms.
+
+From a script:
 ```
-thatopen revit worksets
+thatopen revit worksets                      # who holds what
+thatopen revit take   --workset "<NAME>"
+thatopen revit untake --workset "<NAME>"
 ```
 
-**Claim a workset before editing it — two equivalent ways:**
-- **Ribbon (easiest):** in Revit's **Add-Ins → That Open** panel, select any element that
-  belongs to the workset you want, then click **"Take workset"**.
-- **CLI:**
-  ```
-  thatopen revit take --workset "<NAME>"
-  ```
-Only **one person at a time** can own a workset. If someone else already holds it, you get
-`✗ held by <user>` — coordinate or pick another. If two people click Take at the same
-instant, the platform lock gives it to exactly one and denies the other (no corruption).
+> Editing an element makes you its **borrower** automatically, element by element. Taking a workset
+> makes you its **owner**. Revit only blocks editing worksets owned by **somebody else**; free ones
+> are borrowed on demand.
 
-**⚠️ Ownership only protects you AFTER a sync round.** Taking a workset is instant for the
-*claim* (nobody else can take it), but Revit only **blocks teammates' edits** once the
-ownership reaches their copy: **you Sync (push your ownership), then each teammate Syncs
-(pulls it).** So the reliable sequence is:
-1. `thatopen revit take --workset "<NAME>"` (or the Take workset button)
-2. `thatopen revit sync`   ← you push the ownership
-3. teammates `thatopen revit sync`   ← now Revit blocks them from editing your workset
+---
 
-Until teammates have synced, they could still auto-borrow an element in that workset by
-editing it directly. After the round, they'll see it as owned by you and be blocked.
+## Step 6 — Proposals
 
-**Release when you're done** so teammates can take it:
-- **Ribbon:** click **"Release worksets"** (frees everything you own).
-- **CLI:** `thatopen revit untake --workset "<NAME>"`
-Then `sync` so the release propagates.
+A proposal is a change authored **outside** this Revit: a set of `add`, `set` and `remove` entries
+naming elements by their Revit UniqueId, carried in a `.frag` and queued against one document. It is
+a request, not an edit. Until a person applies it, nothing in the model has moved.
 
-> Note: simply editing an element makes you its **borrower** automatically (element-level);
-> **taking a workset** makes you the **owner** (workset-level). Revit only blocks editing
-> worksets owned by **someone else** — so the Take→Sync→Sync round above is what creates the
-> protection.
+**Who writes them is deliberately open.** A Rhino plug-in, a cloud component, a web app, a script:
+anything that can produce the format can queue one. This package's job starts when one arrives,
+which is why nothing below asks where it came from.
+
+**This is where you use the add-in's local API** — the CLI has no proposal commands yet.
+
+**List what is waiting:**
+```
+POST /ops        →  { ok, ops: [ { OpId, Title, Author, State, BaseCommit, AffectedIds } ] }
+```
+`State` is `pending`, `applied` or `discarded`. Show the user the pending ones by title and author.
+
+**Check one before touching anything.** This is read-only; no transaction is opened:
+```
+POST /op-check   { "opId": "op-…" }
+```
+Read three things out of the answer, and tell the user all three:
+
+- `plan.canApply` — whether it can be applied right now.
+- `plan.blocker` — if not, why, phrased as the next thing to do. Read it out rather than paraphrase
+  it. It names the person to go and ask when a workset is held by somebody, and it points at Revit's
+  own dialog when the workset is merely free. "You need permissions" loses both.
+- `authoredAgainst`, `youAreOn`, `behind` — the version the proposal was written against and the one
+  the model is on now. **A proposal does not expire and is not blocked for being old**: it says
+  *move this by two metres*, not *put it at this coordinate*, so it still means what it said. But
+  when `behind` is present, say so before the user approves. The model has moved underneath it.
+
+**Expect this one, it is not a bug:** an `add` lands on the document's **active** workset, so
+whoever applies has to hold *that* one — often `Workset1`, which nobody thinks of as theirs. If the
+check blocks on a workset nobody seems to be using, that is why.
+
+**Apply it,** once the user has said yes:
+```
+POST /apply-ops  { "opId": "op-…" }
+```
+Everything in the proposal happens in **one** Revit transaction: one undo, one entry in the history.
+Afterwards the entry's `State` is `applied` and `AffectedIds` lists what it touched, in the order the
+proposal named them — which is how an authoring tool learns which Revit element corresponds to which
+of its own objects. The change is in the local only; the user still syncs (Step 4) to publish it.
+
+**Reject it:**
+```
+POST /op-discard { "opId": "op-…" }
+```
+
+**Verify with coordinates, not with the word "applied".** After applying, `POST /where` with
+`{ "uids": [ … ] }` gives each element's position in metres. If a proposal said it moved four
+things, check that four things moved. "Applied" and "applied to three of the four" read identically
+in a status field and differently in a model.
+
+---
+
+## Talking to the add-in directly
+
+The add-in serves a small HTTP API on **127.0.0.1**, and it is the same surface the CLI drives: a
+person clicking and a script deciding are the same operation. Use it for what the CLI does not
+cover. Do not use it to skip a CLI command that exists.
+
+**Find it.** The port and the token change every launch, so read them rather than configuring them:
+
+```
+%APPDATA%\ThatOpen\revit-addin.json   →  { "port": …, "token": "…", "pid": … }
+```
+
+Send the token as the header **`X-RevitFlow-Token`**, POST JSON, read JSON back. The endpoints this
+guide uses are `status`, `ops`, `op-check`, `apply-ops`, `op-discard`, `where` and `worksets`.
+
+Three things that will otherwise mislead you:
+
+- **`worksets` has `revitOwner` and `tocOwner`, and no field called `owner`.** Reading `owner`
+  returns nothing for every row, which looks exactly like "nobody owns anything" and is a lie.
+  `revitOwner` is Revit's answer, and Revit's answer is the one that decides.
+- **The add-in serves one request at a time.** A machine in the middle of a sync answers nothing,
+  and from outside that is indistinguishable from a crash. Diagnose from
+  `%APPDATA%\ThatOpen\revitflow.log`, which keeps being written throughout. Never conclude anything
+  from a timeout alone.
+- **A modal dialog in Revit stops everything.** The add-in does its work when Revit is idle, and a
+  dialog waiting for a click means Revit never is. If a call hangs, ask the user to look at Revit's
+  window before assuming something is broken.
 
 ---
 
 ## Troubleshooting
-- **`thatopen login` fails with "Unauthorized"** → the token is invalid/expired, or it's
-  for a different environment than `--api-url`. Ask the user to generate a fresh token in
-  the dashboard (Data → API Tokens) for the SAME environment: production tokens use **no**
-  `--api-url`; dev tokens use `--api-url https://dev.platform.thatopen.com`. Then retry.
-- **publish/join fails with HTTP 403** on `item/folder?projectId=…` → login worked but the
-  user's account is **not authorized for that Project ID** (wrong project, wrong
-  environment, or no access). Confirm the Project ID with the user and that their token
-  (Step 2) belongs to an account with access to it, then retry.
-- **"add‑in not running"** after Revit is open → the add‑in isn't installed; do Step 1(b).
-- **"Could not reach the Revit add‑in"** → Revit was closed; reopen it and retry.
-- **"Not logged in"** → do Step 2.
-- **publish says a value is missing** → re‑run with `--project`, `--doc`, and `--file`.
-- **publish refuses: "not a workshared central … re-run with convert=true"** → the file is a
-  plain model. Ask the user for consent to convert a **copy** (original untouched), then add
-  `--convert`.
-- **`join` says "Identify the central … with one of …"** → provide `--folder-id`, or
-  `--path`, or both `--project` and `--doc`.
-- **`take` returns `✗ held by <user>`** → someone else owns that workset. Ask them to
-  Release + sync, or claim a different workset. This is expected, not an error.
-- **A teammate can still edit "my" workset** → ownership hasn't reached them yet. Make sure
-  **you synced after taking it, and they synced afterwards** (Step 5). Until both sync
-  rounds happen, Revit on their side doesn't know you own it.
+
+- **`thatopen login` fails with "Unauthorized"** → the token is invalid, expired, or from the other
+  environment. Production tokens use no `--api-url`; dev tokens use
+  `--api-url https://dev.platform.thatopen.com`. Ask for a fresh one from the same environment.
+- **HTTP 403 on `item/folder?projectId=…`** → login worked, but that account has no access to that
+  Project ID. Confirm the id and the environment with the user.
+- **"add-in not running" while Revit is open** → it is not installed. Step 2(b).
+- **`thatopen revit install` refuses** → Revit is still open. Close it.
+- **`take` answers `taken: false` with `deniedBy`** → somebody else holds that workset. Expected,
+  not an error. Ask them to release and sync, or take another.
+- **`take` answers `offline: true`** → the platform is unreachable. The take is **refused, not
+  queued**, and deliberately: the platform is what arbitrates the race, so with it gone nobody can
+  know whether a colleague already holds it. Nothing was changed. Retry when `status` says
+  `online: true`.
+- **`locks` answers `offline: true` instead of a list** → the same outage. That is **not** an empty
+  list; claims still stand. `worksets` still answers from Revit with `registry: false`, and that
+  half needs no network at all — use it to see what the user themselves holds.
+- **A teammate can still edit "my" workset** → ownership has not reached them yet. You must sync
+  after taking it, and they must sync afterwards.
+- **A proposal blocks on a workset nobody seems to own** → it is probably the **active** workset,
+  needed by its `add` entries. See Step 6.
+- **Everything hangs and nothing new is in the log** → a Revit dialog is waiting for a click.
+
+---
 
 ## Rules recap (for the AI)
-- Ask for every value you don't have — never guess a project id, file path, or central name.
-- Never echo or store the user's token.
-- You may install the CLI/add‑in and launch Revit yourself; only the "Always Load" prompt
-  needs the user.
-- Use only the `thatopen` CLI commands above; verify each command's output before proceeding.
+
+- Ask for every value you do not have. Never guess a project id, a file path or a central name.
+- Never echo or store the token.
+- You may install the CLI and the add-in and launch Revit. Only the "Always Load" prompt needs the
+  user — and so does every decision about applying a proposal.
+- CLI first; the add-in's local API for proposals and for reading ownership; never the platform's
+  own HTTP API by hand.
+- Read each answer before the next step, and prefer a measured value to a status word: coordinates
+  over "applied", `revitOwner` over "it should be fine".
