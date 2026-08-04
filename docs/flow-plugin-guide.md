@@ -1,6 +1,6 @@
 # Writing a flow plugin
 
-The concrete contract. [The architecture notes](./flow-architecture.md) say why any of this is
+The concrete contract. [The architecture notes](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/flow-architecture.md) say why any of this is
 shaped the way it is; this says what the bytes look like.
 
 Nothing here is aspirational. Every rule below is what the Revit and Rhino plugins already do, and

@@ -12,7 +12,7 @@ on the [That Open Platform](https://platform.thatopen.com) from scratch, using
 > **Not building anything — here to work in Revit?** If what the user actually wants is to share a
 > Revit model with their team, join one a colleague uploaded, or review a change some other tool
 > proposed to their model, this is the wrong guide and nothing below applies. Go to
-> **[the Revit collaboration quickstart](./revit-collab-quickstart.md)** and follow that instead.
+> **[the Revit collaboration quickstart](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/revit-collab-quickstart.md)** and follow that instead.
 > It is the same shape as this one: ask first, then drive the CLI.
 >
 > Phrases that mean that guide, not this one: *"I want to collaborate on a Revit project"*, *"share
@@ -21,8 +21,8 @@ on the [That Open Platform](https://platform.thatopen.com) from scratch, using
 
 > **Making another application talk to this one?** If the user wants their own tool — Rhino, Blender,
 > a script, an in-house app — to send changes into somebody's model or to show a model it did not
-> author, that is a third thing again: **[Writing a flow plugin](./flow-plugin-guide.md)** is the
-> byte contract, and **[the architecture notes](./flow-architecture.md)** say why it is shaped that
+> author, that is a third thing again: **[Writing a flow plugin](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/flow-plugin-guide.md)** is the
+> byte contract, and **[the architecture notes](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/flow-architecture.md)** say why it is shaped that
 > way. Start at its section 0, which sorts the work into three sizes; most integrations are the
 > smallest one and need no ownership, no history and no collaboration layer.
 >
@@ -69,7 +69,7 @@ Get the token from the platform dashboard — **https://platform.thatopen.com/da
 thatopen login --token <platform-token>
 ```
 
-**[Logging in to That Open Platform](./platform-token.md)** is the short version of everything that
+**[Logging in to That Open Platform](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/platform-token.md)** is the short version of everything that
 goes wrong here: production and dev are separate worlds, `login` does not say which one it saved,
 and a machine that is already logged in is somebody's previous session rather than a decision. Read
 it if the user is not on a fresh machine, or if anything comes back `Unauthorized` or `403`.

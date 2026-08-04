@@ -386,4 +386,4 @@ Rhino kernel, so a converter can run server-side while real modelling operations
 
 The concrete wire formats — where each file lives on the platform, what the proposal envelope
 contains, how the queue and the ownership registry work — are in
-[the plugin guide](./flow-plugin-guide.md), which is what to read if you are writing a plugin.
+[the plugin guide](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/flow-plugin-guide.md), which is what to read if you are writing a plugin.

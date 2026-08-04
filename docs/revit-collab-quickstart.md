@@ -111,7 +111,7 @@ Do **not** ask for the access token yet. That is Step 1.
    **Log in even if the machine is already logged in.** A saved login is whoever used this machine
    last. Never print the token back.
 
-   [Logging in to That Open Platform](./platform-token.md) is the short page for when this does not
+   [Logging in to That Open Platform](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/platform-token.md) is the short page for when this does not
    go smoothly: what to do if the machine turns out to be pointed at dev, and why `Unauthorized` and
    `403` mean different things.
 
@@ -261,8 +261,8 @@ anything that can produce the format can queue one. This package's job starts wh
 which is why nothing below asks where it came from.
 
 If the user asks how to send changes *from* their own tool — or you are being asked to write that
-tool — the format is documented: **[Writing a flow plugin](./flow-plugin-guide.md)** is the byte
-contract, and **[the architecture notes](./flow-architecture.md)** say why it is shaped that way.
+tool — the format is documented: **[Writing a flow plugin](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/flow-plugin-guide.md)** is the byte
+contract, and **[the architecture notes](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/flow-architecture.md)** say why it is shaped that way.
 Publishing a proposal is the smallest of the three jobs described there: it needs no ownership, no
 history, and no collaboration layer.
 
@@ -331,7 +331,7 @@ Say it plainly and wait:
 > version and see what was created, modified and deleted, coloured in 3D?"
 
 If they say yes, that is an **app**, and building one is
-**[the platform AI quick start](./ai-quickstart.md)** — scaffold with the `app` template and follow
+**[the platform AI quick start](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/ai-quickstart.md)** — scaffold with the `app` template and follow
 it.
 
 **Do not ask them how to add the panel.** Add a **new layout** called `History`, and leave the
