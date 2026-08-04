@@ -19,6 +19,16 @@ on the [That Open Platform](https://platform.thatopen.com) from scratch, using
 > my central"*, *"join my team's model"*, *"someone sent me a change to approve"*, *"work on the
 > same model as my colleague"*.
 
+> **Making another application talk to this one?** If the user wants their own tool — Rhino, Blender,
+> a script, an in-house app — to send changes into somebody's model or to show a model it did not
+> author, that is a third thing again: **[Writing a flow plugin](./flow-plugin-guide.md)** is the
+> byte contract, and **[the architecture notes](./flow-architecture.md)** say why it is shaped that
+> way. Start at its section 0, which sorts the work into three sizes; most integrations are the
+> smallest one and need no ownership, no history and no collaboration layer.
+>
+> Phrases that mean those: *"export my model to the platform"*, *"send my geometry to Revit"*,
+> *"write a plugin for X"*, *"read a .frag in my app"*.
+
 ---
 
 ## First — what are you building? (ask if the user hasn't said)

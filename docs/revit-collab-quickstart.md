@@ -223,6 +223,12 @@ a request, not an edit. Until a person applies it, nothing in the model has move
 anything that can produce the format can queue one. This package's job starts when one arrives,
 which is why nothing below asks where it came from.
 
+If the user asks how to send changes *from* their own tool — or you are being asked to write that
+tool — the format is documented: **[Writing a flow plugin](./flow-plugin-guide.md)** is the byte
+contract, and **[the architecture notes](./flow-architecture.md)** say why it is shaped that way.
+Publishing a proposal is the smallest of the three jobs described there: it needs no ownership, no
+history, and no collaboration layer.
+
 **This is where you use the add-in's local API** — the CLI has no proposal commands yet.
 
 **List what is waiting:**
