@@ -69,6 +69,11 @@ Get the token from the platform dashboard — **https://platform.thatopen.com/da
 thatopen login --token <platform-token>
 ```
 
+**[Logging in to That Open Platform](./platform-token.md)** is the short version of everything that
+goes wrong here: production and dev are separate worlds, `login` does not say which one it saved,
+and a machine that is already logged in is somebody's previous session rather than a decision. Read
+it if the user is not on a fresh machine, or if anything comes back `Unauthorized` or `403`.
+
 This validates the token and stores it in `~/.thatopen/config.json`. Login **must** come
 first: the next step's install pulls the private `@thatopen-platform/*-beta` packages, and
 `create` uses your logged-in token to write an authenticated `.npmrc` so that install can

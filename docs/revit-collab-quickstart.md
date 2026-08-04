@@ -81,28 +81,20 @@ Do **not** ask for the access token yet. That is Step 1.
 
 2. **Token.** Ask for it, and say exactly where to get it:
 
-   > "To log in I need your That Open **access token**:
-   > 1. Open your dashboard — **production:** https://platform.thatopen.com ·
-   >    **dev:** https://dev.platform.thatopen.com (use the one that matches your team).
-   > 2. Go to **Data → API Tokens**.
-   > 3. **Create a new token**, copy it, and paste it here."
+   > "To log in I need a That Open Platform **access token**. You create it yourself:
+   > **https://platform.thatopen.com/dashboard/data → API Tokens → create → copy**, then paste it
+   > here."
 
    ```
    thatopen login --token <TOKEN>
    ```
-   Production is the default. For dev, add `--api-url https://dev.platform.thatopen.com`.
 
-**Log in even if the machine is already logged in, and say which environment you end up on.**
-`login` reports success without naming the environment, and a machine that somebody used before
-keeps whatever they chose — `apiUrl` in `~/.thatopen/config.json`. Read that file and tell the user
-in plain words: *"you are on dev"* or *"you are on production"*.
+   **Read [Logging in to That Open Platform](./platform-token.md) before you run that** — it is
+   short, and it covers the two things that go wrong here rather than later: production and dev are
+   separate worlds, and `login` does not tell you which one you just saved.
 
-**If it says dev, offer production before going any further.** Almost nobody wants dev, and the two
-are separate worlds: separate accounts, separate tokens, separate projects. Discovering it later
-means the model went to the wrong place, and it looks exactly like everything working. Running
-`thatopen login --token <TOKEN>` with no `--api-url` moves them to production, but the token must be
-a **production** token — a dev token will not do, so ask them to create one in the production
-dashboard.
+   In particular: **log in even if the machine is already logged in**, and say out loud which
+   environment you ended up on. Never print the token back.
 
 **Log in before Step 2**, not after: installing the add-in downloads a private package and needs
 these credentials.
