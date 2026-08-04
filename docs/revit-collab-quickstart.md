@@ -55,9 +55,20 @@ the point.
 Then collect what that choice needs. Ask now; you will need it below.
 
 - **(A) Share:** the **absolute path** to the `.rvt`, a short lowercase **name** for the shared
-  central (e.g. `tower-central`), and the platform **Project ID** (in the project's settings and in
-  its URL in the dashboard). The file may or may not already be a workshared central — Step 3
-  checks. Either way **the user's original file is never modified**; a copy is uploaded.
+  central (e.g. `tower-central`), and the platform **Project ID**. The file may or may not already
+  be a workshared central — Step 3 checks. Either way **the user's original file is never
+  modified**; a copy is uploaded.
+
+  **You cannot list the user's projects and you cannot create one** — the CLI has no command for
+  either, so there is no way to offer a menu. Ask, and if they do not have the id to hand:
+
+  > "Open **https://platform.thatopen.com/dashboard/projects**, click the project you want to work
+  > in, and copy the id out of the address bar. If you have no project yet, create one there first —
+  > it takes a moment and everything else hangs off it."
+
+  Do not guess it, do not reuse one you saw in `status`, and do not carry on hoping to find it
+  later: every command after this one needs it, and a wrong id fails with a 403 that reads like a
+  permissions problem rather than a typo.
 
 - **(B) Connect:** identify the existing central by **one** of:
   - the **project folder id** of the central — the `revit-<name>` folder inside the project's
