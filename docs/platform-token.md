@@ -26,36 +26,48 @@ a `.thatopen` file in the project instead, which is what a scaffolded project us
 You do not need an npm account or an npm token for the private packages. The CLI derives access to
 them from this one.
 
-## Production and dev are separate worlds
+## Everyone is on production
+
+**Do not ask the user which environment they want.** Production is the answer, it is the default,
+and the plain command above is already correct. Asking turns a decision nobody has into a question
+they cannot answer, at the worst possible moment — the first thing you say to them.
+
+There is a `dev` platform, and it exists for the people building That Open Platform itself. If the
+user is one of them they already know, and they will tell you without being asked.
+
+Everything below this line is for that case only. If nothing has mentioned dev, skip it.
+
+<details>
+<summary>Dev, for the platform team</summary>
 
 Two platforms, not two views of one. Separate accounts, separate tokens, separate projects. A token
-from one is refused by the other, and a model published to the wrong one is somewhere the user's
+from one is refused by the other, and a model published to the wrong one lands somewhere the user's
 team cannot see — while every command reports success.
 
-| | |
-|---|---|
-| **Production** | `https://platform.thatopen.com` — the default, and what almost everybody wants |
-| **Dev** | `https://dev.platform.thatopen.com` — only if the user's team works there |
-
 ```bash
-thatopen login --token <TOKEN>                                          # production
-thatopen login --token <TOKEN> --api-url https://dev.platform.thatopen.com   # dev
+thatopen login --token <TOKEN> --api-url https://dev.platform.thatopen.com
 ```
 
-The dashboard for dev is the same page on that host:
-`https://dev.platform.thatopen.com/dashboard/data`.
+Its dashboard is the same page on that host: `https://dev.platform.thatopen.com/dashboard/data`.
 
-## Say which one you are on
+</details>
 
-**`login` prints "Logged in successfully" and does not name the environment.** Nothing on screen
-will contradict a wrong assumption, so make the statement yourself: read `apiUrl` from
-`~/.thatopen/config.json` and tell the user in plain words — *"you are on production"* or *"you are
-on dev"*.
+## Check, do not ask
 
-Do this **even when the machine is already logged in**, and especially then. A saved login is
-whoever used this machine last, not an answer to a question you have asked. If you find dev, offer
-production before going any further; moving needs a **production** token, so the user has to create
-one on the production dashboard first.
+**`login` prints "Logged in successfully" and does not name the environment**, so nothing on screen
+would contradict a wrong assumption. Read `apiUrl` from `~/.thatopen/config.json` yourself.
+
+If it says production — which it will — say nothing about it and carry on. There is no decision to
+report.
+
+**Only if it says dev**, and the user has not told you they work there, is there anything to say:
+
+> "This machine is pointed at the dev platform, which is the one the That Open team builds on. I'll
+> move it to production — that will need a token from **https://platform.thatopen.com/dashboard/data**,
+> since dev tokens are not accepted there."
+
+Check this **even when the machine is already logged in**, and especially then. A saved login is
+whoever used this machine last, not an answer to a question you have asked.
 
 ## When it fails
 

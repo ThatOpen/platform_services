@@ -104,12 +104,16 @@ Do **not** ask for the access token yet. That is Step 1.
    thatopen login --token <TOKEN>
    ```
 
-   **Read [Logging in to That Open Platform](./platform-token.md) before you run that** — it is
-   short, and it covers the two things that go wrong here rather than later: production and dev are
-   separate worlds, and `login` does not tell you which one you just saved.
+   That command is already right: **it logs in to production, which is where everybody is.** Do not
+   ask the user to choose an environment — there is a dev platform, it is for the people building
+   That Open Platform, and they will say so without being asked.
 
-   In particular: **log in even if the machine is already logged in**, and say out loud which
-   environment you ended up on. Never print the token back.
+   **Log in even if the machine is already logged in.** A saved login is whoever used this machine
+   last. Never print the token back.
+
+   [Logging in to That Open Platform](./platform-token.md) is the short page for when this does not
+   go smoothly: what to do if the machine turns out to be pointed at dev, and why `Unauthorized` and
+   `403` mean different things.
 
 **Log in before Step 2**, not after: installing the add-in downloads a private package and needs
 these credentials.
