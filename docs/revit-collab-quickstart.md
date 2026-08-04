@@ -37,6 +37,10 @@ the point.
   run, briefly, before you run it.
 - After each command, **check the output** before moving on. A command that answered is not the
   same as a command that did what you wanted.
+- **Whatever you find already set up on this machine is somebody's previous session, not this
+  user's choice.** A saved login, an environment, a joined project, a model already open in Revit:
+  none of it is an answer to a question you have not asked. Report what you found and ask. This is
+  the single most likely way to get the whole thing wrong while every command succeeds.
 
 ---
 
@@ -88,6 +92,18 @@ Do **not** ask for the access token yet. That is Step 1.
    ```
    Production is the default. For dev, add `--api-url https://dev.platform.thatopen.com`.
 
+**Log in even if the machine is already logged in, and say which environment you end up on.**
+`login` reports success without naming the environment, and a machine that somebody used before
+keeps whatever they chose — `apiUrl` in `~/.thatopen/config.json`. Read that file and tell the user
+in plain words: *"you are on dev"* or *"you are on production"*.
+
+**If it says dev, offer production before going any further.** Almost nobody wants dev, and the two
+are separate worlds: separate accounts, separate tokens, separate projects. Discovering it later
+means the model went to the wrong place, and it looks exactly like everything working. Running
+`thatopen login --token <TOKEN>` with no `--api-url` moves them to production, but the token must be
+a **production** token — a dev token will not do, so ask them to create one in the production
+dashboard.
+
 **Log in before Step 2**, not after: installing the add-in downloads a private package and needs
 these credentials.
 
@@ -101,6 +117,16 @@ thatopen revit status
 
 - Prints `"loaded": true` → the add-in is running. Check `addinVersion` is **1.2.17 or later**; if
   not, update it with the same command as below. Then go to Step 3.
+
+> **`status` also reports a `project`, a `doc` and a `central`. Do not use any of them.** They are
+> whatever this machine did last, which on a colleague's laptop or a shared machine is somebody
+> else's work. Say what you found and ask:
+>
+> > "This machine is still connected to project `<id>`, document `<doc>`. Do you want to keep
+> > working on that one, connect to a different project, or share a new model?"
+>
+> Publishing into the wrong project succeeds, looks completely normal, and puts somebody's model
+> somewhere their team cannot see it.
 - Errors *"The That Open Revit add-in is not running"* → work through (a), then (b).
 
 **(a) Is Revit 2026 open?** If not, launch it:
