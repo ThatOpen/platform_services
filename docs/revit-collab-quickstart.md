@@ -59,16 +59,20 @@ Then collect what that choice needs. Ask now; you will need it below.
   be a workshared central — Step 3 checks. Either way **the user's original file is never
   modified**; a copy is uploaded.
 
-  **You cannot list the user's projects and you cannot create one** — the CLI has no command for
-  either, so there is no way to offer a menu. Ask, and if they do not have the id to hand:
+  **Sharing a new central means a new project. Always send them to make one, every time:**
 
-  > "Open **https://platform.thatopen.com/dashboard/projects**, click the project you want to work
-  > in, and copy the id out of the address bar. If you have no project yet, create one there first —
-  > it takes a moment and everything else hangs off it."
+  > "A shared central lives inside a platform project, so let's make one for it. Open
+  > **https://platform.thatopen.com/dashboard/projects**, create a project, then paste me either its
+  > id or just the URL of the page you land on — I can take the id out of the URL."
 
-  Do not guess it, do not reuse one you saw in `status`, and do not carry on hoping to find it
-  later: every command after this one needs it, and a wrong id fails with a 403 that reads like a
-  permissions problem rather than a typo.
+  Take the **URL** if that is easier for them; the id is the segment after `/projects/`. Asking
+  somebody to copy a hex string off a settings page is a worse experience than asking for the
+  address bar, and it is the same information.
+
+  **You cannot do this part for them.** The CLI has no command to list projects and none to create
+  one, so there is no menu to offer and nothing to pick from — which also means: do not guess an id,
+  and do not reuse one you saw in `status`. Every command after this needs it, and a wrong one fails
+  with a 403 that reads like a permissions problem rather than a typo.
 
 - **(B) Connect:** identify the existing central by **one** of:
   - the **project folder id** of the central — the `revit-<name>` folder inside the project's
