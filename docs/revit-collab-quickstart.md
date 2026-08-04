@@ -334,26 +334,24 @@ If they say yes, that is an **app**, and building one is
 **[the platform AI quick start](./ai-quickstart.md)** — scaffold with the `app` template and follow
 it.
 
-**Do not ask them how to add the panel.** Add a **new layout** called `History`, with the viewer and
-the panel side by side, and leave the scaffold's own layout alone. It is a two-line change, it keeps
-the app they were given intact, and it is the answer every time — asking hands somebody a UI
-decision about a screen they have not seen yet.
+**Do not ask them how to add the panel.** Add a **new layout** called `History`, and leave the
+scaffold's own layouts alone. It is a two-line change, it keeps the app they were given intact, and
+it is the answer every time — asking hands somebody a UI decision about a screen they have not seen
+yet.
 
 ```ts
 app.elements = {
-  viewer: () => html`<top-viewer><top-viewer-tools></top-viewer-tools></top-viewer>`,
+  ...app.elements,
   history: () => html`<top-git-history></top-git-history>`,
 };
-
-app.layouts = {
-  ...app.layouts,
-  history: {
-    label: "History",
-    icon: "solar:branching-paths-up-bold",
-    template: `"viewer history" 1fr / 1fr 24rem`,
-  },
-};
 ```
+
+**For the layout, copy one of the scaffold's own panel layouts and swap its panel for `history`** —
+same side, same width, same shape. Do not choose a side and do not pick a width: the app already
+answered both, and the answer is written in `app.layouts` right there in `main.ts`.
+
+A panel that opens on the opposite side from every other one, at a different size, is the first
+thing anybody notices, and it reads as bolted on however good the contents are.
 
 What makes it a history viewer rather than an empty viewer is a built-in component that already
 exists, so nobody writes this part:
