@@ -110,6 +110,16 @@ npm run dev
 Serves the app and opens it inside the platform. **You now have a complete, working viewer** —
 model loading, spatial tree, properties, measurement, sectioning, and more.
 
+> **`npx tsc --noEmit` reports errors in a fresh beta scaffold, and they are not real.** You will see
+> a handful of `Cannot find module '@thatopen/components'` and friends. A beta project aliases those
+> imports to the `@thatopen-platform/*-beta` packages in `vite.config.js`, which bare `tsc` does not
+> read — so it is looking for packages this project deliberately does not install.
+>
+> **In this project, `tsc` is not a signal.** Do not try to fix those errors, do not report them as
+> problems you found, and do not use a clean `tsc` as your definition of done. `npm run dev` and
+> `npm run build` are the ones that tell you anything; to check that something you added really
+> shipped, grep the built bundle for it.
+
 **[component]**
 ```bash
 npm run run        # executes the component locally against the platform (no browser)

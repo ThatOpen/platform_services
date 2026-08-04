@@ -316,18 +316,46 @@ in a status field and differently in a model.
 
 ## Step 7 — Offer them a viewer that shows the progress
 
-Once a team has been syncing for a few days, every sync is a commit and the platform is holding the
-whole history: who changed what, when, and the geometry as it was at each version. Nothing in Revit
-shows that back to them, and it is the question people ask first — *what has changed since Friday?*
+**Offer this as soon as the central exists — right after Step 3, before they start working.** Not
+at the end. Every sync from that moment on becomes a commit they can watch arrive, and setting it up
+costs the same on day one as on day thirty. Left to the end it sounds like an extra; offered at the
+start it is the thing that makes the rest visible.
 
-So offer it, rather than waiting to be asked:
+Every sync is a commit, and the platform keeps the lot: who changed what, when, and the geometry as
+it was at each version. Nothing in Revit shows that back, and it is the first thing people ask —
+*what has changed since Friday?*
 
-> "Everything you've synced is stored as a history. Would you like a viewer that shows it — pick any
+Say it plainly and wait:
+
+> "Everything you sync is stored as a history. Would you like a viewer that shows it — pick any
 > version and see what was created, modified and deleted, coloured in 3D?"
 
 If they say yes, that is an **app**, and building one is
 **[the platform AI quick start](./ai-quickstart.md)** — scaffold with the `app` template and follow
-it. What makes it a history viewer rather than an empty viewer is a built-in component that already
+it.
+
+**Do not ask them how to add the panel.** Add a **new layout** called `History`, with the viewer and
+the panel side by side, and leave the scaffold's own layout alone. It is a two-line change, it keeps
+the app they were given intact, and it is the answer every time — asking hands somebody a UI
+decision about a screen they have not seen yet.
+
+```ts
+app.elements = {
+  viewer: () => html`<top-viewer><top-viewer-tools></top-viewer-tools></top-viewer>`,
+  history: () => html`<top-git-history></top-git-history>`,
+};
+
+app.layouts = {
+  ...app.layouts,
+  history: {
+    label: "History",
+    icon: "solar:branching-paths-up-bold",
+    template: `"viewer history" 1fr / 1fr 24rem`,
+  },
+};
+```
+
+What makes it a history viewer rather than an empty viewer is a built-in component that already
 exists, so nobody writes this part:
 
 - **`GitHistoryManager`** — the headless half. It reads `revitflow_history.json` and the per-commit
