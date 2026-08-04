@@ -648,61 +648,6 @@ export interface MarkerGroup {
     status?: ClashStatus;
 }
 
-/** `clashes.frag`'s path relative to `__project_data/`, for consumers that
- *  persist it via `projectStorageContext` instead of talking to `client`
- *  directly (see `buildClashBuffer`). */
-export declare const CLASH_DATA_PATH = "collider/clashes.frag";
-export interface ExecutionEntry {
-    jobId: string;
-    executionId: string;
-    startedAt: string;
-}
-/** `cachedFileId`, when given, skips folder/file resolution (3 of the 4
- *  network round-trips this normally takes) — the file's ID never changes
- *  once created, so callers that already know it (see `ClashesManager`'s
- *  `_clashFragFileId`) should always pass it. */
-export declare function ensureClashFragFileId(client: PlatformClient, projectId: string, cachedFileId?: string): Promise<string>;
-export declare function getExecutions(client: PlatformClient, projectId: string | undefined): Promise<ExecutionEntry[]>;
-export interface ClashData {
-    jobs: ClashJob[];
-    runs: ClashRun[];
-    clashes: Clash[];
-    queries: ClashQuery[];
-    matrices: ClashMatrix[];
-    /** Resolved once here — callers should cache and pass back into
-     *  `loadClashData`/`buildClashBuffer` as `cachedFileId` to skip
-     *  re-resolving it (see `ensureClashFragFileId`). */
-    fileId: string;
-}
-export declare function loadClashData(client: PlatformClient, projectId: string, cachedFileId?: string): Promise<ClashData>;
-/**
- * Diffs `data` against the persisted `clashes.frag` and builds the updated
- * buffer, WITHOUT uploading it — callers decide how/where to persist the
- * result (direct `client.updateFile`, via `projectStorageContext`, etc).
- * Still reads the current file via `client` to diff against (job/id
- * reconciliation needs the previous state), same as `saveClashData` always did.
- */
-export declare function buildClashBuffer(client: PlatformClient, projectId: string, data: {
-    queries: ClashQuery[];
-    matrices: ClashMatrix[];
-    jobs: ClashJob[];
-    clashes: Clash[];
-}, onJobsReconciled: (toAdd: ClashJob[], toRemove: Set<string>) => void, cachedFileId?: string): Promise<{
-    blob: Blob;
-    fileId: string;
-}>;
-/** Default persistence path: builds the buffer and uploads it straight to
- *  `client`. Kept as the manager's out-of-the-box behavior for any consumer
- *  that never overrides `ClashesManager.save` (e.g. doesn't route through
- *  `projectStorageContext`). */
-export declare function saveClashData(client: PlatformClient, projectId: string, data: {
-    queries: ClashQuery[];
-    matrices: ClashMatrix[];
-    jobs: ClashJob[];
-    clashes: Clash[];
-}, onJobsReconciled: (toAdd: ClashJob[], toRemove: Set<string>) => void): Promise<void>;
-
-
 declare class _ClashesManager extends OBC.Component {
     static readonly uuid: "2c9f4e8d-3a1b-4c5e-9d7f-0a2b6c8e1d3f";
     enabled: boolean;
@@ -748,10 +693,6 @@ declare class _ClashesManager extends OBC.Component {
     get ready(): boolean;
     private _client?;
     private _projectId?;
-    /** `clashes.frag`'s file ID, resolved once by `init()`/`reload()`'s
-     *  `loadClashData` call. Never changes once the file exists — passing it
-     *  into `buildClashBuffer` skips 3 of its 4 network round-trips. */
-    private _clashFragFileId?;
     private _reconnectingJobIds;
     private _queries;
     private _matrices;
@@ -767,25 +708,9 @@ declare class _ClashesManager extends OBC.Component {
     get matrices(): ClashMatrix[];
     set matrices(value: ClashMatrix[]);
     private _scheduleSave;
-    /** Chains onto any save already in flight instead of firing a second,
-     *  concurrent `_doSave()` — two overlapping calls would race on
-     *  `buildClashBuffer`'s read-diff-reconcile cycle (real network I/O;
-     *  `onJobsReconciled` mutating `this.jobs` from two stale reads at once)
-     *  and on the upload itself. It also keeps `flush()` correct: it just
-     *  awaits `_savePromise`, so if that got overwritten by a newer, unrelated
-     *  save instead of chained, flush() could resolve while an earlier save
-     *  was still genuinely in flight. */
-    private _queueSave;
     private _doSave;
     /** Cancela el debounce pendiente y ejecuta el save inmediatamente. Espera a que complete. */
     flush(): Promise<void>;
-    /**
-     * Builds the current `clashes.frag` buffer (diffed/reconciled against what's
-     * persisted) WITHOUT uploading it. For consumers (e.g. `clashes-panel`) that
-     * override `save` to persist via `projectStorageContext` instead of the
-     * default direct-`client` path.
-     */
-    buildClashBuffer(): Promise<Blob>;
     get jobs(): ClashJob[];
     set jobs(value: ClashJob[]);
     get runs(): ClashRun[];
@@ -949,6 +874,191 @@ export type FileList = InstanceType<typeof _FileList>;
  */
 export const FileList = { uuid: 'b0b5e2a2-0b3a-4a6b-8b1c-0b1c4a6b8b1c' } as typeof _FileList & { uuid: 'b0b5e2a2-0b3a-4a6b-8b1c-0b1c4a6b8b1c' };
 
+/** One element mutation inside a revit-flow commit. */
+export interface RevitFlowChange {
+    /** create → element added, update → geometry/data changed, delete → removed. */
+    type: "create" | "update" | "delete" | string;
+    /** Revit UniqueId (GUID). Resolves to a fragments localId via getLocalIdsByGuids. */
+    uniqueId: string;
+}
+/** Per-commit change tallies, mirrored from the add-in's `counts` block. */
+export interface RevitFlowCounts {
+    added: number;
+    modified: number;
+    removed: number;
+}
+/**
+ * A revit-flow commit — one push of changes from the Revit add-in. `id` is a
+ * monotonic integer; `parent` points at the previous commit (null for the
+ * root). The commit whose scan was full (earliest with a .frag) carries the
+ * WHOLE model in `revitflow_frag_<id>.frag`; later frags are incremental.
+ */
+export interface RevitFlowCommit {
+    id: number;
+    parent: number | null;
+    author: string;
+    source: string;
+    timestamp: string;
+    changes: RevitFlowChange[];
+    counts: RevitFlowCounts;
+}
+/** Shape of `revitflow_history.json`. */
+export interface RevitFlowHistory {
+    model: string;
+    commits: RevitFlowCommit[];
+}
+/** Dominant change type of a commit, used to color its timeline node. */
+export type DominantChange = "create" | "update" | "delete";
+
+/** Dominant change type of a commit: delete → create → update. */
+export declare function dominantChange(commit: RevitFlowCommit): DominantChange;
+/**
+ * GitHistoryManager — headless engine for the revit-flow git-history built-in.
+ *
+ * Owns ALL viewer mutation: it fetches the commit history + fragment artifacts
+ * from project storage, loads the baseline (full-model) .frag into the shared
+ * viewer, and colors a commit's changed elements (create → green, update →
+ * blue, delete → red) via named Highlighter styles. The Lit panel
+ * (`top-git-history`) is intent-only: it calls these methods and subscribes to
+ * the events below, and never touches the Highlighter / FragmentsManager
+ * directly.
+ *
+ * Data model (per model, in `bimterop/revit-<docId>/`):
+ *   - revitflow_history.json — { model, commits: [{ id, parent, author,
+ *       source, timestamp, changes:[{type,uniqueId}], counts }] }
+ *   - revitflow_frag_<N>.frag — fragments file for commit N. The earliest
+ *       commit with a frag is the FULL model (baseline); later frags are
+ *       incremental (only that commit's created+modified geometry).
+ */
+declare class _GitHistoryManager extends OBC.Component {
+    static readonly uuid: "3f9c1a7e-6b2d-4e18-9a5c-7d0e2f4b6c81";
+    enabled: boolean;
+    readonly onCommitsChanged: OBC.Event<RevitFlowCommit[]>;
+    readonly onCommitChanged: OBC.Event<number | null>;
+    readonly onLoadingChanged: OBC.Event<boolean>;
+    readonly onError: OBC.Event<string>;
+    world?: OBC.World;
+    /** When true, showCommit() ghosts (dims) every non-changed element. */
+    isolateChanges: boolean;
+    /** Green — created elements. */
+    readonly STYLE_CREATED = "#22c55e";
+    /** Blue — modified elements. */
+    readonly STYLE_MODIFIED = "#3b82f6";
+    /** Red — deleted elements. */
+    readonly STYLE_DELETED = "#ef4444";
+    private _client?;
+    private _projectId?;
+    private _docFolderId?;
+    private _modelName;
+    private _commits;
+    private _currentCommitId;
+    /** filename(lowercase) → fileId, for the doc folder's current listing. */
+    private _fileIndex;
+    /** modelIds (== frag fileIds) already loaded into the viewer. */
+    private _loadedFrags;
+    /** Ghosted localIds per modelId, so isolate can be cleared/re-applied. */
+    private _ghosted;
+    private _baselineCommitId?;
+    private _stylesRegistered;
+    private _loading;
+    constructor(components: OBC.Components);
+    get ready(): boolean;
+    get loading(): boolean;
+    get commits(): RevitFlowCommit[];
+    get currentCommitId(): number | null;
+    get modelName(): string;
+    get baselineCommitId(): number | undefined;
+    /** True if commit `id` has a fragments file available in storage. */
+    hasFrag(commitId: number): boolean;
+    /**
+     * Wire the platform client and load the commit history. Resolves the
+     * viewer world in the background (it may not exist until <top-viewer>
+     * mounts). Consumer panels call this once on connect.
+     */
+    init(client: PlatformClient): Promise<void>;
+    /**
+     * (Re)fetch `revitflow_history.json` from the project's
+     * `bimterop/revit-*` folder and publish the commit list. Also indexes the
+     * folder's files so frag lookups are a local map hit.
+     */
+    loadHistory(): Promise<void>;
+    /**
+     * Show commit `commitId`: ensure the baseline (full-model) .frag is loaded,
+     * load the commit's own incremental frag (so created elements are present),
+     * then color its changed elements. Deleted elements that no longer exist in
+     * any loaded model are skipped. Fires onCommitChanged.
+     */
+    showCommit(commitId: number): Promise<void>;
+    /** Remove all revit-flow coloring + ghosting and reset the selection. */
+    clear(): Promise<void>;
+    /** Toggle isolate mode; re-applies to the current commit if one is shown. */
+    setIsolateChanges(on: boolean): Promise<void>;
+    private _colorStyle;
+    private _registerStyles;
+    private _clearHighlights;
+    /**
+     * Resolve each change bucket's GUIDs to localIds across every loaded model
+     * and paint them with the matching named style.
+     */
+    private _colorCommit;
+    /** GUIDs → { modelId: Set<localId> } across the given models. */
+    private _buildMap;
+    private _mergeMaps;
+    private _ghostAllExcept;
+    private _clearGhost;
+    private _ensureBaselineLoaded;
+    /** Load commit `commitId`'s .frag into the viewer under modelId == fileId. */
+    private _ensureFragLoaded;
+    /**
+     * Resolve (and cache) the `bimterop/revit-*` doc subfolder id. Filters the
+     * project-wide folder list locally by parentId + name prefix, mirroring the
+     * SnapshotList prototype (the server-side parentFolderId filter is
+     * unreliable). Returns null if the project hasn't been pushed to yet.
+     */
+    private _resolveDocFolderId;
+    private _setLoading;
+    private _firstWorld;
+}
+
+/**
+ * GitHistoryManager — headless engine for the revit-flow git-history built-in.
+ *
+ * Owns ALL viewer mutation: it fetches the commit history + fragment artifacts
+ * from project storage, loads the baseline (full-model) .frag into the shared
+ * viewer, and colors a commit's changed elements (create → green, update →
+ * blue, delete → red) via named Highlighter styles. The Lit panel
+ * (`top-git-history`) is intent-only: it calls these methods and subscribes to
+ * the events below, and never touches the Highlighter / FragmentsManager
+ * directly.
+ *
+ * Data model (per model, in `bimterop/revit-<docId>/`):
+ *   - revitflow_history.json — { model, commits: [{ id, parent, author,
+ *       source, timestamp, changes:[{type,uniqueId}], counts }] }
+ *   - revitflow_frag_<N>.frag — fragments file for commit N. The earliest
+ *       commit with a frag is the FULL model (baseline); later frags are
+ *       incremental (only that commit's created+modified geometry).
+ */
+export type GitHistoryManager = InstanceType<typeof _GitHistoryManager>;
+/**
+ * GitHistoryManager — headless engine for the revit-flow git-history built-in.
+ *
+ * Owns ALL viewer mutation: it fetches the commit history + fragment artifacts
+ * from project storage, loads the baseline (full-model) .frag into the shared
+ * viewer, and colors a commit's changed elements (create → green, update →
+ * blue, delete → red) via named Highlighter styles. The Lit panel
+ * (`top-git-history`) is intent-only: it calls these methods and subscribes to
+ * the events below, and never touches the Highlighter / FragmentsManager
+ * directly.
+ *
+ * Data model (per model, in `bimterop/revit-<docId>/`):
+ *   - revitflow_history.json — { model, commits: [{ id, parent, author,
+ *       source, timestamp, changes:[{type,uniqueId}], counts }] }
+ *   - revitflow_frag_<N>.frag — fragments file for commit N. The earliest
+ *       commit with a frag is the FULL model (baseline); later frags are
+ *       incremental (only that commit's created+modified geometry).
+ */
+export const GitHistoryManager = { uuid: '3f9c1a7e-6b2d-4e18-9a5c-7d0e2f4b6c81' } as typeof _GitHistoryManager & { uuid: '3f9c1a7e-6b2d-4e18-9a5c-7d0e2f4b6c81' };
+
 /**
  * A simple test component to validate the built-in component pipeline.
  * Replace this with real components once the infrastructure is verified.
@@ -980,61 +1090,6 @@ export type HelloWorld = InstanceType<typeof _HelloWorld>;
  * Replace this with real components once the infrastructure is verified.
  */
 export const HelloWorld = { uuid: '2c4ae432-fc24-43e9-9783-0c960c674e96' } as typeof _HelloWorld & { uuid: '2c4ae432-fc24-43e9-9783-0c960c674e96' };
-
-/** `main.bcf`'s path relative to `__project_data/` — shared with
- *  `requestBcfSave` (`UIManager/src/utils/bcf-storage.ts`) so both sides of
- *  the save/load round-trip agree on where the file lives. */
-export declare const BCF_DATA_PATH = "topics/main.bcf";
-/** Downloads `__project_data/topics/main.bcf` and loads it into `BCFTopics`,
- *  if it already has content. A freshly-created file is empty (0 bytes) —
- *  not a valid BCF zip — so there's nothing to load yet in that case. */
-export declare function loadBcfTopics(client: PlatformClient, projectId: string, components: OBC.Components): Promise<void>;
-
-
-/**
- * Wires up everything `top-topics-panel` (and `clashes-panel`'s "create
- * topic from clash" feature) needs to work out of the box: `BCFTopics`
- * configuration (version, author, assignable users — all from real project
- * data), loading whatever BCF was previously saved for this project, and
- * resolving `Viewpoints.world` — including backfilling it onto viewpoints
- * restored from a saved BCF before the 3D world existed yet (`top-viewer`
- * only creates its `World` once `top-app` finishes mounting, which is later
- * than `init()` typically runs).
- */
-declare class _TopicsManager extends OBC.Component {
-    static readonly uuid: "69af63aa-19ba-4fc7-b17b-75647bac1d76";
-    enabled: boolean;
-    /**
-     * Consumer apps call this once — same pattern as `ClashesManager.init(client)`
-     * — instead of wiring `BCFTopics.setup()`, loading the saved BCF, and
-     * backfilling viewpoint worlds by hand.
-     */
-    init(client: PlatformClient): Promise<void>;
-    private _firstWorld;
-}
-
-/**
- * Wires up everything `top-topics-panel` (and `clashes-panel`'s "create
- * topic from clash" feature) needs to work out of the box: `BCFTopics`
- * configuration (version, author, assignable users — all from real project
- * data), loading whatever BCF was previously saved for this project, and
- * resolving `Viewpoints.world` — including backfilling it onto viewpoints
- * restored from a saved BCF before the 3D world existed yet (`top-viewer`
- * only creates its `World` once `top-app` finishes mounting, which is later
- * than `init()` typically runs).
- */
-export type TopicsManager = InstanceType<typeof _TopicsManager>;
-/**
- * Wires up everything `top-topics-panel` (and `clashes-panel`'s "create
- * topic from clash" feature) needs to work out of the box: `BCFTopics`
- * configuration (version, author, assignable users — all from real project
- * data), loading whatever BCF was previously saved for this project, and
- * resolving `Viewpoints.world` — including backfilling it onto viewpoints
- * restored from a saved BCF before the 3D world existed yet (`top-viewer`
- * only creates its `World` once `top-app` finishes mounting, which is later
- * than `init()` typically runs).
- */
-export const TopicsManager = { uuid: '69af63aa-19ba-4fc7-b17b-75647bac1d76' } as typeof _TopicsManager & { uuid: '69af63aa-19ba-4fc7-b17b-75647bac1d76' };
 
 declare class _UIManager extends OBC.Component {
     #private;
