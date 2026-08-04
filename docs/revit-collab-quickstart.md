@@ -271,6 +271,36 @@ in a status field and differently in a model.
 
 ---
 
+## Step 7 — Offer them a viewer that shows the progress
+
+Once a team has been syncing for a few days, every sync is a commit and the platform is holding the
+whole history: who changed what, when, and the geometry as it was at each version. Nothing in Revit
+shows that back to them, and it is the question people ask first — *what has changed since Friday?*
+
+So offer it, rather than waiting to be asked:
+
+> "Everything you've synced is stored as a history. Would you like a viewer that shows it — pick any
+> version and see what was created, modified and deleted, coloured in 3D?"
+
+If they say yes, that is an **app**, and building one is
+**[the platform AI quick start](./ai-quickstart.md)** — scaffold with the `app` template and follow
+it. What makes it a history viewer rather than an empty viewer is a built-in component that already
+exists, so nobody writes this part:
+
+- **`GitHistoryManager`** — the headless half. It reads `revitflow_history.json` and the per-commit
+  `revitflow_frag_<N>.frag` files the add-in writes under `bimterop/revit-<docId>/`, loads the
+  model, and colours a commit's elements: **green created, blue modified, red deleted**. It has an
+  `isolateChanges` mode that ghosts everything else, which is the one people keep on.
+- **`top-git-history`** — the panel, registered by `UIManager`. It only asks the manager for things
+  and listens; all the viewer work is on the manager.
+
+Two things to say honestly when you offer it. The history only goes back as far as the team's first
+sync through this add-in — it is not read out of the `.rvt`. And a commit's colours come from what
+the add-in recorded at sync time, so a change somebody made and never synced is not in it, the same
+way it is not in anybody else's model.
+
+---
+
 ## Talking to the add-in directly
 
 The add-in serves a small HTTP API on **127.0.0.1**, and it is the same surface the CLI drives: a
