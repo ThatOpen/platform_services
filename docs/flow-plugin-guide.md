@@ -152,6 +152,32 @@ made every proposal declare its units, which looked careful and was a bug waitin
 an author state a unit while writing coordinates in an axis convention the target does not use, a
 mistake no declared unit can catch.
 
+### Who wrote it
+
+`author` is free text for a timeline to print. `userId` is the one that has to be right: it is what
+the platform's own member component resolves into a real name and face. Get it wrong and the
+proposal shows up under somebody else's avatar, which is worse than showing none.
+
+**In a browser app, take it from `getProjectData`.** It answers with `currentUser` already resolved
+server-side, and the members it lists are keyed by exactly the id the history panel indexes:
+
+```ts
+const { currentUser } = await client.getProjectData(projectId);
+const userId = currentUser?.user._id;      // what the avatar resolves against
+const author = currentUser?.user.fullName; // what the timeline prints
+```
+
+**Do not look for it on the client's context.** `client.context` is the four fields the platform
+injects into the iframe: `appId`, `projectId`, `accessToken`, `apiUrl`. Reading `context.userId` or
+`context.user.name` yields `undefined`, and both failures are silent: the envelope simply ships
+without a `userId`, and the panel falls back to passing `author` as the email, so the member
+component renders whatever it makes of a string that names nobody. A converter did exactly this, and
+it looked fine until somebody noticed the proposal was wearing another person's face.
+
+**In a native plug-in there is no such call**, so read the `u` claim out of the API key's JWT payload
+(base64url, no signature check, since this only decides which name to display). That is what the
+Revit add-in does.
+
 ### The verbs
 
 One per item, in the attribute `flow:op`:
