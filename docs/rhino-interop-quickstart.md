@@ -335,6 +335,38 @@ would have built a converter against a layer name nobody was using any more.
 The tables above are here so nobody has to do that. If you still want to see real bytes, publish
 something small and read it back inside the app.
 
+### What "it builds" does not tell you
+
+The dev build does not typecheck. `npm run build` said **111 modules, built clean** on a converter
+whose `tsc --noEmit` was red in four places, and the run that produced this guide read that line as
+proof and moved on. Run the typechecker separately, and read what it says.
+
+Its complaint was worth having. A file that does not exist yet is read with a fallback, and the
+fallback's shape becomes the type:
+
+```ts
+const history = await this._readJson(id, { commits: [] });   // commits: never[]
+const head = history.commits.at(-1);                          // head: never
+```
+
+Every field read off `head` is then an error, which is the typechecker pointing out that the empty
+case was never really thought about. Type the fallback, and decide what an empty history means.
+
+Three more that only fail once somebody presses the button:
+
+- **The published file name is a parameter, not a constant.** `/publish` takes `name`. A converter
+  that hardcodes `rhino-columns.frag` answers "publish from Rhino first" when the file is right
+  there under another name. If you cannot find it, list what the folder actually holds and say so.
+- **A loose folder match picks silently.** Falling back from an exact name to "any folder ending in
+  this" is fine with one project and wrong the first time there are two, with nothing on screen to
+  say which one it chose.
+- **The platform round trip is not exercised by anything above.** The two failures this cost were
+  `parentFolderId` and the version tag, and both compiled, read fine, and only spoke on the first
+  real click. Press it once yourself, on something small, before showing it to anybody.
+
+Not clicking it in front of the user is still the right call. Queuing a proposal writes into a
+shared project, and that is theirs to trigger. Press it in a scratch document instead.
+
 ## 6. Accept it in Revit
 
 The Revit add-in's local API, `%APPDATA%\ThatOpen\revit-addin.json`, header `X-RevitFlow-Token`.
@@ -389,3 +421,7 @@ lands in the history, with the new columns in it, viewable in the app like any o
 - **Version tags are timestamps, not counts.** Numbering by how many entries there are collides on
   the very first update.
 - **Stray `.frag` files on the machine are not the current format.** They are an earlier session.
+- **A clean build is not a typecheck.** Vite does not run `tsc`. "Built clean" and "correct" are two
+  different sentences.
+- **Read these guides verbatim.** A fetch that summarises gives you the shape of the thing and none
+  of the numbers, and every number here was paid for. Use the raw URL.
