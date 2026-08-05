@@ -1,5 +1,22 @@
 # thatopen-services
 
+## 0.8.0
+
+### Minor Changes
+
+- Two commands that collapse the work of about a dozen.
+
+  `thatopen revit share --file <path> --project <id> [--doc <name>]` takes a `.rvt` on disk to your
+  own local open in Revit. It installs the add-in when nothing is listening, starts Revit and waits
+  for it, checks whether the file is already a central, publishes it, and joins. Five named steps, so
+  a long silence is always something you can point at. It accepts the dashboard URL as well as the
+  project id, derives `--doc` from the file name, and always works on a copy. The pieces it drives
+  are unchanged and still available on their own.
+
+  `thatopen create <name> --beta --history` scaffolds an app with the revit-flow commit history panel
+  already wired, opening on the History layout. It swaps in a whole `main.ts` rather than patching
+  one: the wiring is four additions in three places and the order between them is load-bearing.
+
 ## 0.7.0
 
 ### Minor Changes
