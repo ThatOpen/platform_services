@@ -110,6 +110,17 @@ npm run dev
 Serves the app and opens it inside the platform. **You now have a complete, working viewer** —
 model loading, spatial tree, properties, measurement, sectioning, and more.
 
+If it does not open by itself, or the user closes the tab, the app you are serving from this
+machine lives at:
+
+```
+https://platform.thatopen.com/dashboard/projects/<PROJECT_ID>/apps/local-app
+```
+
+Substitute the project id. That is the local app running inside the platform's own UI, against
+the project's real data. Send the user there rather than to a bare localhost port, which is the
+app without the platform around it.
+
 > **`npx tsc --noEmit` reports errors in a fresh beta scaffold, and they are not real.** You will see
 > a handful of `Cannot find module '@thatopen/components'` and friends. A beta project aliases those
 > imports to the `@thatopen-platform/*-beta` packages in `vite.config.js`, which bare `tsc` does not
@@ -125,6 +136,101 @@ model loading, spatial tree, properties, measurement, sectioning, and more.
 npm run run        # executes the component locally against the platform (no browser)
 ```
 Runs `main()` in a local emulation of the cloud engine so you can iterate before publishing.
+
+## THE BOOT ORDER. Read this before you write a line of an app.
+
+**This is where apps break, and the error never names the real cause.** An app boots in four
+stages, and a built-in that touches models or the 3D scene must be initialised in the LAST one.
+Call it where it reads naturally, right after `client.setup`, and you get:
+
+```
+Error: FragmentsManager not initialized. Call init() first.
+Uncaught (in promise) TypeError: Cannot read properties of undefined (reading 'onHighlight')
+Uncaught (in promise) TypeError: Cannot read properties of undefined (reading 'onClear')
+```
+
+None of which says "you called this too early". The app renders, the panel mounts, and it sits
+there inert.
+
+**Why.** `FragmentsManager` is initialised inside `top-app`'s own `setup` callback, and the 3D
+world does not exist until `<top-app>` has been added to the DOM and `top-viewer` has built it.
+Both of those happen well after `client.setup` returns. Any manager that reads model files or
+colours elements reaches for them the moment it starts.
+
+**The order, and it is not negotiable:**
+
+1. `client.setup(...)` with every built-in you need, then `components.get(UIManager).init()`
+2. `app.setup = ...`, which is where `FragmentsManager.init` goes, and append `<top-app>`
+3. `await firstWorld(...)`, so the world exists
+4. **only now**, `init(client)` on the model-facing managers
+
+Copy this skeleton. It is the boot of an app that works.
+
+```ts
+async function main() {
+  const client = PlatformClient.fromPlatformContext();
+
+  // 1 ── built-ins registered, UI shell up
+  const { components } = await client.setup<OBC.Components>(
+    { OBC, OBF, BUI, THREE, FRAGS, MARKERJS },
+    { uuid: UIManager.uuid },
+    { uuid: GitHistoryManager.uuid },        // and any other built-in you use
+  );
+  components.get(UIManager).init();
+
+  const viewerEl = document.createElement("top-viewer");
+  const app = document.createElement("top-app") as any;
+
+  // 2 ── this callback is what initialises FragmentsManager. Nothing that needs
+  //      fragments may run before it has resolved.
+  app.setup = (waitUntil: (p: Promise<void>, label?: string) => void) => {
+    waitUntil(
+      (async () => {
+        const fragments = components.get(OBC.FragmentsManager);
+        const workerUrl = await FRAGS.FragmentsModels.getWorker();
+        fragments.init(await FRAGS.toClassicWorker(workerUrl), { classicWorker: true });
+      })(),
+      "Fragments Core",
+    );
+    return { components, client };
+  };
+
+  app.elements = { viewer: () => BUI.html`${viewerEl}` };
+  app.layouts = { Main: { template: `"viewer" 1fr / 1fr` } };
+  app.layout = "Main";
+  (document.getElementById("that-open-app") ?? document.body).appendChild(app);
+
+  // 3 ── the world is created asynchronously by top-viewer. Wait for it.
+  await firstWorld(components.get(OBC.Worlds));
+
+  // 4 ── ONLY NOW. Everything above had to have happened first.
+  await components.get(GitHistoryManager).init(client);
+
+  // ...and from here, the real layouts, panels and elements.
+}
+
+/** Resolves with the first world once it exists (top-viewer creates it async). */
+function firstWorld(worlds: any): Promise<any> {
+  const existing = [...worlds.list.values()][0];
+  if (existing) return Promise.resolve(existing);
+  return new Promise((resolve) => {
+    const handler = ({ value }: any) => {
+      worlds.list.onItemSet.remove(handler);
+      resolve(value);
+    };
+    worlds.list.onItemSet.add(handler);
+  });
+}
+```
+
+**Two more traps in the same family:**
+
+- **One stable `top-viewer` node, held in a variable and returned by reference** from every
+  `elements.viewer()` call. Creating a fresh element on each render disposes the world and
+  builds another one, and everything wired to the old one goes quiet.
+- **Registering a built-in is not the same as initialising it.** `client.setup` makes
+  `<top-git-history>` resolvable; `init(client)` is what fills it. A panel that mounts and stays
+  empty is usually the second one missing, not the first.
 
 ## 5. Then build — read the in-project agent guide
 
