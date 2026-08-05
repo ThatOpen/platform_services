@@ -965,172 +965,557 @@ export interface RevitFlowCounts {
 /**
  * A revit-flow commit — one push of changes from the Revit add-in. `id` is a
  * monotonic integer; `parent` points at the previous commit (null for the
- * root). The commit whose scan was full (earliest with a .frag) carries the
- * WHOLE model in `revitflow_frag_<id>.frag`; later frags are incremental.
+ * root). The first commit is the baseline: its geometry IS the visible model
+ * file. Later commits carry only their delta geometry, in a HIDDEN .frag whose
+ * id is `deltaId`.
  */
 export interface RevitFlowCommit {
-    id: number;
-    parent: number | null;
+    /**
+     * WHAT this commit is. Identity, minted by whoever wrote it, meaningful outside the model it
+     * belongs to — which the old integer was not: that was the platform's storage version, a number
+     * the CDE handed out. An application that does not push through a Revit central has no such
+     * number, and an integer sequence asserts one line of history, which Revit's central enforces and
+     * nothing else has to.
+     */
+    guid: string;
+    /**
+     * The commits this one was built on. Absent on a root.
+     *
+     * A LIST, because a history that can only ever be a line is a different thing from a graph. A
+     * fork was already expressible with a single parent — two commits naming the same one — but a
+     * MERGE means naming both lines, and that needs this. The first entry is the line the commit
+     * continues, which is what lets the panel lay out lanes without guessing which side is the trunk.
+     *
+     * Revit never writes more than one: its central IS a single line and it merges inside itself
+     * rather than in this graph. The list is for the applications that are not Revit.
+     */
+    parents?: string[] | null;
+    /**
+     * WHERE this landed in the CDE, when there is such a place. Data, never identity, and never shown
+     * as the commit's name. Absent for any application with no version counter.
+     */
+    version?: number;
+    /**
+     * Position in this model's history, computed from the parent chain when the commits are read.
+     *
+     * Order questions — "is this commit before the one on screen?" — used to be asked of the integer
+     * id, which meant every application had to produce a sequence to be understood. They are asked of
+     * this instead: derived from the graph, so an application that has no numbers still answers them.
+     */
+    ordinal: number;
+    /**
+     * What the author said this commit was for, in their own words. Absent when nobody said
+     * anything, which is most commits.
+     *
+     * In Revit it comes from the Comment box in its own Synchronize with Central dialog, which
+     * people have been typing into for years while it went nowhere. Free text: never parsed, never
+     * relied on for structure.
+     */
+    message?: string;
     author: string;
     source: string;
     timestamp: string;
     changes: RevitFlowChange[];
     counts: RevitFlowCounts;
+    /**
+     * Hidden-file id of this commit's delta .frag (created+modified geometry).
+     * Absent on the baseline/first commit and on geometry-less commits. The
+     * platform's hidden-file API has no queryable name, so the delta is loaded by
+     * this id, never by filename.
+     */
+    deltaId?: string;
+    /**
+     * Platform user id of the committer, recorded by the add-in from its API key. Lets the
+     * UI resolve the author to a real project member (avatar + name) via getProjectData,
+     * instead of deriving initials from the raw Revit username. Absent on history written
+     * before this was recorded, or when the key isn't a readable JWT.
+     */
+    userId?: string;
+    /**
+     * Which loaded model this commit belongs to (the model file's id == the viewer's
+     * modelId). Tagged in by the manager when it reads the history: commit ids are
+     * per-model version numbers, so they repeat across models and can't identify a commit
+     * on their own.
+     */
+    modelId?: string;
+    /** The model's name AS SHOWN IN PROJECT FILES, for the cards and the model filter. */
+    modelName?: string;
+    /**
+     * This commit re-exported the WHOLE model, so the project's visible .frag shows the
+     * model as of here — what anyone opening it from Project Files gets, without the
+     * history panel. True for the initial capture and for the periodic full exports the
+     * team publishes; ordinary commits ship only their delta.
+     */
+    full?: boolean;
+    /**
+     * Interoperability operations this commit materialised. Present only when somebody in
+     * Revit pulled a deferred edit: the commit is the native half of it, and this is the
+     * link back to the operation that asked for it. Ordinary hand-authored commits, which
+     * are nearly all of them, carry no such key at all.
+     */
+    appliedOps?: string[];
+    /**
+     * Set when this entry is NOT a commit but a deferred edit still waiting to be applied.
+     *
+     * Pending operations are surfaced commit-SHAPED rather than as a parallel kind of thing, so
+     * they inherit search, the user and model filters, the change-kind chips and the
+     * filter-by-selection behaviour instead of needing all of it reimplemented. It also means
+     * one of them can be clicked and previewed: a `modify` or `delete` names elements that
+     * already exist, which is exactly what the outline machinery consumes, so you can see what
+     * a change will touch before anybody applies it. A `create` has nothing to show yet, which
+     * is honest rather than missing.
+     *
+     * Everything that treats an entry as history must check this first: it has not happened.
+     */
+    pendingOp?: RevitFlowOp;
 }
 /** Shape of `revitflow_history.json`. */
 export interface RevitFlowHistory {
     model: string;
     commits: RevitFlowCommit[];
 }
+/**
+ * One deferred edit waiting to be applied to a model.
+ *
+ * Operations are NOT commits and do not live in the graph: a commit is immutable past, an
+ * operation is optional future. They sit above the model's HEAD until somebody opens the
+ * model in Revit and applies one, at which point they become a commit and stop being
+ * pending. Mirrors the add-in's `revitflow_ops.json`.
+ */
+export interface RevitFlowOp {
+    opId: string;
+    /** Groups the operations one authored action produced across several models. */
+    batchId?: string;
+    /** Hidden-file id of the operation's .frag payload. */
+    fragId?: string;
+    title?: string;
+    /** add | set | remove | mixed. Older queues say modify | create | delete. */
+    verb?: string;
+    author?: string;
+    /**
+     * Platform user id of whoever authored it. Resolved to a real project member exactly as a
+     * commit's is, so the same person does not appear as "Antonio That Open" on their commits
+     * and as their raw OS username on their operations.
+     */
+    userId?: string;
+    createdAt?: string;
+    /** The commit this operation was authored against. */
+    /** The commit this was authored against, by guid. What a proposal actually refers to. */
+    baseCommitGuid?: string;
+    /** The platform version that commit landed in. Data, for reconciling with the CDE. */
+    baseCommit?: number;
+    /** How many elements it targets. */
+    targets?: number;
+    state?: "pending" | "applied" | "discarded" | string;
+    /** The native commit that materialised it, once applied. */
+    appliedInCommit?: number | null;
+    /**
+     * Native ids the operation actually touched or created, written by the add-in when it applied.
+     * A FLAT list: it does not say which source object produced which result, because nothing in
+     * this system ties an element to an element in another application.
+     *
+     * It is what lets an APPLIED proposal be selected and previewed like a commit, with no payload
+     * fetch at all. Note which halves that leaves blind, because they are opposite ends:
+     *
+     *   add     pending → nothing exists yet   ·  applied → these are what it made
+     *   set     pending → its targets          ·  applied → the same targets
+     *   remove  pending → its targets          ·  applied → nothing, they are gone
+     *
+     * So the only case still needing the payload is a PENDING set or remove, whose target ids live
+     * in the operation's .frag rather than in this index.
+     */
+    affectedIds?: string[];
+    /** Tagged in by the manager, exactly as commits are: which model this queue belongs to. */
+    modelId?: string;
+    modelName?: string;
+}
+/** Shape of `revitflow_ops.json`. */
+export interface RevitFlowOpsIndex {
+    schema?: string;
+    ops: RevitFlowOp[];
+}
 /** Dominant change type of a commit, used to color its timeline node. */
 export type DominantChange = "create" | "update" | "delete";
 
-/** Dominant change type of a commit: delete → create → update. */
+/** What to do with elements outside the selected commit. */
+export type ContextMode = "default" | "hidden";
+/** The three kinds of change a commit can carry. */
+export type ChangeKind = "create" | "update" | "delete";
+/**
+ * Stable id for a commit across models â€” which is now just its guid.
+ *
+ * It used to have to be `${model}:${id}`, because the id was a per-model version number and every
+ * model had a commit 3. A guid needs no help being unique, and that is exactly what it was for.
+ */
+export declare const commitKey: (c: {
+    guid?: string;
+    pendingOp?: {
+        opId: string;
+    };
+}) => string;
+/** How the commit is shown in 3D: review colours, or the model as it ended up. */
+export type HighlightMode = "colored" | "plain";
+/** Dominant change type of a commit: delete â†’ create â†’ update. */
 export declare function dominantChange(commit: RevitFlowCommit): DominantChange;
 /**
- * GitHistoryManager — headless engine for the revit-flow git-history built-in.
+ * GitHistoryManager â€” headless engine for the revit-flow git-history built-in.
  *
- * Owns ALL viewer mutation: it fetches the commit history + fragment artifacts
- * from project storage, loads the baseline (full-model) .frag into the shared
- * viewer, and colors a commit's changed elements (create → green, update →
- * blue, delete → red) via named Highlighter styles. The Lit panel
- * (`top-git-history`) is intent-only: it calls these methods and subscribes to
- * the events below, and never touches the Highlighter / FragmentsManager
- * directly.
+ * Owns ALL viewer mutation for the change outlines. It does NOT load the model â€”
+ * the user opens a model from the Project Files panel, and this manager reacts to
+ * that load: it reads the model's hidden `revitflow_history.json` (if any) and
+ * publishes the commit list. Showing a commit outlines its changed elements
+ * (create â†’ green, update â†’ blue, delete â†’ red) via three independently-colored
+ * `OBF.Outliner` groups â€” a cheap post-process outline that never recolors the
+ * fragment geometry. The Lit panel (`top-git-history`) is intent-only: it calls
+ * these methods and subscribes to the events below.
  *
- * Data model (per model, in `bimterop/revit-<docId>/`):
- *   - revitflow_history.json — { model, commits: [{ id, parent, author,
- *       source, timestamp, changes:[{type,uniqueId}], counts }] }
- *   - revitflow_frag_<N>.frag — fragments file for commit N. The earliest
- *       commit with a frag is the FULL model (baseline); later frags are
- *       incremental (only that commit's created+modified geometry).
+ * Data model, per loaded model (fileId == modelId), all HIDDEN children of it:
+ *   - revitflow_history.json â€” { model, commits: [{ id, parent, author, source,
+ *       timestamp, changes:[{type,uniqueId}], counts }] }. The first commit is the
+ *       INITIAL full-model capture (its geometry == the visible baseline file).
+ *   - revitflow_frag_<N>.frag â€” delta fragments for commit N (its created+modified
+ *       geometry), loaded on demand so created elements can be colored.
  */
 declare class _GitHistoryManager extends OBC.Component {
     static readonly uuid: "3f9c1a7e-6b2d-4e18-9a5c-7d0e2f4b6c81";
     enabled: boolean;
     readonly onCommitsChanged: OBC.Event<RevitFlowCommit[]>;
-    readonly onCommitChanged: OBC.Event<number | null>;
+    /** {@link commitKey} of the highlighted commit, or null when cleared. */
+    readonly onCommitChanged: OBC.Event<string | null>;
     readonly onLoadingChanged: OBC.Event<boolean>;
     readonly onError: OBC.Event<string>;
+    /** The GUID currently selected in the 3D view (null when the selection is cleared). */
+    readonly onSelectedGuidChanged: OBC.Event<string | null>;
     world?: OBC.World;
-    /** When true, showCommit() ghosts (dims) every non-changed element. */
-    isolateChanges: boolean;
-    /** Green — created elements. */
-    readonly STYLE_CREATED = "#22c55e";
-    /** Blue — modified elements. */
-    readonly STYLE_MODIFIED = "#3b82f6";
-    /** Red — deleted elements. */
-    readonly STYLE_DELETED = "#ef4444";
+    /**
+     * What happens to elements that are NOT part of the selected commit:
+     *   "default" â€” left as they are (the change outlines sit on the full model)
+     *   "hidden"  â€” hidden entirely, isolating the commit's elements
+     *
+     * A dimmed ("ghost") middle ground was dropped: the fragments x-ray writes depth
+     * from the pixels its screen door keeps, so dimmed geometry still occluded the very
+     * elements under review â€” worse the denser the model in front. Fixing that properly
+     * belongs in the renderer, not here, so this offers the two states that are exact.
+     */
+    contextMode: ContextMode;
+    /**
+     * Which change kinds to outline. All three by default; the panel's filter buttons
+     * narrow it (e.g. only deletions) without reloading anything.
+     */
+    typeFilter: Set<ChangeKind>;
+    /**
+     * How many commits either side of the selected one to keep pre-loaded, so stepping
+     * through the timeline is instant instead of fetching on every click. The window
+     * slides with the selection and everything outside it is disposed, which bounds
+     * memory no matter how long the history gets.
+     */
+    prefetchRadius: number;
+    /**
+     * How a commit is presented in 3D:
+     *   "colored" â€” outline created/edited/deleted in their colours (the review lens)
+     *   "plain"   â€” no outlines: the model simply as it stood AFTER the commit, so the
+     *               deleted elements are hidden rather than painted red
+     */
+    highlightMode: HighlightMode;
+    /** @deprecated kept so older callers still compile â€” maps onto contextMode. */
+    get isolateChanges(): boolean;
+    /** Green â€” created elements. */
+    readonly COLOR_CREATED = "#22c55e";
+    /** Golden yellow â€” modified elements. */
+    readonly COLOR_MODIFIED = "#e3b341";
+    /** Red â€” deleted elements. */
+    readonly COLOR_DELETED = "#ef4444";
+    readonly GROUP_CREATED = "revitflow-created";
+    readonly GROUP_MODIFIED = "revitflow-modified";
+    readonly GROUP_DELETED = "revitflow-deleted";
     private _client?;
     private _projectId?;
-    private _docFolderId?;
-    private _modelName;
-    private _commits;
-    private _currentCommitId;
-    /** filename(lowercase) → fileId, for the doc folder's current listing. */
-    private _fileIndex;
-    /** modelIds (== frag fileIds) already loaded into the viewer. */
-    private _loadedFrags;
+    /**
+     * One entry per loaded revit-flow model. Commit ids are per-model version numbers, so
+     * they collide across models â€” every commit is tagged with its modelId and a commit is
+     * addressed by {@link commitKey}, never by id alone.
+     */
+    private _models;
+    /** Which models the timeline shows. Empty = all of them. */
+    private _selectedModels;
+    /** `${modelId}:${id}` of the commit currently highlighted, or null. */
+    private _currentKey;
+    /** modelIds already probed for a sibling history (avoids re-probing). */
+    private _probed;
+    /** hiddenIds of delta frags this manager has loaded into the viewer. */
+    private _loadedDeltas;
     /** Ghosted localIds per modelId, so isolate can be cleared/re-applied. */
-    private _ghosted;
-    private _baselineCommitId?;
-    private _stylesRegistered;
+    private _contextApplied;
+    /** localIds hidden because the shown commit deleted them (plain mode). */
+    private _hiddenDeleted;
+    /** localIds hidden because a newer visible source supplies the same element. */
+    private _hiddenSuperseded;
+    /** True once the three named Outliner groups have been created. */
+    private _groupsReady;
     private _loading;
+    private _wired;
     constructor(components: OBC.Components);
     get ready(): boolean;
     get loading(): boolean;
-    get commits(): RevitFlowCommit[];
-    get currentCommitId(): number | null;
-    get modelName(): string;
-    get baselineCommitId(): number | undefined;
-    /** True if commit `id` has a fragments file available in storage. */
-    hasFrag(commitId: number): boolean;
     /**
-     * Wire the platform client and load the commit history. Resolves the
-     * viewer world in the background (it may not exist until <top-viewer>
-     * mounts). Consumer panels call this once on connect.
+     * Commits of the selected models, newest last, interleaved by time so a multi-model
+     * timeline reads chronologically rather than model-by-model.
+     */
+    get commits(): RevitFlowCommit[];
+    /** True when this entry is a proposal rather than something that happened. */
+    isProposal(commit: RevitFlowCommit | null | undefined): boolean;
+    /**
+     * The entry a proposal/commit links to, in whichever direction applies: a commit points at
+     * the proposal it materialised, a proposal at the commit that did it. Returns null when
+     * there is no counterpart, which is the normal case for hand-authored work.
+     */
+    counterpart(commit: RevitFlowCommit): RevitFlowCommit | null;
+    /**
+     * Deferred edits still waiting to be applied, across the selected models, oldest first.
+     *
+     * Kept separate from {@link commits} on purpose. A commit is something that happened; a
+     * pending operation is something that might. Merging them into one list would force every
+     * consumer to keep asking which kind it was holding.
+     */
+    get pendingOps(): RevitFlowOp[];
+    /** The loaded revit-flow models, for the panel's model filter. */
+    get models(): Array<{
+        modelId: string;
+        name: string;
+        commits: number;
+    }>;
+    get selectedModels(): Set<string>;
+    get currentKey(): string | null;
+    /** Name of the single loaded model, or "" when there are none/several. */
+    get modelName(): string;
+    /** The commit behind {@link currentKey}, or undefined when nothing is highlighted. */
+    private _currentCommit;
+    /** Restrict the timeline to these models (empty set = show all of them). */
+    setSelectedModels(modelIds: Iterable<string>): Promise<void>;
+    /** True when `commit` is its model's baseline (the full-model capture). */
+    isBaseline(commit: RevitFlowCommit): boolean;
+    /** True if `commit` has a hidden delta .frag to load. */
+    hasFrag(commit: RevitFlowCommit): boolean;
+    /**
+     * Wire the platform client and subscribe to model loads. Does NOT load any
+     * geometry: the manager only attaches to models the user opens from the Files
+     * panel. Consumer panels call this once on connect.
      */
     init(client: PlatformClient): Promise<void>;
     /**
-     * (Re)fetch `revitflow_history.json` from the project's
-     * `bimterop/revit-*` folder and publish the commit list. Also indexes the
-     * folder's files so frag lookups are a local map hit.
+     * Follow the viewer's selection so the element view tracks whatever the user clicks in
+     * 3D â€” no "trace this" button to press. The Highlighter's events appear asynchronously
+     * (they're registered when the viewer sets it up), so retry briefly until they exist.
+     */
+    private _watchSelection;
+    private _onModelSet;
+    private _onModelDeleted;
+    /**
+     * Probe a loaded model for a sibling visible `revitflow_history.json` in its
+     * folder. If present, adopt it as the active model and publish its commits.
+     * Silent for non-revit models and for our own delta frags â€” only genuine
+     * fetch/parse failures raise onError.
+     */
+    private _probeModel;
+    /**
+     * Read the model's deferred-edit queue, if it has one.
+     *
+     * Best effort by design: a model that has never been the target of an operation simply has
+     * no queue, and that is the normal case rather than an error. A failure here must never
+     * cost the user their history, which is why it cannot throw out of the probe.
+     */
+    private _readOps;
+    /**
+     * Re-scan every currently-loaded model for a hidden revit-flow history (the
+     * panel's Refresh button). Clears the probe cache so models load-order edge
+     * cases re-resolve.
      */
     loadHistory(): Promise<void>;
     /**
-     * Show commit `commitId`: ensure the baseline (full-model) .frag is loaded,
-     * load the commit's own incremental frag (so created elements are present),
-     * then color its changed elements. Deleted elements that no longer exist in
-     * any loaded model are skipped. Fires onCommitChanged.
+     * Show `commit`. The baseline geometry is the visible model the user already loaded, so
+     * the baseline view just clears outlines. Any other commit pulls its hidden delta frag
+     * in (so created elements exist) and outlines its changed elements. Fires
+     * onCommitChanged. Takes the commit itself, not an id: ids repeat across models.
      */
-    showCommit(commitId: number): Promise<void>;
-    /** Remove all revit-flow coloring + ghosting and reset the selection. */
+    showCommit(commit: RevitFlowCommit): Promise<void>;
+    /**
+     * Keep the deltas of the commits around `centerId` loaded and drop the rest, so
+     * stepping through the timeline never stalls and memory stays bounded: moving from
+     * commit 10 to 11 fetches one delta and disposes one, instead of reloading a window.
+     */
+    private _slidePrefetchWindow;
+    /**
+     * Show the model as it stood AT `commit`: the visible baseline is the model at its
+     * INITIAL commit, and everything created later lives in per-commit delta .frags loaded
+     * as separate models. Those deltas stay loaded (the prefetch window keeps neighbours
+     * warm), so stepping BACK has to hide the ones from later commits â€” otherwise a wall
+     * added in commit 3 was still sitting there while you were looking at commit 2.
+     * Only touches deltas of the commit's own model; other models keep their own state.
+     */
+    private _applyFutureVisibility;
+    /** Which commit a loaded delta belongs to (deltas are keyed by their hidden id). */
+    private _commitOfDelta;
+    /** Make every loaded delta visible again (the model as of its latest commit). */
+    private _showAllDeltas;
+    /** Remove all revit-flow outlines + ghosting and reset the selection. */
     clear(): Promise<void>;
-    /** Toggle isolate mode; re-applies to the current commit if one is shown. */
+    /** Set what happens to non-commit elements; re-applies to the current commit. */
+    setContextMode(mode: ContextMode): Promise<void>;
+    /**
+     * Every commit that touched `uniqueId`, oldest first, with what happened to it there.
+     * The element's life story: created here, edited there, finally deleted.
+     */
+    elementHistory(uniqueId: string): Array<{
+        commit: RevitFlowCommit;
+        type: string;
+    }>;
+    /** Per-author totals across the (optionally date-filtered) history. */
+    userActivity(since?: Date): Array<{
+        author: string;
+        userId?: string;
+        commits: number;
+        added: number;
+        modified: number;
+        removed: number;
+        last: string;
+    }>;
+    /**
+     * The GUID of whatever is currently selected in the viewer, so the element view can
+     * follow the user's selection. Returns null when nothing (or something unresolvable)
+     * is selected.
+     */
+    /** GUIDs of everything currently selected in the viewer (empty when nothing is). */
+    selectedGuids(): Promise<string[]>;
+    selectedGuid(): Promise<string | null>;
+    /**
+     * Select every element the commit touched, in the viewer's own selection â€” so the
+     * usual tools (properties, isolate, zoom) work on it like any hand-made selection.
+     * Honours the current type filter, so "only deletions" selects only those.
+     * @returns how many elements ended up selected.
+     */
+    selectCommitElements(commit: RevitFlowCommit, zoom?: boolean): Promise<number>;
+    /** Show/hide one kind of change; re-applies to the current commit. */
+    setTypeVisible(kind: ChangeKind, on: boolean): Promise<void>;
+    /** @deprecated use setContextMode. */
     setIsolateChanges(on: boolean): Promise<void>;
-    private _colorStyle;
-    private _registerStyles;
-    private _clearHighlights;
+    /** The shared Outliner component (created on first access by the viewer). */
+    private _outliner;
+    /**
+     * Create the three independently-colored outline groups once. The viewer
+     * owns the Outliner's DEFAULT group (selection) â€” we only add our own named
+     * groups and never touch "default".
+     */
+    private _ensureGroups;
+    /** Clear our three outline groups only â€” leaves the viewer's default group. */
+    private _clearOutlines;
     /**
      * Resolve each change bucket's GUIDs to localIds across every loaded model
-     * and paint them with the matching named style.
+     * and route them to the matching outline group.
      */
-    private _colorCommit;
-    /** GUIDs → { modelId: Set<localId> } across the given models. */
+    private _outlineCommit;
+    /**
+     * Remove every localId that `_applySupersededVisibility` has hidden from a change map.
+     * Returns a copy: the input maps come from `_buildMap` and are used elsewhere.
+     */
+    private _dropSuperseded;
+    /**
+     * Hide (or restore) the elements a commit deleted. Tracked separately from the context
+     * modes so switching Coloredâ†”Plain doesn't disturb ghosting or the rest of the model.
+     */
+    private _applyDeletedVisibility;
+    /**
+     * Show each element ONCE: from the newest source that supplies it.
+     *
+     * THE BUG THIS EXISTS FOR. The baseline .frag holds the whole model as of the first
+     * commit, and every later commit ships a delta .frag with the geometry it created AND
+     * the geometry it modified. Both stay in the scene. For a CREATED element that is
+     * right â€” it exists in exactly one place. For a MODIFIED one it is not: the element is
+     * in the baseline at its old shape and in the delta at its new one, and the viewer drew
+     * both. Measured 2026-08-05 on a wall whose height Quim raised: the new wall stood
+     * proud of the old one, with the coincident faces z-fighting into a dotted band.
+     *
+     * The rule is the obvious one once stated: for any element, only the newest VISIBLE
+     * source may draw it. Deltas are walked newest-first, each guid is claimed by the first
+     * source that has it, and every older copy â€” in an older delta or in the baseline â€” is
+     * hidden. Deltas newer than the commit being shown are already hidden wholesale by
+     * `_applyFutureVisibility`, so they never get to claim anything.
+     *
+     * Restores before it hides, like `_applyDeletedVisibility`, so stepping backwards
+     * through the timeline brings the old geometry back rather than accumulating hidden
+     * elements until the model is empty.
+     */
+    private _applySupersededVisibility;
+    /** Switch between review colours and the plain post-commit model. */
+    setHighlightMode(mode: HighlightMode): Promise<void>;
+    /**
+     * Make sure the geometry of `deleted` GUIDs is loaded. Anything already resolvable in
+     * a loaded model (the usual case: the element shipped in the baseline) needs nothing;
+     * for the rest, walk back through the history to the commit that CREATED each one and
+     * load that commit's delta, which is the last place its geometry existed.
+     */
+    private _ensureDeletedGeometry;
+    /** GUIDs â†’ { modelId: Set<localId> } across the given models. */
     private _buildMap;
     private _mergeMaps;
-    private _ghostAllExcept;
-    private _clearGhost;
-    private _ensureBaselineLoaded;
-    /** Load commit `commitId`'s .frag into the viewer under modelId == fileId. */
-    private _ensureFragLoaded;
     /**
-     * Resolve (and cache) the `bimterop/revit-*` doc subfolder id. Filters the
-     * project-wide folder list locally by parentId + name prefix, mirroring the
-     * SnapshotList prototype (the server-side parentFolderId filter is
-     * unreliable). Returns null if the project hasn't been pushed to yet.
+     * Dim ("ghost") or hide every element that is NOT part of the shown commit, per the
+     * chosen context mode. Best-effort per model: a model that doesn't support the call is
+     * simply left alone â€” the outlines still convey the change.
      */
-    private _resolveDocFolderId;
+    private _applyContext;
+    /** Undo whatever the context mode did: drop the ghost overlay and restore visibility. */
+    private _clearContext;
+    /**
+     * Kept for the panel's connect hook. Prefetching is now driven by the SELECTION (see
+     * _slidePrefetchWindow): nothing is downloaded until a commit is opened, and only its
+     * neighbourhood is kept. Warming the newest N up front, as this used to do, spent
+     * bandwidth on commits nobody had asked for and grew without bound.
+     */
+    warmDeltas(): void;
+    /** Load a commit's hidden delta .frag (by its hidden id) into the viewer (modelId == hiddenId). */
+    private _ensureDeltaLoaded;
     private _setLoading;
     private _firstWorld;
 }
 
 /**
- * GitHistoryManager — headless engine for the revit-flow git-history built-in.
+ * GitHistoryManager â€” headless engine for the revit-flow git-history built-in.
  *
- * Owns ALL viewer mutation: it fetches the commit history + fragment artifacts
- * from project storage, loads the baseline (full-model) .frag into the shared
- * viewer, and colors a commit's changed elements (create → green, update →
- * blue, delete → red) via named Highlighter styles. The Lit panel
- * (`top-git-history`) is intent-only: it calls these methods and subscribes to
- * the events below, and never touches the Highlighter / FragmentsManager
- * directly.
+ * Owns ALL viewer mutation for the change outlines. It does NOT load the model â€”
+ * the user opens a model from the Project Files panel, and this manager reacts to
+ * that load: it reads the model's hidden `revitflow_history.json` (if any) and
+ * publishes the commit list. Showing a commit outlines its changed elements
+ * (create â†’ green, update â†’ blue, delete â†’ red) via three independently-colored
+ * `OBF.Outliner` groups â€” a cheap post-process outline that never recolors the
+ * fragment geometry. The Lit panel (`top-git-history`) is intent-only: it calls
+ * these methods and subscribes to the events below.
  *
- * Data model (per model, in `bimterop/revit-<docId>/`):
- *   - revitflow_history.json — { model, commits: [{ id, parent, author,
- *       source, timestamp, changes:[{type,uniqueId}], counts }] }
- *   - revitflow_frag_<N>.frag — fragments file for commit N. The earliest
- *       commit with a frag is the FULL model (baseline); later frags are
- *       incremental (only that commit's created+modified geometry).
+ * Data model, per loaded model (fileId == modelId), all HIDDEN children of it:
+ *   - revitflow_history.json â€” { model, commits: [{ id, parent, author, source,
+ *       timestamp, changes:[{type,uniqueId}], counts }] }. The first commit is the
+ *       INITIAL full-model capture (its geometry == the visible baseline file).
+ *   - revitflow_frag_<N>.frag â€” delta fragments for commit N (its created+modified
+ *       geometry), loaded on demand so created elements can be colored.
  */
 export type GitHistoryManager = InstanceType<typeof _GitHistoryManager>;
 /**
- * GitHistoryManager — headless engine for the revit-flow git-history built-in.
+ * GitHistoryManager â€” headless engine for the revit-flow git-history built-in.
  *
- * Owns ALL viewer mutation: it fetches the commit history + fragment artifacts
- * from project storage, loads the baseline (full-model) .frag into the shared
- * viewer, and colors a commit's changed elements (create → green, update →
- * blue, delete → red) via named Highlighter styles. The Lit panel
- * (`top-git-history`) is intent-only: it calls these methods and subscribes to
- * the events below, and never touches the Highlighter / FragmentsManager
- * directly.
+ * Owns ALL viewer mutation for the change outlines. It does NOT load the model â€”
+ * the user opens a model from the Project Files panel, and this manager reacts to
+ * that load: it reads the model's hidden `revitflow_history.json` (if any) and
+ * publishes the commit list. Showing a commit outlines its changed elements
+ * (create â†’ green, update â†’ blue, delete â†’ red) via three independently-colored
+ * `OBF.Outliner` groups â€” a cheap post-process outline that never recolors the
+ * fragment geometry. The Lit panel (`top-git-history`) is intent-only: it calls
+ * these methods and subscribes to the events below.
  *
- * Data model (per model, in `bimterop/revit-<docId>/`):
- *   - revitflow_history.json — { model, commits: [{ id, parent, author,
- *       source, timestamp, changes:[{type,uniqueId}], counts }] }
- *   - revitflow_frag_<N>.frag — fragments file for commit N. The earliest
- *       commit with a frag is the FULL model (baseline); later frags are
- *       incremental (only that commit's created+modified geometry).
+ * Data model, per loaded model (fileId == modelId), all HIDDEN children of it:
+ *   - revitflow_history.json â€” { model, commits: [{ id, parent, author, source,
+ *       timestamp, changes:[{type,uniqueId}], counts }] }. The first commit is the
+ *       INITIAL full-model capture (its geometry == the visible baseline file).
+ *   - revitflow_frag_<N>.frag â€” delta fragments for commit N (its created+modified
+ *       geometry), loaded on demand so created elements can be colored.
  */
 export const GitHistoryManager = { uuid: '3f9c1a7e-6b2d-4e18-9a5c-7d0e2f4b6c81' } as typeof _GitHistoryManager & { uuid: '3f9c1a7e-6b2d-4e18-9a5c-7d0e2f4b6c81' };
 
