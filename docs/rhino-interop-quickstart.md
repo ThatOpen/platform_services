@@ -258,8 +258,25 @@ to `row.data(j)`.
 
 ### Units, and why the envelope has no units field
 
-A proposal's numbers are in the terms of **what the target published**. Read Revit's export metadata
-and it says so itself:
+**Print both files' metadata BEFORE you write a line of the converter.** This is an ordering
+instruction, not advice. The whole conversion rests on what those two files declare, and it takes
+thirty seconds to find out:
+
+```ts
+for (const id of [rhinoFileId, revitFileId]) {
+  const res = await client.downloadFile(id);
+  const m = FRAGS.EditUtils.getModelFromBuffer(new Uint8Array(await res.arrayBuffer()), false);
+  console.log(id, m.metadata());
+}
+```
+
+Measured on a live demo, 2026-08-05: a converter was written the other way round, four hundred lines
+first and the check afterwards, and the target's metadata turned out to be `{}`. Everything above the
+units gate was correct and none of it could run. Read the two files, then write the converter around
+what is actually in them.
+
+A proposal's numbers are in the terms of **what the target published**. When Revit's export declares
+anything, it says so itself:
 
 ```json
 "data": { "units": "ft", "axes": "z-up", "note": "Revit's own terms, untouched. Operations are written in these." }
@@ -269,12 +286,21 @@ Rhino publishes its document units in the same place, `model.metadata()`, under 
 sample project that is `Millimeters`. So the converter divides by **304.8**, and it is the converter's
 job precisely because it is the only piece that knows both sides.
 
-Check the conversion against something real instead of trusting the constant. An existing column in
-the Revit export sits at `-30.19028688187479` ft. Times 304.8 that is **-9202 mm**, which is exactly
-the bay edge measured in Rhino. That is a conversion proved, not assumed.
+**When the target declares nothing.** Models published by add-in versions before 1.2.27 carry empty
+metadata on their first commit, so `{}` is a state you will meet on any project created before then.
+Revit's internal length unit is always decimal feet, so the factor is not actually in doubt; what is
+missing is the file saying so. Take feet, say out loud that you are taking it, and then **prove it
+from the data** rather than leaving it as an assumption:
 
-**Refuse unknown units.** Guessing a scale factor puts the columns a thousand times too far away, and
-nothing about the result says why.
+- Read one existing column's `Position` out of the target, and compare it against the same column
+  measured in the source. On the sample project: `-30.19028688187479` ft times 304.8 is **-9202 mm**,
+  which is exactly the bay edge measured in Rhino.
+- Keep a sanity check on every converted point: refuse anything landing more than about ten metres
+  from an existing element of the same category. That is what catches a factor-of-1000 error, and it
+  works whether or not the file declared anything.
+
+**What you must never do is guess silently.** A wrong factor puts the columns a thousand times too
+far away, and nothing about the result says why. Refusing is a worse demo and a better outcome.
 
 ### Building the payload
 
@@ -421,6 +447,11 @@ lands in the history, with the new columns in it, viewable in the app like any o
 - **Version tags are timestamps, not counts.** Numbering by how many entries there are collides on
   the very first update.
 - **Stray `.frag` files on the machine are not the current format.** They are an earlier session.
+- **Read the two files' metadata before writing the converter, not after.** Everything the
+  conversion rests on is declared in them, or is not, and finding out costs thirty seconds at the
+  start and four hundred lines at the end.
+- **Build only what was asked for.** An extra button and an extra layout are minutes each, and they
+  come out of the same hour as the thing that has to work.
 - **A clean build is not a typecheck.** Vite does not run `tsc`. "Built clean" and "correct" are two
   different sentences.
 - **Read these guides verbatim.** A fetch that summarises gives you the shape of the thing and none
