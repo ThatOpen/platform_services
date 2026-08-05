@@ -1,5 +1,25 @@
 # thatopen-services
 
+## 0.7.0
+
+### Minor Changes
+
+- History commits are named by guid, and a commit's parents are a list.
+
+  The built-in history types described a schema the shipped component no longer speaks. A commit's
+  `id: number` is now `guid: string`: the integer was the platform's storage version, a number the CDE
+  hands out, and an application that does not push through a Revit central has none. It survives as
+  `version`, data rather than identity, with `ordinal` derived from the graph for ordering questions.
+
+  `parent: number | null` is now `parents?: string[]`. A fork was already expressible with one parent;
+  a merge needs both lines named. Revit never writes more than one.
+
+  Also declared here rather than reimplemented per app: `deltaId` (the hidden-file id of a commit's
+  delta geometry, absent on the baseline), the proposal types, and the panel's own state.
+
+  The Rhino guide gains the converter step: what Rhino publishes, the units contract, one `localId`
+  per `CREATE_ITEM`, and the two upload fields that fail at runtime rather than at compile time.
+
 ## 0.6.0
 
 ### Minor Changes
