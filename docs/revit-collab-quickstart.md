@@ -266,6 +266,11 @@ contract, and **[the architecture notes](https://raw.githubusercontent.com/ThatO
 Publishing a proposal is the smallest of the three jobs described there: it needs no ownership, no
 history, and no collaboration layer.
 
+If the tool is **Rhino**, the whole path is already written and worked through end to end:
+**[Rhino → Revit, start to finish](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/rhino-interop-quickstart.md)**. Read that
+instead of assembling it from the two documents above — it covers installing the plug-in, driving
+Rhino without a keyboard, and the traps that cost a night.
+
 **This is where you use the add-in's local API** — the CLI has no proposal commands yet.
 
 **List what is waiting:**
@@ -352,6 +357,9 @@ answered both, and the answer is written in `app.layouts` right there in `main.t
 
 A panel that opens on the opposite side from every other one, at a different size, is the first
 thing anybody notices, and it reads as bolted on however good the contents are.
+
+For the layout's `icon`, use **`at-icons:git-branch`** — That Open's own icon set, and the branch
+mark is what the panel actually shows.
 
 What makes it a history viewer rather than an empty viewer is a built-in component that already
 exists, so nobody writes this part:
