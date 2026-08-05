@@ -215,6 +215,126 @@ identically, because everything it remembers it reads back from what it wrote to
 The byte contract is **[Writing a flow plugin](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/flow-plugin-guide.md)**, and the reasoning
 behind the shape is **[the architecture notes](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/flow-architecture.md)**.
 
+Everything below is what a run of this cost to find out. None of it is guessable, and all of it
+fails quietly when it is wrong.
+
+### What Rhino actually publishes
+
+One item per Rhino object, category `IFCBUILDINGELEMENTPROXY`, carrying these attributes:
+
+| attribute | example | note |
+| --- | --- | --- |
+| `Layer` | `flow:columns` | |
+| `Type` | `Point` | `Point`, `Extrusion`, `Curve`, … |
+| `Name` | | the object's name, usually empty |
+| `Position` | `"-5544.4,-1413,0"` | a **string**, in the document's units |
+| `Rhino:Definition` | | block definition, when there is one |
+
+**The layers are published as items too**, category `IFCBUILDINGSTOREY`, geometry-less, carrying a
+single `Name` attribute holding the layer's full path. They have no `Layer` and no `Position`. So a
+converter that matches the layer name loosely, or that assumes every item it sees has a position,
+reads a layer as a column. Test both fields, positively:
+
+```ts
+if (attrs.Layer !== "flow:columns") continue;
+if (attrs.Type !== "Point") continue;   // and this is what separates points from everything else on it
+```
+
+`Type` is Rhino's own geometry class name: `Point` for a point, `Extrusion` for a `_-Box`, `Curve`
+for a line. It is the only thing distinguishing the data from the helper geometry if somebody ends up
+putting both on one layer.
+
+Reading it in the app, where the client is already authenticated:
+
+```ts
+const res = await client.downloadFile(fileId);
+const bytes = new Uint8Array(await res.arrayBuffer());
+const model = FRAGS.EditUtils.getModelFromBuffer(bytes, false);
+```
+
+`getModelFromBuffer(bytes, raw)`: `raw` is false for anything downloaded, because what the platform
+stores is compressed. Attribute rows come back as JSON triples, `[name, value, type]`, one per call
+to `row.data(j)`.
+
+### Units, and why the envelope has no units field
+
+A proposal's numbers are in the terms of **what the target published**. Read Revit's export metadata
+and it says so itself:
+
+```json
+"data": { "units": "ft", "axes": "z-up", "note": "Revit's own terms, untouched. Operations are written in these." }
+```
+
+Rhino publishes its document units in the same place, `model.metadata()`, under `data.units`. On the
+sample project that is `Millimeters`. So the converter divides by **304.8**, and it is the converter's
+job precisely because it is the only piece that knows both sides.
+
+Check the conversion against something real instead of trusting the constant. An existing column in
+the Revit export sits at `-30.19028688187479` ft. Times 304.8 that is **-9202 mm**, which is exactly
+the bay edge measured in Rhino. That is a conversion proved, not assumed.
+
+**Refuse unknown units.** Guessing a scale factor puts the columns a thousand times too far away, and
+nothing about the result says why.
+
+### Building the payload
+
+```ts
+const model = EU.getModelFromBuffer(EU.newModel({ raw: true }), true);
+return EU.edit(model, requests, { raw: false }).model;
+```
+
+`newModel` hands back uncompressed bytes, so `raw` is true on the way in and false on the way out.
+
+**Every `CREATE_ITEM` needs its own `localId`.** Three requests sharing one id collapse into a single
+item, with no error and no warning. The first attempt at this produced 1 item from 3 requests, which
+would have queued a proposal for one column out of four. Count from 1, and leave `localId: 0` for the
+`UPDATE_METADATA` request that carries the envelope.
+
+### Writing it to the platform
+
+Three calls, in this order: create the visible index if it does not exist, upload the payload as a
+hidden child of it, then write the entry including the id the upload returned.
+
+```ts
+const created = await client.createFile({
+  file, name: "revitflow_ops.json",
+  parentFolderId: folderId,          // parentFolderId, NOT folderId
+  projectId,                         // required
+  versionTag: "1",
+});
+
+const { hiddenFileId } = await client.createHiddenFile(
+  new File([payload], `${opId}.frag`), opsId,
+);
+
+await client.updateFile(opsId, { file, versionTag: `v-${Date.now()}` });
+```
+
+Two failures paid for, both at runtime, both from code that compiled and read fine:
+
+- **"A projectId is required to upload files."** The folder field was misnamed at the same time and
+  said nothing at all, because an unknown key is dropped in silence. Fix the `projectId` alone and
+  the queue gets created at the root of the project, where nothing looks for it.
+- **"Duplicated entry"** on the update. The version tag was numbered by counting the entries: the
+  file is created with tag `"1"`, the first entry makes the list one long, and the update asks for
+  `"1"` again. Counting is wrong past that too, since removing an op makes the next one reuse a tag.
+  Use a timestamp. This is what the Revit add-in settled on.
+
+Miss the id `createHiddenFile` returns and the payload is unreachable forever: hidden files have no
+queryable name, so the visible index is the only place it can be written down. If the index write
+fails after the upload, that payload is orphaned. Harmless, invisible, and worth knowing.
+
+### Do not learn the format from files on the machine
+
+`PlatformClient.fromPlatformContext()` exists in the app, not in a script, so a Node one-liner cannot
+read back what Rhino just published. The tempting fallback is the `.frag` files lying around under
+`%APPDATA%\ThatOpen` and in `flow-reconcile`. They are somebody's earlier session. One of them held
+four points on a layer called `Columnas`, left over from an older run, and reading it as current
+would have built a converter against a layer name nobody was using any more.
+
+The tables above are here so nobody has to do that. If you still want to see real bytes, publish
+something small and read it back inside the app.
+
 ## 6. Accept it in Revit
 
 The Revit add-in's local API, `%APPDATA%\ThatOpen\revit-addin.json`, header `X-RevitFlow-Token`.
@@ -262,3 +382,10 @@ lands in the history, with the new columns in it, viewable in the app like any o
   going back up.
 - **Group before concluding anything about the model.** The first rows of a listing are a sample,
   and on this project the sample was the exception twice running.
+- **Every `CREATE_ITEM` needs its own `localId`.** Sharing one collapses them into a single item,
+  silently. Four columns asked for, one column proposed.
+- **`parentFolderId`, not `folderId`, and `projectId` alongside it.** An unknown key is dropped
+  without a word, so only half the mistake reports itself.
+- **Version tags are timestamps, not counts.** Numbering by how many entries there are collides on
+  the very first update.
+- **Stray `.frag` files on the machine are not the current format.** They are an earlier session.
