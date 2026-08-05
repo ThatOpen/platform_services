@@ -22,6 +22,46 @@ function discoveryFile(): string {
   return join(appData, 'ThatOpen', 'revit-addin.json');
 }
 
+/** The add-in's discovery file, or null. Unlike discoverAddin this never exits. */
+export function tryDiscoverAddin(): AddinInfo | null {
+  const file = discoveryFile();
+  if (!existsSync(file)) return null;
+  try {
+    return JSON.parse(readFileSync(file, 'utf-8')) as AddinInfo;
+  } catch {
+    return null;
+  }
+}
+
+/** Is there an add-in listening right now? Asks it, rather than trusting the file:
+ *  Revit exiting leaves the file behind. */
+export async function addinAlive(): Promise<boolean> {
+  const info = tryDiscoverAddin();
+  if (!info) return false;
+  try {
+    const res = await fetch(`http://127.0.0.1:${info.port}/status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-RevitFlow-Token': info.token },
+      body: '{}',
+      signal: AbortSignal.timeout(4000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Waits for Revit to finish starting. Revit takes its time, and the add-in's
+ *  listener comes up well before the splash screen goes away. */
+export async function waitForAddin(timeoutMs: number): Promise<boolean> {
+  const until = Date.now() + timeoutMs;
+  while (Date.now() < until) {
+    if (await addinAlive()) return true;
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  return false;
+}
+
 export function discoverAddin(): AddinInfo {
   const file = discoveryFile();
   if (!existsSync(file)) {

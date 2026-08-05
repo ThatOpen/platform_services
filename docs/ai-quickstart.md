@@ -87,6 +87,16 @@ thatopen create my-app --beta
 cd my-app
 ```
 
+**[app, showing a Revit model's commit history]** If what they asked for is a viewer of the
+revit-flow history, scaffold it directly. Do not build it by hand: the wiring is four additions in
+three places and the ORDER of them is load-bearing (see the boot order section below). This ships
+it already correct, opening on the History layout.
+
+```bash
+thatopen create my-app --beta --history
+cd my-app
+```
+
 **[component]**
 ```bash
 thatopen create my-component -t cloud-component --beta
@@ -269,5 +279,8 @@ component, once added to a project, is then triggered by an app or an automation
 - **Platform token only.** Never introduce, request, or store an npm token.
 - **Never echo or persist the user's token.** It belongs only in `~/.thatopen/config.json` /
   `.npmrc`, both of which the CLI manages and git-ignores.
-- **Propose a short plan and get the user's OK** before changing files.
+- **Do the thing they asked for.** If the request already says what to build, build it. Proposing a
+  four-point plan and waiting for approval to do what was just requested costs the user a whole turn
+  and buys nothing. Stop and ask only when you are about to change files you did not create, when
+  the request can be read two ways that mean different work, or when the next step is destructive.
 - The scaffold already works — **extend it, don't replace it.**

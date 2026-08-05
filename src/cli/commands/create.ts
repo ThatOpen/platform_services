@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { existsSync, mkdirSync, copyFileSync, readFileSync, writeFileSync, renameSync, cpSync } from 'node:fs';
+import { existsSync, mkdirSync, copyFileSync, readFileSync, writeFileSync, renameSync, rmSync, cpSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
 import { updateLocalConfig } from '../lib/config';
@@ -25,8 +25,9 @@ export const createCommand = new Command('create')
   .argument('<project-name>', 'Name of the project to create (use "." for current directory)')
   .option('-t, --template <template>', `Template (${TEMPLATES.join(', ')})`, 'app')
   .option('--beta', 'Use beta engine libraries (@thatopen-platform/*-beta)')
+  .option('--history', 'App only: include the revit-flow commit history panel, already wired')
   .description('Scaffold a new ThatOpen app or cloud component project')
-  .action(async (projectName: string, opts: { template: string; beta?: boolean }) => {
+  .action(async (projectName: string, opts: { template: string; beta?: boolean; history?: boolean }) => {
     const template = opts.template as Template;
 
     if (!TEMPLATES.includes(template)) {
@@ -85,6 +86,23 @@ export const createCommand = new Command('create')
     // Cloud: rename _thatopen → .thatopen
     if (isCloud) {
       renameSync(join(targetDir, '_thatopen'), join(targetDir, '.thatopen'));
+    }
+
+    // ── App: the history variant is a WHOLE main.ts, not a patch ──
+    // The wiring it adds is four edits in three places, and the order of them is
+    // load-bearing: GitHistoryManager reaches for FragmentsManager and for the 3D
+    // world, neither of which exists until top-app has mounted. Patching a file to
+    // get that right is how it ends up subtly wrong, so both versions are kept
+    // whole and one is chosen.
+    if (!isCloud) {
+      const variant = join(targetDir, 'src', 'main.history.ts');
+      if (existsSync(variant)) {
+        if (opts.history) renameSync(variant, join(targetDir, 'src', 'main.ts'));
+        else rmSync(variant);
+      }
+    } else if (opts.history) {
+      console.error('--history applies to the app template only.');
+      process.exit(1);
     }
 
     // ── Replace placeholders in package.json ─────────────────────

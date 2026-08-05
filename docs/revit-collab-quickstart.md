@@ -46,6 +46,12 @@ the point.
 
 ## Step 0 — Ask what the user wants to do
 
+**Only if they have not already told you.** "I want to start a new collaborative project in Revit
+and here is my file" is (A), said plainly. Reading it back as a four-way menu costs the user a
+whole turn to answer something they just said, and that is the single most common way this guide
+wastes somebody's time. Work out which one it is, say which one you took it to be in one line, and
+carry on. Ask only for what is genuinely missing.
+
 > "What would you like to do?
 > (A) **Share** a Revit model with my team for the first time.
 > (B) **Connect** to a shared central a teammate already uploaded.
@@ -164,27 +170,30 @@ Re-run `thatopen revit status` every ten seconds or so until `"loaded": true`.
 
 ## Step 3 — Do the action
 
-### (A) Share a model — `inspect`, then `publish-central`
+### (A) Share a model — one command
 
 ```
-thatopen revit inspect --file "<FILE>"
+thatopen revit share --file "<FILE>" --project <PROJECT>
 ```
 
-- **`"isCentral": true`** → already a central. Tell the user you will upload a copy and their
-  original is untouched, then:
-  ```
-  thatopen revit publish-central --project <PROJECT> --doc <DOC> --file "<FILE>"
-  ```
-- **`"isCentral": false`** → a plain model. **Ask for consent first:** *"This file isn't a shared
-  central yet. To share it I need to turn it into one. I'll do that on a COPY, so your original
-  stays exactly as it is. Shall I go ahead?"* Only then:
-  ```
-  thatopen revit publish-central --project <PROJECT> --doc <DOC> --file "<FILE>" --convert
-  ```
+That is the whole of it. `share` installs the add-in if nothing is listening, starts Revit and
+waits for it, checks whether the file is already a central, publishes it, and opens the user's own
+local. It prints each of the five steps as it reaches them, so a long silence is always a step you
+can name.
 
-Publishing uploads the central and opens **the user's own local** in Revit. Success ends with
-`Published (…). Central: … (version N). Your original file was not modified.` Teammates connect with
-the folder id from the dashboard, or with `--project` and `--doc`.
+- **`--doc <name>`** is optional. Left out, it comes from the file name, kebab-cased.
+- **`--project`** takes the dashboard URL as happily as the id.
+- **The original file is never modified.** Everything happens on a copy, which is why `share` does
+  not need to ask before converting: there is nothing to lose. Say so rather than asking.
+- **It joins at the end on purpose.** Sharing a model and then carrying on in the original file is
+  the one reliable way to end up outside your own team.
+
+Steps 1 and 2 (CLI, login, add-in) still have to have happened: `share` installs the add-in but it
+cannot log in for somebody.
+
+If you need the pieces separately — a central that already exists, a different convert decision,
+scripting around it — they are still there: `thatopen revit inspect --file`, then
+`thatopen revit publish-central --project --doc --file [--convert]`, then `thatopen revit join`.
 
 ### (B) Connect to a central — `join`
 

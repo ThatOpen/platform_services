@@ -33,7 +33,7 @@ Once you have these, you know everything available on the platform. Only then fe
 
 - **The scaffold is already a complete, working viewer** (model loading, spatial tree, properties).
   **Run it first** (`npm run dev`) to see it work, *then* extend it — don't rebuild a viewer from scratch.
-- **Propose a short plan and get the user's OK** before changing files. If scope is unclear, ask.
+- **Do the thing they asked for.** If the request already says what to build, build it. Stop and ask only when you are about to change files you did not create, when the request can be read two ways that mean different work, or when the next step is destructive.
 - If something already exists in the indexes, use it — don't reimplement it.
 
 ## Hard rules (always apply)

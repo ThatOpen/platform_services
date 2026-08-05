@@ -1,11 +1,39 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, execSync, spawn } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { Command } from 'commander';
 import { EngineServicesClient } from '../../core/client';
 import { requireResolvedConfig } from '../lib/config';
 import { assertHostClosed, fetchPluginPackage } from '../lib/plugin-install';
-import { callAddin, configureAddin } from '../lib/revit-addin';
+import { addinAlive, callAddin, configureAddin, waitForAddin } from '../lib/revit-addin';
+
+/** Is Revit up? Only used to decide whether we are allowed to install, which needs it closed. */
+function isRevitRunning(): boolean {
+  if (process.platform !== 'win32') return false;
+  try {
+    return execSync('tasklist /FI "IMAGENAME eq Revit.exe" /NH', { encoding: 'utf-8' })
+      .toLowerCase()
+      .includes('revit.exe');
+  } catch {
+    return false;
+  }
+}
+
+/** Starts Revit and returns immediately. Detached on purpose: Revit outlives this command. */
+function startRevit(): void {
+  const roots = ['C:\\Program Files\\Autodesk'];
+  for (const root of roots) {
+    if (!existsSync(root)) continue;
+    for (const dir of readdirSync(root)) {
+      if (!/^Revit \d{4}$/.test(dir)) continue;
+      const exe = join(root, dir, 'Revit.exe');
+      if (!existsSync(exe)) continue;
+      spawn(exe, [], { detached: true, stdio: 'ignore' }).unref();
+      return;
+    }
+  }
+  console.log('      Could not find Revit.exe. Start Revit yourself and this will pick it up.');
+}
 
 /** One package per plug-in: they share no version relationship, only the platform and the .frag
  *  format, whose compatibility is carried by the schema string inside each file. */
@@ -51,6 +79,96 @@ revitCommand
       console.log('Publishing works on a COPY, so your original file is never modified.');
       console.log('Ask the user for consent, then run publish-central with --convert.');
     }
+  });
+
+/**
+ * `thatopen revit share` — a .rvt on your disk to your local open in Revit, in one command.
+ *
+ * WHY THIS EXISTS. Everything it does was already here, in six pieces: install, start Revit,
+ * inspect, publish-central, join, report. An assistant driving them one at a time spent nine
+ * minutes on a job whose real work is one download, because every piece is a decision to make and
+ * a result to read. Measured 2026-08-05. The pieces stay; this is the straight line through them.
+ */
+revitCommand
+  .command('share')
+  .description('Share a .rvt with your team: install if needed, publish the central, open your local')
+  .requiredOption('--file <path>', 'Absolute path to the .rvt on this machine')
+  .requiredOption('--project <id>', 'Platform project id (or the dashboard URL)')
+  .option('--doc <name>', 'Short name for the shared central (default: from the file name)')
+  .action(async (opts: { file: string; project: string; doc?: string }) => {
+    const cfg = requireResolvedConfig();
+    const file = resolve(opts.file);
+    if (!existsSync(file)) {
+      console.error(`No such file: ${file}`);
+      process.exit(1);
+    }
+    // A dashboard URL is what people have in their clipboard; the id is buried in it.
+    const project = opts.project.match(/projects\/([a-f0-9]{24})/i)?.[1] ?? opts.project;
+    // A central's name becomes a folder name and a file name, so it is kebab-cased here rather
+    // than left as whatever the .rvt was called ("Snowdon Towers Sample Structural").
+    const doc =
+      opts.doc ??
+      basename(file, '.rvt').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+
+    console.log(`Sharing "${basename(file)}" as "${doc}" in project ${project}.\n`);
+
+    // 1 ── the add-in. Installing needs Revit CLOSED, so this only installs when nothing is
+    //      listening AND Revit is not running.
+    if (!(await addinAlive())) {
+      if (!isRevitRunning()) {
+        console.log('[1/5] Installing the Revit add-in...');
+        const client = new EngineServicesClient(cfg.accessToken, cfg.apiUrl);
+        const { dir, cleanup } = await fetchPluginPackage(client, REVIT_ADDIN_PACKAGE, 'latest');
+        try {
+          const installer = join(dir, 'install.ps1');
+          if (!existsSync(installer)) throw new Error('The package has no install.ps1.');
+          execFileSync('powershell', ['-ExecutionPolicy', 'Bypass', '-File', installer], {
+            stdio: 'inherit',
+          });
+        } finally {
+          cleanup();
+        }
+        console.log('[2/5] Starting Revit...');
+        startRevit();
+      } else {
+        // Revit is up but not answering: still starting, or the add-in is not installed.
+        console.log('[1/5] Waiting for Revit...');
+      }
+      if (!(await waitForAddin(300000))) {
+        console.error(
+          '\nRevit did not report in. If it is open, the add-in may not be installed:\n' +
+            '  close Revit, run "thatopen revit install", and start it again.',
+        );
+        process.exit(1);
+      }
+    } else {
+      console.log('[1/5] Revit is open and the add-in is answering.');
+    }
+
+    await configureAddin(cfg.apiUrl, cfg.accessToken);
+
+    // 2 ── is it already a central? That decides whether converting is even on the table.
+    console.log('[3/5] Checking the file...');
+    const info = await callAddin('inspect', { file });
+    console.log(
+      info.isCentral
+        ? '      Already a workshared central. Publishing a copy of it.'
+        : '      Not a central yet. Converting a COPY. Your file is not modified.',
+    );
+
+    // 3 ── publish. Always on a copy, which is what makes convert safe to pass unconditionally.
+    console.log('[4/5] Publishing to the platform (Revit is saving the central, this takes a bit)...');
+    const pub = await callAddin('publish-central', { project, doc, file, convert: true });
+
+    // 4 ── and join it, so whoever shared it works in their own local like everybody else.
+    //      Sharing and then editing the original is the one reliable way to end up outside the team.
+    console.log('[5/5] Creating and opening your local...');
+    const joined = await callAddin('join', { project, doc });
+
+    console.log(`\nShared. Central "${doc}" is v${pub.version} in project ${project}.`);
+    console.log(`Your local, now open in Revit:\n  ${joined.local}`);
+    console.log(`\nTeammates join with:\n  thatopen revit join --project ${project} --doc ${doc}`);
+    console.log(`From here, Revit's own Synchronize with Central publishes to the team.`);
   });
 
 revitCommand
