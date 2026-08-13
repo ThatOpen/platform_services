@@ -18,8 +18,111 @@ set -euo pipefail
 
 SUBMODULE_PATH="vendor/backend-api"
 SPARSE_PATH="src/common/dto"
+BACKEND_REPO="ThatOpen/platform_backend-api"
+KEY_SECRET="BACKEND_TYPES_DEPLOY_KEY"
+TOKEN_SECRET="BACKEND_TYPES_TOKEN"
 
-git submodule update --init "$SUBMODULE_PATH"
+# The backend repo is private. Locally that is fine, git uses whatever
+# credentials you already have. In CI there is no such thing, and the failure
+# is a bare "Repository not found" that says nothing about what to do, so
+# spell it out instead.
+token_instructions() {
+  cat <<INSTRUCTIONS
+
+  The runner could not read ${BACKEND_REPO}.
+
+  This repo vendors the backend's shared DTOs as a submodule, and that repo
+  is private, so CI needs a token with read access to it. The default
+  GITHUB_TOKEN cannot see other repositories.
+
+  Preferred fix, a deploy key. It never expires and belongs to the repo
+  rather than to a person:
+
+    1. Generate a keypair (leave the passphrase empty):
+         ssh-keygen -t ed25519 -N "" -C "platform_services types" -f backend-types
+
+    2. Register the PUBLIC half as a read-only deploy key:
+         https://github.com/${BACKEND_REPO}/settings/keys/new
+         Title       : platform_services contract types
+         Key         : contents of backend-types.pub
+         Allow write : NO
+
+    3. Add the PRIVATE half here:
+         ${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-<this repo>}/settings/secrets/actions
+         Name : ${KEY_SECRET}
+         Value: contents of backend-types (the file without .pub)
+
+    4. Delete both local files and re-run this job.
+
+  Alternative, a fine-grained token. Quicker, but expires within a year and
+  is tied to whoever made it:
+
+    1. https://github.com/settings/personal-access-tokens/new
+         Resource owner        : ThatOpen
+         Repository access     : Only select repositories -> platform_backend-api
+         Repository permissions: Contents -> Read-only
+    2. Store it as ${TOKEN_SECRET} in this repo's Actions secrets.
+       Because the owner is the organisation, it may sit in "pending
+       approval" until an org owner accepts it.
+
+  If one of these is already set, it has most likely been revoked, or lost
+  access to ${BACKEND_REPO}. A token may simply have expired.
+
+INSTRUCTIONS
+}
+
+fail_with_instructions() {
+  local headline="$1"
+  if [ -n "${GITHUB_ACTIONS:-}" ]; then
+    echo "::error title=Backend types unavailable::${headline} See the log for how to fix it."
+    token_instructions
+    if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+      {
+        echo "## Backend contract types could not be fetched"
+        echo
+        echo "**${headline}**"
+        echo '```'
+        token_instructions
+        echo '```'
+      } >>"$GITHUB_STEP_SUMMARY"
+    fi
+  else
+    echo "${headline}"
+    token_instructions
+  fi
+  exit 1
+}
+
+# Only enforced in CI. A developer's own git credentials already cover the
+# private repo, so requiring the token locally would be noise.
+if [ -n "${CI:-}" ] &&
+   [ -z "${BACKEND_TYPES_DEPLOY_KEY:-}" ] &&
+   [ -z "${BACKEND_TYPES_TOKEN:-}" ]; then
+  fail_with_instructions \
+    "Neither ${KEY_SECRET} nor ${TOKEN_SECRET} is set."
+fi
+
+# Both rewrite the submodule's https URL rather than changing .gitmodules, so
+# a developer cloning over https locally is unaffected. Scoped to this
+# process and undone on the way out, so the credential never becomes the
+# identity for anything else in the job.
+if [ -n "${BACKEND_TYPES_DEPLOY_KEY:-}" ]; then
+  KEY_FILE=$(mktemp)
+  printf '%s\n' "$BACKEND_TYPES_DEPLOY_KEY" >"$KEY_FILE"
+  chmod 600 "$KEY_FILE"
+  export GIT_SSH_COMMAND="ssh -i $KEY_FILE -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+  git config --global "url.git@github.com:.insteadOf" "https://github.com/"
+  trap 'rm -f "$KEY_FILE"; git config --global --unset-all "url.git@github.com:.insteadOf" || true' EXIT
+elif [ -n "${BACKEND_TYPES_TOKEN:-}" ]; then
+  git config --global \
+    "url.https://x-access-token:${BACKEND_TYPES_TOKEN}@github.com/.insteadOf" \
+    "https://github.com/"
+  trap 'git config --global --unset-all "url.https://x-access-token:${BACKEND_TYPES_TOKEN}@github.com/.insteadOf" || true' EXIT
+fi
+
+if ! git submodule update --init "$SUBMODULE_PATH"; then
+  fail_with_instructions "Could not clone the backend types submodule."
+fi
 
 git -C "$SUBMODULE_PATH" sparse-checkout init --cone
 git -C "$SUBMODULE_PATH" sparse-checkout set "$SPARSE_PATH"
@@ -29,7 +132,9 @@ if [ "${1:-}" = "--pin-only" ]; then
   exit 0
 fi
 
-git submodule update --remote "$SUBMODULE_PATH"
+if ! git submodule update --remote "$SUBMODULE_PATH"; then
+  fail_with_instructions "Could not update the backend types submodule."
+fi
 git -C "$SUBMODULE_PATH" sparse-checkout set "$SPARSE_PATH"
 
 BRANCH=$(git config -f .gitmodules "submodule.$SUBMODULE_PATH.branch")
