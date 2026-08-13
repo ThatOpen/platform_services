@@ -163,4 +163,52 @@ describe('PlatformClient — notifications', () => {
     const headers = callInit(fetchMock).headers as Record<string, string>;
     expect(headers.Authorization).toBe(`Bearer ${JWT}`);
   });
+
+  describe('subscribing to an automation', () => {
+    const PROJECT = 'proj-1';
+    const HOOK = 'hook-1';
+
+    it('subscribes through the project route', async () => {
+      fetchMock.mockResolvedValue(okResponse({ subscribed: true }));
+
+      await client.subscribeToAutomation(PROJECT, HOOK, {
+        filter: 'failures',
+        channels: { email: true },
+      });
+
+      const init = callInit(fetchMock);
+      expect(init.method).toBe('POST');
+      expect(callUrl(fetchMock).pathname).toContain(
+        `/project/${PROJECT}/events/hooks/${HOOK}/subscription`,
+      );
+      expect(JSON.parse(init.body as string)).toEqual({
+        filter: 'failures',
+        channels: { email: true },
+      });
+    });
+
+    it('sends an empty body when no options are given', async () => {
+      fetchMock.mockResolvedValue(okResponse({ subscribed: true }));
+
+      await client.subscribeToAutomation(PROJECT, HOOK);
+
+      expect(JSON.parse(callInit(fetchMock).body as string)).toEqual({});
+    });
+
+    // PATCH is a merge server-side, so sending channels alone must not carry
+    // a filter along with it and reset one that was already set.
+    it('patches only what it is given', async () => {
+      fetchMock.mockResolvedValue(okResponse({ updated: true }));
+
+      await client.updateAutomationSubscription(PROJECT, HOOK, {
+        channels: { email: false },
+      });
+
+      const init = callInit(fetchMock);
+      expect(init.method).toBe('PATCH');
+      expect(JSON.parse(init.body as string)).toEqual({
+        channels: { email: false },
+      });
+    });
+  });
 });

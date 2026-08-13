@@ -1,3 +1,4 @@
+import { io } from 'socket.io-client';
 import {
   EngineServicesClient,
   EngineServicesClientProps,
@@ -13,6 +14,27 @@ import {
 
 const PROJECT_PATH = 'project';
 const NOTIFICATION_PATH = 'notifications';
+
+/**
+ * What arrived on the socket. One callback for all three because a bell
+ * reacts the same way to each: refresh the badge, and the list if open.
+ *
+ * `allRead` is one event for the whole sweep rather than one per
+ * notification, so do not expect an id on it.
+ */
+export type LiveNotificationEvent =
+  | { type: 'created'; id: string }
+  | { type: 'read'; id: string }
+  | { type: 'allRead'; batch: number };
+
+/** Per-automation opt-in. `failures` skips started events entirely. */
+export type NotificationSubscriptionFilterInput = 'all' | 'failures';
+
+export interface NotificationSubscriptionInput {
+  filter?: NotificationSubscriptionFilterInput;
+  /** Overrides the account-level channel setting for this automation only. */
+  channels?: { email?: boolean };
+}
 
 /** Scope by which a permission was granted (or `'none'` if denied). */
 export type PermissionScope = 'global' | 'project' | 'entity' | 'none';
@@ -287,5 +309,110 @@ export class PlatformClient extends EngineServicesClient {
       'DELETE',
       `${NOTIFICATION_PATH}/subscriptions/${hookId}`,
     );
+  }
+
+  /**
+   * Subscribes the signed-in user to one project automation's runs.
+   *
+   * Nobody is subscribed by default, so this is what makes an automation
+   * produce notifications for this user at all. Subscribing again is
+   * harmless: it updates the existing subscription rather than duplicating.
+   *
+   * Read-level access to the project is enough. Someone who can see an
+   * automation can follow it without being able to change it.
+   *
+   * @example Follow only the failures, and email me about them:
+   * ```ts
+   * await client.subscribeToAutomation(projectId, hookId, {
+   *   filter: 'failures',
+   *   channels: { email: true },
+   * });
+   * ```
+   */
+  async subscribeToAutomation(
+    projectId: string,
+    hookId: string,
+    input?: NotificationSubscriptionInput,
+  ) {
+    return await this.request<{ subscribed: true }>(
+      'POST',
+      `${PROJECT_PATH}/${projectId}/events/hooks/${hookId}/subscription`,
+      {
+        body: JSON.stringify(input ?? {}),
+        contentType: 'application/json',
+      },
+    );
+  }
+
+  /**
+   * Changes an existing subscription. Only the fields passed are touched, so
+   * sending `channels` alone leaves the filter as it was.
+   *
+   * Throws if the user is not subscribed; use {@link subscribeToAutomation}
+   * to create one.
+   */
+  async updateAutomationSubscription(
+    projectId: string,
+    hookId: string,
+    changes: NotificationSubscriptionInput,
+  ) {
+    return await this.request<{ updated: true }>(
+      'PATCH',
+      `${PROJECT_PATH}/${projectId}/events/hooks/${hookId}/subscription`,
+      {
+        body: JSON.stringify(changes),
+        contentType: 'application/json',
+      },
+    );
+  }
+
+  /**
+   * Listens for this user's notifications in real time.
+   *
+   * Unlike {@link EngineServicesClient.onExecutionProgress}, which follows one
+   * execution and closes when it ends, this stays connected for the session:
+   * the server puts the socket in a room for the signed-in account and pushes
+   * anything addressed to them.
+   *
+   * The events carry ids rather than the notifications themselves, so treat
+   * them as a signal to refresh. That keeps a burst cheap and means the
+   * server is never the source of a stale render.
+   *
+   * Requires a user JWT. An API access token is rejected by the gateway,
+   * because it identifies a token rather than a person.
+   *
+   * @returns a function that disconnects. Call it on unmount.
+   *
+   * @example
+   * ```ts
+   * const stop = await client.onNotification((event) => {
+   *   if (event.type === 'created') refreshBell();
+   * });
+   * // later
+   * stop();
+   * ```
+   */
+  async onNotification(
+    onEvent: (event: LiveNotificationEvent) => void,
+  ): Promise<() => void> {
+    // Resolved per connection rather than reused from construction, so a
+    // provider-backed client opens the socket with a current token.
+    const token = await this.resolveAccessToken();
+    const socket = io(
+      `${this.socketOrigin}/notifications?accessToken=${encodeURIComponent(token)}`,
+      { transports: ['websocket'] },
+    );
+
+    socket.on('notification.created', (data: { id: string }) =>
+      onEvent({ type: 'created', id: data?.id }),
+    );
+    socket.on('notification.read', (data: { id: string }) =>
+      onEvent({ type: 'read', id: data?.id }),
+    );
+    socket.on('notifications.allRead', (data: { batch: number }) =>
+      onEvent({ type: 'allRead', batch: data?.batch }),
+    );
+
+    return () => socket.disconnect();
   }
 }
