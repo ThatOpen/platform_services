@@ -20,6 +20,8 @@ SUBMODULE_PATH="vendor/backend-api"
 SPARSE_PATH="src/common/dto"
 BACKEND_REPO="ThatOpen/platform_backend-api"
 KEY_SECRET="BACKEND_TYPES_DEPLOY_KEY"
+APP_ID_SECRET="BACKEND_TYPES_APP_ID"
+APP_KEY_SECRET="BACKEND_TYPES_APP_PRIVATE_KEY"
 TOKEN_SECRET="BACKEND_TYPES_TOKEN"
 
 # The backend repo is private. Locally that is fine, git uses whatever
@@ -35,37 +37,43 @@ token_instructions() {
   is private, so CI needs a token with read access to it. The default
   GITHUB_TOKEN cannot see other repositories.
 
-  Preferred fix, a deploy key. It never expires and belongs to the repo
-  rather than to a person:
+  Preferred fix, a GitHub App. Nothing long-lived is granted: the workflow
+  mints a token scoped to that one repo, valid for an hour.
 
-    1. Generate a keypair (leave the passphrase empty):
-         ssh-keygen -t ed25519 -N "" -C "platform_services types" -f backend-types
+    1. https://github.com/organizations/ThatOpen/settings/apps/new
+         Name        : anything unique, e.g. "ThatOpen CI types reader"
+         Homepage URL: https://github.com/ThatOpen
+         Webhook     : UNTICK "Active", or it demands a webhook URL
+         Permissions -> Repository -> Contents: Read-only (nothing else)
+         Where installed: Only on this account
 
-    2. Register the PUBLIC half as a read-only deploy key:
-         https://github.com/${BACKEND_REPO}/settings/keys/new
-         Title       : platform_services contract types
-         Key         : contents of backend-types.pub
-         Allow write : NO
+    2. On the App page, note the App ID, then "Generate a private key".
+       That downloads a .pem file.
 
-    3. Add the PRIVATE half here:
+    3. Install App -> ThatOpen -> Only select repositories ->
+       platform_backend-api
+
+    4. Add two secrets here:
          ${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-<this repo>}/settings/secrets/actions
-         Name : ${KEY_SECRET}
-         Value: contents of backend-types (the file without .pub)
+         ${APP_ID_SECRET}          : the App ID from step 2
+         ${APP_KEY_SECRET} : the whole .pem, BEGIN and END lines included
 
-    4. Delete both local files and re-run this job.
+    5. Delete the .pem locally and re-run this job.
 
-  Alternative, a fine-grained token. Quicker, but expires within a year and
-  is tied to whoever made it:
+  Quicker alternative, a fine-grained token. Expires within a year and is
+  tied to whoever made it:
 
     1. https://github.com/settings/personal-access-tokens/new
          Resource owner        : ThatOpen
          Repository access     : Only select repositories -> platform_backend-api
          Repository permissions: Contents -> Read-only
-    2. Store it as ${TOKEN_SECRET} in this repo's Actions secrets.
-       Because the owner is the organisation, it may sit in "pending
-       approval" until an org owner accepts it.
+    2. Store it as ${TOKEN_SECRET} in this repo's Actions secrets. Because
+       the owner is the organisation, it may sit in "pending approval"
+       until an org owner accepts it.
 
-  If one of these is already set, it has most likely been revoked, or lost
+  A read-only deploy key stored as ${KEY_SECRET} also works.
+
+  If one of these is already set, it has most likely been revoked or lost
   access to ${BACKEND_REPO}. A token may simply have expired.
 
 INSTRUCTIONS

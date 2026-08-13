@@ -16,13 +16,24 @@ jobs:
           node-version: 24
 
       # The backend repo is private, so the default GITHUB_TOKEN cannot clone
-      # the submodule. Either secret works; the script picks whichever is set
-      # and prints setup instructions if neither is. It also re-applies the
-      # sparse checkout, which does not survive a fresh clone.
+      # the submodule. A GitHub App mints a token scoped to that one repo and
+      # valid for an hour, so nothing long-lived than the App key is stored.
+      - uses: actions/create-github-app-token@v1
+        id: backend-types-token
+        with:
+          app-id: ${{ secrets.BACKEND_TYPES_APP_ID }}
+          private-key: ${{ secrets.BACKEND_TYPES_APP_PRIVATE_KEY }}
+          owner: ThatOpen
+          repositories: platform_backend-api
+
+      # Falls back to a plain token or a deploy key if those secrets are set
+      # instead. The script picks whichever it finds and prints setup
+      # instructions if it finds none. It also re-applies the sparse checkout,
+      # which does not survive a fresh clone.
       - name: Fetch backend contract types
         env:
+          BACKEND_TYPES_TOKEN: ${{ steps.backend-types-token.outputs.token || secrets.BACKEND_TYPES_TOKEN }}
           BACKEND_TYPES_DEPLOY_KEY: ${{ secrets.BACKEND_TYPES_DEPLOY_KEY }}
-          BACKEND_TYPES_TOKEN: ${{ secrets.BACKEND_TYPES_TOKEN }}
         run: yarn types:init
 
       - run: yarn install --frozen-lockfile
