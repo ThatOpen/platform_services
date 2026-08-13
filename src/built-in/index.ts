@@ -1142,7 +1142,7 @@ export type ContextMode = "default" | "hidden";
 /** The three kinds of change a commit can carry. */
 export type ChangeKind = "create" | "update" | "delete";
 /**
- * Stable id for a commit across models â€” which is now just its guid.
+ * Stable id for a commit across models — which is now just its guid.
  *
  * It used to have to be `${model}:${id}`, because the id was a per-model version number and every
  * model had a commit 3. A guid needs no help being unique, and that is exactly what it was for.
@@ -1155,25 +1155,25 @@ export declare const commitKey: (c: {
 }) => string;
 /** How the commit is shown in 3D: review colours, or the model as it ended up. */
 export type HighlightMode = "colored" | "plain";
-/** Dominant change type of a commit: delete â†’ create â†’ update. */
+/** Dominant change type of a commit: delete → create → update. */
 export declare function dominantChange(commit: RevitFlowCommit): DominantChange;
 /**
- * GitHistoryManager â€” headless engine for the revit-flow git-history built-in.
+ * GitHistoryManager — headless engine for the revit-flow git-history built-in.
  *
- * Owns ALL viewer mutation for the change outlines. It does NOT load the model â€”
+ * Owns ALL viewer mutation for the change outlines. It does NOT load the model —
  * the user opens a model from the Project Files panel, and this manager reacts to
  * that load: it reads the model's hidden `revitflow_history.json` (if any) and
  * publishes the commit list. Showing a commit outlines its changed elements
- * (create â†’ green, update â†’ blue, delete â†’ red) via three independently-colored
- * `OBF.Outliner` groups â€” a cheap post-process outline that never recolors the
+ * (create → green, update → blue, delete → red) via three independently-colored
+ * `OBF.Outliner` groups — a cheap post-process outline that never recolors the
  * fragment geometry. The Lit panel (`top-git-history`) is intent-only: it calls
  * these methods and subscribes to the events below.
  *
  * Data model, per loaded model (fileId == modelId), all HIDDEN children of it:
- *   - revitflow_history.json â€” { model, commits: [{ id, parent, author, source,
+ *   - revitflow_history.json — { model, commits: [{ id, parent, author, source,
  *       timestamp, changes:[{type,uniqueId}], counts }] }. The first commit is the
  *       INITIAL full-model capture (its geometry == the visible baseline file).
- *   - revitflow_frag_<N>.frag â€” delta fragments for commit N (its created+modified
+ *   - revitflow_frag_<N>.frag — delta fragments for commit N (its created+modified
  *       geometry), loaded on demand so created elements can be colored.
  */
 declare class _GitHistoryManager extends OBC.Component {
@@ -1186,15 +1186,40 @@ declare class _GitHistoryManager extends OBC.Component {
     readonly onError: OBC.Event<string>;
     /** The GUID currently selected in the 3D view (null when the selection is cleared). */
     readonly onSelectedGuidChanged: OBC.Event<string | null>;
+    /** A source icon was added or replaced. */
+    readonly onSourceIconsChanged: OBC.Event<void>;
+    /**
+     * Which mark to draw on a commit, by the application that wrote it.
+     *
+     * Every commit already says who made it, in `source`. The panel used to draw the Revit logo on
+     * all of them regardless, which was true while Revit was the only thing that could write one and
+     * became a lie the moment anything else did: a commit from another tool would claim to be a
+     * Revit commit, on the one part of the row whose whole job is to say where a change came from.
+     *
+     * The format is deliberately open about who writes history, so the icons have to be too. This is
+     * the registry. Only `revit` is built in; an application adds its own:
+     *
+     *   const history = components.get(GitHistoryManager);
+     *   history.setSourceIcon("rhino", "https://…/rhino.svg");   // a URL, or a data: URI
+     *   history.setSourceIcon("tekla", "<svg viewBox='0 0 24 24'>…</svg>");   // or the markup
+     *
+     * A source with no icon gets a neutral one rather than somebody else's.
+     */
+    readonly sourceIcons: Map<string, string>;
+    /**
+     * @param source the commit's own `source` value, matched case-insensitively.
+     * @param icon a URL, a `data:` URI, or inline `<svg>` markup.
+     */
+    setSourceIcon(source: string, icon: string): void;
     world?: OBC.World;
     /**
      * What happens to elements that are NOT part of the selected commit:
-     *   "default" â€” left as they are (the change outlines sit on the full model)
-     *   "hidden"  â€” hidden entirely, isolating the commit's elements
+     *   "default" — left as they are (the change outlines sit on the full model)
+     *   "hidden"  — hidden entirely, isolating the commit's elements
      *
      * A dimmed ("ghost") middle ground was dropped: the fragments x-ray writes depth
      * from the pixels its screen door keeps, so dimmed geometry still occluded the very
-     * elements under review â€” worse the denser the model in front. Fixing that properly
+     * elements under review — worse the denser the model in front. Fixing that properly
      * belongs in the renderer, not here, so this offers the two states that are exact.
      */
     contextMode: ContextMode;
@@ -1212,18 +1237,18 @@ declare class _GitHistoryManager extends OBC.Component {
     prefetchRadius: number;
     /**
      * How a commit is presented in 3D:
-     *   "colored" â€” outline created/edited/deleted in their colours (the review lens)
-     *   "plain"   â€” no outlines: the model simply as it stood AFTER the commit, so the
+     *   "colored" — outline created/edited/deleted in their colours (the review lens)
+     *   "plain"   — no outlines: the model simply as it stood AFTER the commit, so the
      *               deleted elements are hidden rather than painted red
      */
     highlightMode: HighlightMode;
-    /** @deprecated kept so older callers still compile â€” maps onto contextMode. */
+    /** @deprecated kept so older callers still compile — maps onto contextMode. */
     get isolateChanges(): boolean;
-    /** Green â€” created elements. */
+    /** Green — created elements. */
     readonly COLOR_CREATED = "#22c55e";
-    /** Golden yellow â€” modified elements. */
+    /** Golden yellow — modified elements. */
     readonly COLOR_MODIFIED = "#e3b341";
-    /** Red â€” deleted elements. */
+    /** Red — deleted elements. */
     readonly COLOR_DELETED = "#ef4444";
     readonly GROUP_CREATED = "revitflow-created";
     readonly GROUP_MODIFIED = "revitflow-modified";
@@ -1232,7 +1257,7 @@ declare class _GitHistoryManager extends OBC.Component {
     private _projectId?;
     /**
      * One entry per loaded revit-flow model. Commit ids are per-model version numbers, so
-     * they collide across models â€” every commit is tagged with its modelId and a commit is
+     * they collide across models — every commit is tagged with its modelId and a commit is
      * addressed by {@link commitKey}, never by id alone.
      */
     private _models;
@@ -1304,7 +1329,7 @@ declare class _GitHistoryManager extends OBC.Component {
     init(client: PlatformClient): Promise<void>;
     /**
      * Follow the viewer's selection so the element view tracks whatever the user clicks in
-     * 3D â€” no "trace this" button to press. The Highlighter's events appear asynchronously
+     * 3D — no "trace this" button to press. The Highlighter's events appear asynchronously
      * (they're registered when the viewer sets it up), so retry briefly until they exist.
      */
     private _watchSelection;
@@ -1313,7 +1338,7 @@ declare class _GitHistoryManager extends OBC.Component {
     /**
      * Probe a loaded model for a sibling visible `revitflow_history.json` in its
      * folder. If present, adopt it as the active model and publish its commits.
-     * Silent for non-revit models and for our own delta frags â€” only genuine
+     * Silent for non-revit models and for our own delta frags — only genuine
      * fetch/parse failures raise onError.
      */
     private _probeModel;
@@ -1348,7 +1373,7 @@ declare class _GitHistoryManager extends OBC.Component {
      * Show the model as it stood AT `commit`: the visible baseline is the model at its
      * INITIAL commit, and everything created later lives in per-commit delta .frags loaded
      * as separate models. Those deltas stay loaded (the prefetch window keeps neighbours
-     * warm), so stepping BACK has to hide the ones from later commits â€” otherwise a wall
+     * warm), so stepping BACK has to hide the ones from later commits — otherwise a wall
      * added in commit 3 was still sitting there while you were looking at commit 2.
      * Only touches deltas of the commit's own model; other models keep their own state.
      */
@@ -1388,7 +1413,7 @@ declare class _GitHistoryManager extends OBC.Component {
     selectedGuids(): Promise<string[]>;
     selectedGuid(): Promise<string | null>;
     /**
-     * Select every element the commit touched, in the viewer's own selection â€” so the
+     * Select every element the commit touched, in the viewer's own selection — so the
      * usual tools (properties, isolate, zoom) work on it like any hand-made selection.
      * Honours the current type filter, so "only deletions" selects only those.
      * @returns how many elements ended up selected.
@@ -1402,11 +1427,11 @@ declare class _GitHistoryManager extends OBC.Component {
     private _outliner;
     /**
      * Create the three independently-colored outline groups once. The viewer
-     * owns the Outliner's DEFAULT group (selection) â€” we only add our own named
+     * owns the Outliner's DEFAULT group (selection) — we only add our own named
      * groups and never touch "default".
      */
     private _ensureGroups;
-    /** Clear our three outline groups only â€” leaves the viewer's default group. */
+    /** Clear our three outline groups only — leaves the viewer's default group. */
     private _clearOutlines;
     /**
      * Resolve each change bucket's GUIDs to localIds across every loaded model
@@ -1420,7 +1445,7 @@ declare class _GitHistoryManager extends OBC.Component {
     private _dropSuperseded;
     /**
      * Hide (or restore) the elements a commit deleted. Tracked separately from the context
-     * modes so switching Coloredâ†”Plain doesn't disturb ghosting or the rest of the model.
+     * modes so switching Colored↔Plain doesn't disturb ghosting or the rest of the model.
      */
     private _applyDeletedVisibility;
     /**
@@ -1429,14 +1454,14 @@ declare class _GitHistoryManager extends OBC.Component {
      * THE BUG THIS EXISTS FOR. The baseline .frag holds the whole model as of the first
      * commit, and every later commit ships a delta .frag with the geometry it created AND
      * the geometry it modified. Both stay in the scene. For a CREATED element that is
-     * right â€” it exists in exactly one place. For a MODIFIED one it is not: the element is
+     * right — it exists in exactly one place. For a MODIFIED one it is not: the element is
      * in the baseline at its old shape and in the delta at its new one, and the viewer drew
      * both. Measured 2026-08-05 on a wall whose height Quim raised: the new wall stood
      * proud of the old one, with the coincident faces z-fighting into a dotted band.
      *
      * The rule is the obvious one once stated: for any element, only the newest VISIBLE
      * source may draw it. Deltas are walked newest-first, each guid is claimed by the first
-     * source that has it, and every older copy â€” in an older delta or in the baseline â€” is
+     * source that has it, and every older copy — in an older delta or in the baseline — is
      * hidden. Deltas newer than the commit being shown are already hidden wholesale by
      * `_applyFutureVisibility`, so they never get to claim anything.
      *
@@ -1454,13 +1479,13 @@ declare class _GitHistoryManager extends OBC.Component {
      * load that commit's delta, which is the last place its geometry existed.
      */
     private _ensureDeletedGeometry;
-    /** GUIDs â†’ { modelId: Set<localId> } across the given models. */
+    /** GUIDs → { modelId: Set<localId> } across the given models. */
     private _buildMap;
     private _mergeMaps;
     /**
      * Dim ("ghost") or hide every element that is NOT part of the shown commit, per the
      * chosen context mode. Best-effort per model: a model that doesn't support the call is
-     * simply left alone â€” the outlines still convey the change.
+     * simply left alone — the outlines still convey the change.
      */
     private _applyContext;
     /** Undo whatever the context mode did: drop the ghost overlay and restore visibility. */
@@ -1479,42 +1504,42 @@ declare class _GitHistoryManager extends OBC.Component {
 }
 
 /**
- * GitHistoryManager â€” headless engine for the revit-flow git-history built-in.
+ * GitHistoryManager — headless engine for the revit-flow git-history built-in.
  *
- * Owns ALL viewer mutation for the change outlines. It does NOT load the model â€”
+ * Owns ALL viewer mutation for the change outlines. It does NOT load the model —
  * the user opens a model from the Project Files panel, and this manager reacts to
  * that load: it reads the model's hidden `revitflow_history.json` (if any) and
  * publishes the commit list. Showing a commit outlines its changed elements
- * (create â†’ green, update â†’ blue, delete â†’ red) via three independently-colored
- * `OBF.Outliner` groups â€” a cheap post-process outline that never recolors the
+ * (create → green, update → blue, delete → red) via three independently-colored
+ * `OBF.Outliner` groups — a cheap post-process outline that never recolors the
  * fragment geometry. The Lit panel (`top-git-history`) is intent-only: it calls
  * these methods and subscribes to the events below.
  *
  * Data model, per loaded model (fileId == modelId), all HIDDEN children of it:
- *   - revitflow_history.json â€” { model, commits: [{ id, parent, author, source,
+ *   - revitflow_history.json — { model, commits: [{ id, parent, author, source,
  *       timestamp, changes:[{type,uniqueId}], counts }] }. The first commit is the
  *       INITIAL full-model capture (its geometry == the visible baseline file).
- *   - revitflow_frag_<N>.frag â€” delta fragments for commit N (its created+modified
+ *   - revitflow_frag_<N>.frag — delta fragments for commit N (its created+modified
  *       geometry), loaded on demand so created elements can be colored.
  */
 export type GitHistoryManager = InstanceType<typeof _GitHistoryManager>;
 /**
- * GitHistoryManager â€” headless engine for the revit-flow git-history built-in.
+ * GitHistoryManager — headless engine for the revit-flow git-history built-in.
  *
- * Owns ALL viewer mutation for the change outlines. It does NOT load the model â€”
+ * Owns ALL viewer mutation for the change outlines. It does NOT load the model —
  * the user opens a model from the Project Files panel, and this manager reacts to
  * that load: it reads the model's hidden `revitflow_history.json` (if any) and
  * publishes the commit list. Showing a commit outlines its changed elements
- * (create â†’ green, update â†’ blue, delete â†’ red) via three independently-colored
- * `OBF.Outliner` groups â€” a cheap post-process outline that never recolors the
+ * (create → green, update → blue, delete → red) via three independently-colored
+ * `OBF.Outliner` groups — a cheap post-process outline that never recolors the
  * fragment geometry. The Lit panel (`top-git-history`) is intent-only: it calls
  * these methods and subscribes to the events below.
  *
  * Data model, per loaded model (fileId == modelId), all HIDDEN children of it:
- *   - revitflow_history.json â€” { model, commits: [{ id, parent, author, source,
+ *   - revitflow_history.json — { model, commits: [{ id, parent, author, source,
  *       timestamp, changes:[{type,uniqueId}], counts }] }. The first commit is the
  *       INITIAL full-model capture (its geometry == the visible baseline file).
- *   - revitflow_frag_<N>.frag â€” delta fragments for commit N (its created+modified
+ *   - revitflow_frag_<N>.frag — delta fragments for commit N (its created+modified
  *       geometry), loaded on demand so created elements can be colored.
  */
 export const GitHistoryManager = { uuid: '3f9c1a7e-6b2d-4e18-9a5c-7d0e2f4b6c81' } as typeof _GitHistoryManager & { uuid: '3f9c1a7e-6b2d-4e18-9a5c-7d0e2f4b6c81' };
