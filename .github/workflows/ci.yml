@@ -9,11 +9,18 @@ jobs:
     name: Build check
     runs-on: ubuntu-latest
     steps:
+      # Shared backend contract types arrive as a submodule. `types:init`
+      # re-applies the sparse checkout, which lives in the submodule's .git
+      # and so does not survive a fresh clone.
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+
+      - run: yarn types:init
 
       - run: yarn install --frozen-lockfile
 
