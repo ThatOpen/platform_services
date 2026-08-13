@@ -14,19 +14,27 @@ jobs:
       contents: write # push the version-bump commit
       id-token: write # OIDC trusted publishing to npm (no token secret)
     steps:
-      # Shared backend contract types arrive as a submodule. `types:init`
-      # re-applies the sparse checkout, which lives in the submodule's .git
-      # and so does not survive a fresh clone.
       - uses: actions/checkout@v4
-        with:
-          submodules: true
 
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
 
-      - run: yarn types:init
+      # Shared backend contract types arrive as a submodule pointing at a
+      # private repo, so the default GITHUB_TOKEN cannot clone it. The
+      # credential is scoped to this step rather than passed to checkout, so
+      # it never becomes the identity for anything else in the job.
+      #
+      # types:init also re-applies the sparse checkout, which lives in the
+      # submodule's .git and does not survive a fresh clone.
+      - name: Fetch backend contract types
+        env:
+          BACKEND_TYPES_TOKEN: ${{ secrets.BACKEND_TYPES_TOKEN }}
+        run: |
+          git config --global url."https://x-access-token:${BACKEND_TYPES_TOKEN}@github.com/".insteadOf "https://github.com/"
+          yarn types:init
+          git config --global --unset-all url."https://x-access-token:${BACKEND_TYPES_TOKEN}@github.com/".insteadOf
 
       # Ensure npm supports OIDC trusted publishing (>= 11.5.1).
       - run: npm install -g npm@11.5.1
