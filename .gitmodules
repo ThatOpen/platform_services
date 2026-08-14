@@ -1,4 +1,0 @@
-[submodule "vendor/backend-api"]
-	path = vendor/backend-api
-	url = https://github.com/ThatOpen/platform_backend-api.git
-	branch = dev

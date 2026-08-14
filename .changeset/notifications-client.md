@@ -8,6 +8,5 @@ Add notification methods to `PlatformClient`: `getNotifications`,
 `unsubscribeFromAutomation`. All scoped to the signed-in user via the
 bearer token an app already has.
 
-The notification types are re-exported from the backend repo rather than
-copied into `src/types`, so the contract cannot drift from what the API
-sends. Run `yarn types:update` to move the pin.
+The notification types mirror the backend's wire DTOs in `src/types`, the
+same as every other type here.

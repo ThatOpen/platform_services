@@ -18,11 +18,7 @@ export default defineConfig({
   plugins: [
     dts({
       insertTypesEntry: true,
-      // The vendored backend DTOs are re-exported from src/types/notifications,
-      // so their declarations have to be emitted too. Without this the
-      // published .d.ts points at ../../vendor/... and resolves to nothing on
-      // a consumer's machine.
-      include: ['src', 'vendor/backend-api/src/common/dto'],
+      include: ['src'],
       copyDtsFiles: true,
     }),
   ],

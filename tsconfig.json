@@ -19,10 +19,6 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": [
-    "src",
-    "vendor/backend-api/src/common/dto",
-    "test.local.dev/clientus.ts"
-  ],
+  "include": ["src", "test.local.dev/clientus.ts"],
   "exclude": ["src/cli/templates", "src/built-in/**/example.ts"]
 }
