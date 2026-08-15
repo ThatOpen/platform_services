@@ -1,5 +1,25 @@
 # thatopen-services
 
+## 0.9.0
+
+### Minor Changes
+
+- 9660e7d: Add notification methods to `PlatformClient`: `getNotifications`,
+  `getUnreadNotificationCount`, `markNotificationsRead`,
+  `markAllNotificationsRead`, `getNotificationSubscriptions` and
+  `unsubscribeFromAutomation`. All scoped to the signed-in user via the
+  bearer token an app already has.
+
+  The notification types mirror the backend's wire DTOs in `src/types`, the
+  same as every other type here.
+
+- 9660e7d: Add `subscribeToAutomation` and `updateAutomationSubscription`, so an app can
+  create a subscription rather than only listing and cancelling one.
+
+  Add `onNotification`, a live socket subscription for the signed-in user.
+  Unlike `onExecutionProgress` it stays connected for the session rather than
+  closing on a terminal event, and it returns a function that disconnects.
+
 ## 0.8.0
 
 ### Minor Changes
