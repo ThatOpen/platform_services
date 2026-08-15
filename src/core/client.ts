@@ -299,6 +299,15 @@ export class EngineServicesClient {
    * the new token is picked up on every request — expired tokens no
    * longer stick around.
    */
+  /**
+   * Socket origin without namespace or query, for gateways other than the
+   * execution one. `wsUrl` already carries a token that may be stale when a
+   * provider is in play, so callers append their own.
+   */
+  protected get socketOrigin(): string {
+    return this.wsUrl.split('?')[0];
+  }
+
   protected async resolveAccessToken(): Promise<string> {
     return this.accessToken;
   }

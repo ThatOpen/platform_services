@@ -1,11 +1,40 @@
+import { io } from 'socket.io-client';
 import {
   EngineServicesClient,
   EngineServicesClientProps,
 } from './client';
 import { Project, ProjectData } from '../types/projects';
 import { ThatOpenContext } from '../types/context';
+import {
+  MarkNotificationsReadResultDto,
+  NotificationPageDto,
+  NotificationSubscriptionView,
+  UnreadCountDto,
+} from '../types/notifications';
 
 const PROJECT_PATH = 'project';
+const NOTIFICATION_PATH = 'notifications';
+
+/**
+ * What arrived on the socket. One callback for all three because a bell
+ * reacts the same way to each: refresh the badge, and the list if open.
+ *
+ * `allRead` is one event for the whole sweep rather than one per
+ * notification, so do not expect an id on it.
+ */
+export type LiveNotificationEvent =
+  | { type: 'created'; id: string }
+  | { type: 'read'; id: string }
+  | { type: 'allRead'; batch: number };
+
+/** Per-automation opt-in. `failures` skips started events entirely. */
+export type NotificationSubscriptionFilterInput = 'all' | 'failures';
+
+export interface NotificationSubscriptionInput {
+  filter?: NotificationSubscriptionFilterInput;
+  /** Overrides the account-level channel setting for this automation only. */
+  channels?: { email?: boolean };
+}
 
 /** Scope by which a permission was granted (or `'none'` if denied). */
 export type PermissionScope = 'global' | 'project' | 'entity' | 'none';
@@ -186,5 +215,204 @@ export class PlatformClient extends EngineServicesClient {
       contentType: 'application/json',
     });
     return response.results;
+  }
+
+  // ─── Notifications ────────────────────────────────────────────────
+
+  /**
+   * Lists the signed-in user's notifications, newest first.
+   *
+   * Scoped to whoever the bearer token belongs to — an app cannot read
+   * anyone else's. Muted notifications are included: muting silences the
+   * badge and the delivery channels, it does not hide the record.
+   *
+   * Paginate by passing the previous response's `nextCursor` back in; it is
+   * opaque, so do not build one by hand. A null `nextCursor` means the last
+   * page.
+   *
+   * @example Walk every page:
+   * ```ts
+   * let cursor: string | undefined;
+   * do {
+   *   const page = await client.getNotifications({ cursor });
+   *   render(page.items);
+   *   cursor = page.nextCursor ?? undefined;
+   * } while (cursor);
+   * ```
+   */
+  async getNotifications(params?: { cursor?: string; limit?: number }) {
+    return await this.request<NotificationPageDto>('GET', NOTIFICATION_PATH, {
+      query: {
+        ...(params?.cursor !== undefined && { cursor: params.cursor }),
+        ...(params?.limit !== undefined && { limit: String(params.limit) }),
+      },
+    });
+  }
+
+  /**
+   * Number of unread notifications, excluding muted ones. This is the bell
+   * badge count, so it is cheap to poll.
+   */
+  async getUnreadNotificationCount() {
+    const response = await this.request<UnreadCountDto>(
+      'GET',
+      `${NOTIFICATION_PATH}/unread-count`,
+    );
+    return response.count;
+  }
+
+  /**
+   * Marks specific notifications as read. Ids the caller does not own are
+   * ignored rather than rejected, so `updated` can be lower than the number
+   * passed in.
+   */
+  async markNotificationsRead(notificationIds: string[]) {
+    return await this.request<MarkNotificationsReadResultDto>(
+      'POST',
+      `${NOTIFICATION_PATH}/mark-read`,
+      {
+        body: JSON.stringify({ ids: notificationIds }),
+        contentType: 'application/json',
+      },
+    );
+  }
+
+  /** Marks every unread notification as read in one call. */
+  async markAllNotificationsRead() {
+    return await this.request<MarkNotificationsReadResultDto>(
+      'POST',
+      `${NOTIFICATION_PATH}/mark-all-read`,
+    );
+  }
+
+  /**
+   * The automations this user has subscribed to. Nobody is subscribed by
+   * default, so an empty list is the normal state.
+   */
+  async getNotificationSubscriptions() {
+    return await this.request<NotificationSubscriptionView[]>(
+      'GET',
+      `${NOTIFICATION_PATH}/subscriptions`,
+    );
+  }
+
+  /**
+   * Removes this user's subscription to one automation.
+   *
+   * Unlike subscribing, which happens through the project routes, this works
+   * for any automation the user is subscribed to and keeps working after the
+   * automation itself is gone — opting out must never be the thing that
+   * fails.
+   */
+  async unsubscribeFromAutomation(hookId: string) {
+    return await this.request<{ unsubscribed: boolean }>(
+      'DELETE',
+      `${NOTIFICATION_PATH}/subscriptions/${hookId}`,
+    );
+  }
+
+  /**
+   * Subscribes the signed-in user to one project automation's runs.
+   *
+   * Nobody is subscribed by default, so this is what makes an automation
+   * produce notifications for this user at all. Subscribing again is
+   * harmless: it updates the existing subscription rather than duplicating.
+   *
+   * Read-level access to the project is enough. Someone who can see an
+   * automation can follow it without being able to change it.
+   *
+   * @example Follow only the failures, and email me about them:
+   * ```ts
+   * await client.subscribeToAutomation(projectId, hookId, {
+   *   filter: 'failures',
+   *   channels: { email: true },
+   * });
+   * ```
+   */
+  async subscribeToAutomation(
+    projectId: string,
+    hookId: string,
+    input?: NotificationSubscriptionInput,
+  ) {
+    return await this.request<{ subscribed: true }>(
+      'POST',
+      `${PROJECT_PATH}/${projectId}/events/hooks/${hookId}/subscription`,
+      {
+        body: JSON.stringify(input ?? {}),
+        contentType: 'application/json',
+      },
+    );
+  }
+
+  /**
+   * Changes an existing subscription. Only the fields passed are touched, so
+   * sending `channels` alone leaves the filter as it was.
+   *
+   * Throws if the user is not subscribed; use {@link subscribeToAutomation}
+   * to create one.
+   */
+  async updateAutomationSubscription(
+    projectId: string,
+    hookId: string,
+    changes: NotificationSubscriptionInput,
+  ) {
+    return await this.request<{ updated: true }>(
+      'PATCH',
+      `${PROJECT_PATH}/${projectId}/events/hooks/${hookId}/subscription`,
+      {
+        body: JSON.stringify(changes),
+        contentType: 'application/json',
+      },
+    );
+  }
+
+  /**
+   * Listens for this user's notifications in real time.
+   *
+   * Unlike {@link EngineServicesClient.onExecutionProgress}, which follows one
+   * execution and closes when it ends, this stays connected for the session:
+   * the server puts the socket in a room for the signed-in account and pushes
+   * anything addressed to them.
+   *
+   * The events carry ids rather than the notifications themselves, so treat
+   * them as a signal to refresh. That keeps a burst cheap and means the
+   * server is never the source of a stale render.
+   *
+   * Requires a user JWT. An API access token is rejected by the gateway,
+   * because it identifies a token rather than a person.
+   *
+   * @returns a function that disconnects. Call it on unmount.
+   *
+   * @example
+   * ```ts
+   * const stop = await client.onNotification((event) => {
+   *   if (event.type === 'created') refreshBell();
+   * });
+   * // later
+   * stop();
+   * ```
+   */
+  async onNotification(
+    onEvent: (event: LiveNotificationEvent) => void,
+  ): Promise<() => void> {
+    // Resolved per connection rather than reused from construction, so a
+    // provider-backed client opens the socket with a current token.
+    const token = await this.resolveAccessToken();
+    const socket = io(
+      `${this.socketOrigin}/notifications?accessToken=${encodeURIComponent(token)}`,
+      { transports: ['websocket'] },
+    );
+
+    socket.on('notification.created', (data: { id: string }) =>
+      onEvent({ type: 'created', id: data?.id }),
+    );
+    socket.on('notification.read', (data: { id: string }) =>
+      onEvent({ type: 'read', id: data?.id }),
+    );
+    socket.on('notifications.allRead', (data: { batch: number }) =>
+      onEvent({ type: 'allRead', batch: data?.batch }),
+    );
+
+    return () => socket.disconnect();
   }
 }

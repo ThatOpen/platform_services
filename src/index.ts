@@ -10,4 +10,5 @@ export * from './types/item.dto';
 export * from './types/projects';
 export * from './types/context';
 export * from './types/npm';
+export * from './types/notifications';
 export * from './built-in';
