@@ -39,6 +39,29 @@ export interface NotificationDto {
   muted: boolean;
   readAt: string | null;
   createdAt: string;
+  /**
+   * What to group consecutive notifications by — the automation id for a run,
+   * absent for anything that should stand alone.
+   *
+   * Derived rather than the raw producer payload, so fifty runs of one
+   * automation can collapse into a single row without the whole payload being
+   * on the wire for every notification type, forever.
+   */
+  groupKey?: string;
+  /**
+   * How an automation run ended, straight from the producer's result.
+   *
+   * Use this rather than reading the copy. `title` is built from the user's own
+   * automation name, so an automation called "Failover sync" makes every
+   * successful run look failed to anything matching on the text.
+   */
+  outcome?: 'success' | 'error' | 'warning';
+  /**
+   * The automation's name, for a grouped row's heading. Here for the same
+   * reason as `outcome`: recovering it by stripping words off the title breaks
+   * on any name that contains them.
+   */
+  groupLabel?: string;
 }
 
 /** `nextCursor` is opaque — pass it back verbatim. Null means the last page. */
