@@ -4,6 +4,10 @@
     "description": "App lifecycle — list, get with versions, create, download bundle, and archive."
   },
   {
+    "path": "src/core/examples/batch-reads.ts",
+    "description": "Batch reads — sign many hidden files, list versions and metadata for many files, and resolve many folders in one request each."
+  },
+  {
     "path": "src/core/examples/components.ts",
     "description": "Cloud component lifecycle — list, get with versions, create, update, download bundle, archive, and recover."
   },

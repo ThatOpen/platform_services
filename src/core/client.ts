@@ -22,6 +22,14 @@ import {
   HiddenFileEntity,
   Metadata,
 } from '../types/files';
+import {
+  HiddenFileSignedUrlBatchEntry,
+  ItemFoldersBatchEntry,
+  ItemVersionsBatchEntry,
+  STORAGE_BATCH_MAX,
+  VersionMetadataBatchEntry,
+  VersionMetadataBatchRequest,
+} from '../types/batch';
 import { ThatOpenContext } from '../types/context';
 import { NpmCredentials } from '../types/npm';
 import { RequestError } from './request-error';
@@ -203,10 +211,9 @@ export class EngineServicesClient {
   static fromPlatformContext(
     props?: Omit<EngineServicesClientProps, 'useBearer'>,
   ): EngineServicesClient {
-    const ctx: ThatOpenContext =
-      (typeof window !== 'undefined'
-        ? window.__THATOPEN_CONTEXT__
-        : null) || { appId: '', projectId: '', accessToken: '', apiUrl: '' };
+    const ctx: ThatOpenContext = (typeof window !== 'undefined'
+      ? window.__THATOPEN_CONTEXT__
+      : null) || { appId: '', projectId: '', accessToken: '', apiUrl: '' };
     const client = new EngineServicesClient(ctx.accessToken, ctx.apiUrl, {
       ...props,
       useBearer: true,
@@ -582,6 +589,43 @@ export class EngineServicesClient {
     );
   }
 
+  /**
+   * Batch variant of {@link getFileVersionMetadata}. Reads the metadata of
+   * many (file, version) pairs in one request instead of one request per pair,
+   * which is what a file list needs when it hydrates a whole page at once.
+   *
+   * Inputs longer than {@link STORAGE_BATCH_MAX} are split into several
+   * requests automatically. Entries come back in the order they were asked
+   * for; a pair the caller cannot read carries an `error` instead of
+   * `metadata`, so one bad id does not lose the whole page.
+   *
+   * @param entries - The `{ itemId, versionTag }` pairs to read.
+   * @param params - Optional flags such as `withDraft`.
+   */
+  async getFileVersionMetadataBatch(
+    entries: VersionMetadataBatchRequest[],
+    params?: { withDraft?: boolean },
+  ): Promise<VersionMetadataBatchEntry[]> {
+    const { withDraft } = params || {};
+    return await this.#requestBatches(
+      entries,
+      async (chunk) =>
+        (
+          await this.#requestApi<{ results: VersionMetadataBatchEntry[] }>(
+            'POST',
+            `${ITEM_PATH}/batch/version-metadata`,
+            {
+              body: JSON.stringify({
+                entries: chunk,
+                ...(withDraft !== undefined && { withDraft }),
+              }),
+              contentType: 'application/json',
+            },
+          )
+        ).results,
+    );
+  }
+
   // ─── Folders ─────────────────────────────────────────────────────
 
   /**
@@ -616,6 +660,36 @@ export class EngineServicesClient {
     return await this.#requestApi<ItemFolder>(
       'GET',
       `${FOLDER_PATH}/${folderId}`,
+    );
+  }
+
+  /**
+   * Batch variant of {@link getFolder}. Resolves a known set of folder ids in
+   * one request — for example the parents behind a file list's breadcrumbs.
+   *
+   * Reach for {@link listFolders} instead when the whole (project) tree is
+   * wanted; this is for the case where the ids are already known.
+   *
+   * Inputs longer than {@link STORAGE_BATCH_MAX} are split into several
+   * requests automatically. A folder the caller cannot read carries an
+   * `error` instead of `folder`.
+   *
+   * @param folderIds - The folder ids to resolve.
+   */
+  async getFoldersBatch(folderIds: string[]): Promise<ItemFoldersBatchEntry[]> {
+    return await this.#requestBatches(
+      folderIds,
+      async (chunk) =>
+        (
+          await this.#requestApi<{ results: ItemFoldersBatchEntry[] }>(
+            'POST',
+            `${ITEM_PATH}/batch/folders`,
+            {
+              body: JSON.stringify({ folderIds: chunk }),
+              contentType: 'application/json',
+            },
+          )
+        ).results,
     );
   }
 
@@ -924,7 +998,8 @@ export class EngineServicesClient {
     globals: Record<string, unknown>,
     ...builtIns: { uuid: string }[]
   ): Promise<{ components: TComponents }> {
-    const OBC = globals.OBC as { Components?: new () => TComponents } | undefined;
+    const OBC = globals.OBC as
+      { Components?: new () => TComponents } | undefined;
     const BUI = globals.BUI as { Manager?: { init(): void } } | undefined;
     if (!OBC?.Components)
       throw new Error('globals.OBC must include Components');
@@ -1011,15 +1086,12 @@ export class EngineServicesClient {
    */
   async downloadAppBundle(appId: string, params?: DownloadItemFileParams) {
     const { versionTag, withDraft } = params || {};
-    return await this.#requestFile(
-      `${ITEM_PATH}/${appId}/download/bundle`,
-      {
-        query: {
-          ...(versionTag && { versionTag }),
-          ...(withDraft && { withDraft }),
-        },
+    return await this.#requestFile(`${ITEM_PATH}/${appId}/download/bundle`, {
+      query: {
+        ...(versionTag && { versionTag }),
+        ...(withDraft && { withDraft }),
       },
-    );
+    });
   }
 
   /**
@@ -1077,7 +1149,9 @@ export class EngineServicesClient {
       });
       if (!response.ok) {
         const text = await response.text().catch(() => '');
-        throw new Error(`Local server request failed: ${response.status} - ${text}`);
+        throw new Error(
+          `Local server request failed: ${response.status} - ${text}`,
+        );
       }
       return (await response.json()) as { executionId: string };
     }
@@ -1102,7 +1176,9 @@ export class EngineServicesClient {
       const response = await fetch(url, { method: 'POST' });
       if (!response.ok) {
         const text = await response.text().catch(() => '');
-        throw new Error(`Local server request failed: ${response.status} - ${text}`);
+        throw new Error(
+          `Local server request failed: ${response.status} - ${text}`,
+        );
       }
       return (await response.json()) as ExecutionEntity;
     }
@@ -1156,7 +1232,9 @@ export class EngineServicesClient {
       const response = await fetch(url);
       if (!response.ok) {
         const text = await response.text().catch(() => '');
-        throw new Error(`Local server request failed: ${response.status} - ${text}`);
+        throw new Error(
+          `Local server request failed: ${response.status} - ${text}`,
+        );
       }
       return (await response.json()) as ExecutionEntity;
     }
@@ -1299,6 +1377,47 @@ export class EngineServicesClient {
   }
 
   /**
+   * Batch variant of {@link getHiddenFileSignedUrl}. Mints presigned URLs for
+   * many hidden files in one request.
+   *
+   * This is the right call for tile-based viewers (splats, point clouds),
+   * which mint a URL per piece as the camera moves. One request here replaces
+   * up to {@link STORAGE_BATCH_MAX} single calls, which keeps a busy session
+   * well under the per-endpoint rate limit.
+   *
+   * Inputs longer than {@link STORAGE_BATCH_MAX} are split into several
+   * requests automatically. Entries come back in request order; a file that
+   * is gone or not accessible carries an `error` instead of a `url`, so the
+   * remaining tiles still load. Re-call to re-mint as `expiresAt` approaches.
+   *
+   * @param hiddenIds - The hidden files to sign.
+   * @param expiresIn - Desired URL lifetime in seconds (60–3600). Defaults to
+   *   900 (15 min) server-side; values are clamped to that range.
+   */
+  async getHiddenFileSignedUrlsBatch(
+    hiddenIds: string[],
+    expiresIn?: number,
+  ): Promise<HiddenFileSignedUrlBatchEntry[]> {
+    return await this.#requestBatches(
+      hiddenIds,
+      async (chunk) =>
+        (
+          await this.#requestApi<{ results: HiddenFileSignedUrlBatchEntry[] }>(
+            'POST',
+            `${ITEM_PATH}/${HIDDEN_PATH}/signed-url/batch`,
+            {
+              body: JSON.stringify({
+                hiddenFileIds: chunk,
+                ...(expiresIn != null && { expiresIn }),
+              }),
+              contentType: 'application/json',
+            },
+          )
+        ).results,
+    );
+  }
+
+  /**
    * Lists all hidden files attached to a parent item.
    * @param parentFileId - The parent item's unique identifier.
    * @returns Array of hidden file entities.
@@ -1333,11 +1452,9 @@ export class EngineServicesClient {
   async uploadItemIcon(itemId: string, icon: File | Blob) {
     const formData = new FormData();
     formData.append('icon', icon);
-    return await this.#requestApi<Item>(
-      'PUT',
-      `${ITEM_PATH}/${itemId}/icon`,
-      { body: formData },
-    );
+    return await this.#requestApi<Item>('PUT', `${ITEM_PATH}/${itemId}/icon`, {
+      body: formData,
+    });
   }
 
   /**
@@ -1427,6 +1544,45 @@ export class EngineServicesClient {
   }
 
   /**
+   * Batch variant of {@link listVersions}. Lists the versions of many items in
+   * one request, which is what a file panel needs to render a whole page.
+   *
+   * The returned versions are the full records, metadata included, so a list
+   * that only needs version metadata does not need
+   * {@link getFileVersionMetadataBatch} on top.
+   *
+   * Inputs longer than {@link STORAGE_BATCH_MAX} are split into several
+   * requests automatically. An item the caller cannot read carries an `error`
+   * instead of `versions`.
+   *
+   * @param itemIds - The items whose versions to list.
+   * @param params - Optional `{ archived }` filter, applied to every item.
+   */
+  async listVersionsBatch(
+    itemIds: string[],
+    params: { archived?: boolean } = {},
+  ): Promise<ItemVersionsBatchEntry[]> {
+    const { archived } = params;
+    return await this.#requestBatches(
+      itemIds,
+      async (chunk) =>
+        (
+          await this.#requestApi<{ results: ItemVersionsBatchEntry[] }>(
+            'POST',
+            `${ITEM_PATH}/batch/versions`,
+            {
+              body: JSON.stringify({
+                itemIds: chunk,
+                ...(archived !== undefined && { archived }),
+              }),
+              contentType: 'application/json',
+            },
+          )
+        ).results,
+    );
+  }
+
+  /**
    * Archives a version of an item. Archived versions remain available via
    * `listVersions({ archived: true })` and can be recovered or permanently
    * deleted. Cleanup runs daily and removes archived versions older than the
@@ -1481,6 +1637,27 @@ export class EngineServicesClient {
   // cannot be called with an access token.
 
   // ─── Private Helpers ─────────────────────────────────────────────
+
+  /**
+   * Splits `inputs` into chunks the API accepts and concatenates the results,
+   * so callers never have to think about the batch ceiling. Chunks go out
+   * together; an empty input skips the network entirely, since the API
+   * rejects an empty batch.
+   */
+  async #requestBatches<TInput, TEntry>(
+    inputs: TInput[],
+    requestChunk: (chunk: TInput[]) => Promise<TEntry[]>,
+  ): Promise<TEntry[]> {
+    if (!inputs.length) return [];
+
+    const chunks: TInput[][] = [];
+    for (let start = 0; start < inputs.length; start += STORAGE_BATCH_MAX) {
+      chunks.push(inputs.slice(start, start + STORAGE_BATCH_MAX));
+    }
+
+    const responses = await Promise.all(chunks.map(requestChunk));
+    return responses.flat();
+  }
 
   async #downloadItem(itemId: string, params?: DownloadItemFileParams) {
     const { versionTag, withDraft } = params || {};
