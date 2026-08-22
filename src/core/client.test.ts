@@ -397,7 +397,9 @@ describe('EngineServicesClient — HTTP contract', () => {
     });
 
     it('encodes URL-unsafe characters in itemId and versionTag', async () => {
-      fetchMock.mockResolvedValue(okResponse({ tag: 'v1?bug', archived: true }));
+      fetchMock.mockResolvedValue(
+        okResponse({ tag: 'v1?bug', archived: true }),
+      );
       const client = new EngineServicesClient(TOKEN, API);
       await client.archiveVersion('item/with slash', 'v1?bug');
       const { url } = getCall(fetchMock);
@@ -435,6 +437,140 @@ describe('EngineServicesClient — HTTP contract', () => {
       await expect(client.getNpmCredentials()).rejects.toMatchObject({
         status: 403,
       });
+    });
+  });
+
+  describe('batch reads', () => {
+    it('getHiddenFileSignedUrlsBatch POSTs the ids and unwraps results', async () => {
+      const results = [
+        { hiddenFileId: 'h1', url: 'https://s3/h1', expiresAt: 'later' },
+        { hiddenFileId: 'h2', error: { status: 404, message: 'gone' } },
+      ];
+      fetchMock.mockResolvedValue(okResponse({ results }));
+      const client = new EngineServicesClient(TOKEN, API);
+
+      const entries = await client.getHiddenFileSignedUrlsBatch(
+        ['h1', 'h2'],
+        1200,
+      );
+
+      const { url, init } = getCall(fetchMock);
+      const { pathname } = parseUrl(url);
+      expect(init.method).toBe('POST');
+      expect(pathname).toBe('/api/item/hidden/signed-url/batch');
+      expect(JSON.parse(init.body as string)).toEqual({
+        hiddenFileIds: ['h1', 'h2'],
+        expiresIn: 1200,
+      });
+      expect(entries).toEqual(results);
+    });
+
+    it('getHiddenFileSignedUrlsBatch omits expiresIn when not given', async () => {
+      fetchMock.mockResolvedValue(okResponse({ results: [] }));
+      const client = new EngineServicesClient(TOKEN, API);
+      await client.getHiddenFileSignedUrlsBatch(['h1']);
+      const { init } = getCall(fetchMock);
+      expect(JSON.parse(init.body as string)).toEqual({
+        hiddenFileIds: ['h1'],
+      });
+    });
+
+    it('splits inputs above the batch ceiling into several requests', async () => {
+      const ids = Array.from({ length: 250 }, (_, index) => `h${index}`);
+      fetchMock.mockImplementation(async (_url: string, init: RequestInit) => {
+        const { hiddenFileIds } = JSON.parse(init.body as string);
+        return okResponse({
+          results: hiddenFileIds.map((hiddenFileId: string) => ({
+            hiddenFileId,
+            url: `https://s3/${hiddenFileId}`,
+          })),
+        });
+      });
+      const client = new EngineServicesClient(TOKEN, API);
+
+      const entries = await client.getHiddenFileSignedUrlsBatch(ids);
+
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(entries).toHaveLength(250);
+      expect(entries.map((entry) => entry.hiddenFileId)).toEqual(ids);
+      const sizes = fetchMock.mock.calls.map(
+        (call) =>
+          JSON.parse((call[1] as RequestInit).body as string).hiddenFileIds
+            .length,
+      );
+      expect(sizes).toEqual([100, 100, 50]);
+    });
+
+    it('does not call the API for an empty input', async () => {
+      const client = new EngineServicesClient(TOKEN, API);
+      await expect(client.getHiddenFileSignedUrlsBatch([])).resolves.toEqual(
+        [],
+      );
+      await expect(client.listVersionsBatch([])).resolves.toEqual([]);
+      await expect(client.getFileVersionMetadataBatch([])).resolves.toEqual([]);
+      await expect(client.getFoldersBatch([])).resolves.toEqual([]);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('listVersionsBatch POSTs /item/batch/versions and forwards archived', async () => {
+      fetchMock.mockResolvedValue(okResponse({ results: [] }));
+      const client = new EngineServicesClient(TOKEN, API);
+
+      await client.listVersionsBatch(['item-1', 'item-2'], { archived: false });
+
+      const { url, init } = getCall(fetchMock);
+      expect(parseUrl(url).pathname).toBe('/api/item/batch/versions');
+      expect(JSON.parse(init.body as string)).toEqual({
+        itemIds: ['item-1', 'item-2'],
+        archived: false,
+      });
+    });
+
+    it('listVersionsBatch omits archived when not provided', async () => {
+      fetchMock.mockResolvedValue(okResponse({ results: [] }));
+      const client = new EngineServicesClient(TOKEN, API);
+      await client.listVersionsBatch(['item-1']);
+      expect(JSON.parse(getCall(fetchMock).init.body as string)).toEqual({
+        itemIds: ['item-1'],
+      });
+    });
+
+    it('getFileVersionMetadataBatch POSTs the pairs', async () => {
+      fetchMock.mockResolvedValue(okResponse({ results: [] }));
+      const client = new EngineServicesClient(TOKEN, API);
+
+      await client.getFileVersionMetadataBatch(
+        [{ itemId: 'item-1', versionTag: 'v1' }],
+        { withDraft: true },
+      );
+
+      const { url, init } = getCall(fetchMock);
+      expect(parseUrl(url).pathname).toBe('/api/item/batch/version-metadata');
+      expect(JSON.parse(init.body as string)).toEqual({
+        entries: [{ itemId: 'item-1', versionTag: 'v1' }],
+        withDraft: true,
+      });
+    });
+
+    it('getFoldersBatch POSTs the folder ids', async () => {
+      fetchMock.mockResolvedValue(okResponse({ results: [] }));
+      const client = new EngineServicesClient(TOKEN, API);
+
+      await client.getFoldersBatch(['folder-1']);
+
+      const { url, init } = getCall(fetchMock);
+      expect(parseUrl(url).pathname).toBe('/api/item/batch/folders');
+      expect(JSON.parse(init.body as string)).toEqual({
+        folderIds: ['folder-1'],
+      });
+    });
+
+    it('propagates a failing chunk as a RequestError', async () => {
+      fetchMock.mockResolvedValue(errorResponse(429, 'Too Many Requests'));
+      const client = new EngineServicesClient(TOKEN, API);
+      await expect(
+        client.getHiddenFileSignedUrlsBatch(['h1']),
+      ).rejects.toMatchObject({ status: 429 });
     });
   });
 });
