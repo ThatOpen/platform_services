@@ -283,4 +283,9 @@ component, once added to a project, is then triggered by an app or an automation
   four-point plan and waiting for approval to do what was just requested costs the user a whole turn
   and buys nothing. Stop and ask only when you are about to change files you did not create, when
   the request can be read two ways that mean different work, or when the next step is destructive.
+- **Never save to the platform on every change.** Drafts belong in `localStorage` /
+  IndexedDB; the platform gets an explicit save. Writes are capped at 30 per minute and a
+  `429` loses the write. See
+  `node_modules/@thatopen/services/docs/rate-limits.md` before you write any save, sync or
+  polling code.
 - The scaffold already works — **extend it, don't replace it.**

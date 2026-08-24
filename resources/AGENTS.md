@@ -19,6 +19,7 @@ Do this before answering any question or writing any code. These are compact des
 | Platform built-ins | `node_modules/@thatopen/services/docs/builtin/paths.json` |
 | Platform client API | `node_modules/@thatopen/services/docs/client/paths.json` |
 | CLI commands | `node_modules/@thatopen/services/docs/cli/paths.json` |
+| Rate limits + how to save data | `node_modules/@thatopen/services/docs/rate-limits.md` |
 | Engine components (`OBC`, `OBF`) | `https://raw.githubusercontent.com/ThatOpen/engine_components/refs/heads/main/examples/paths.json` |
 | Fragments (`FRAGS`) | `https://raw.githubusercontent.com/ThatOpen/engine_fragment/refs/heads/main/examples/paths.json` |
 | UI components (`BUI`) | `https://raw.githubusercontent.com/ThatOpen/engine_ui-components/refs/heads/main/examples/paths.json` — **skip** entries whose path contains `packages/obc` or `bim-grid` |
@@ -38,4 +39,13 @@ Once you have these, you know everything available on the platform. Only then fe
 
 ## Hard rules (always apply)
 
-1. **All UI must be built with Lit**, using the web components from `@thatopen/ui` (`BUI`) — `bim-button`, `bim-panel`, `bim-panel-section`, `bim-toolbar`, `bim-dropdown`, `bim-input`, and the rest of `packages/core`. Always consult the design system before writing any UI: `https://raw.githubusercontent.com/ThatOpen/engine_ui-components/refs/heads/main/DESIGN.md`.
+1. **Never write to the platform on every change.** No autosave per keystroke,
+   per drag, or inside a render loop. Keep work in progress in `localStorage` /
+   IndexedDB and call the platform on an **explicit user save** (or a timer no
+   faster than once every 30 seconds). Writes are capped at **30 per minute**;
+   crossing that returns `429` and the write is **lost**, not queued.
+   If the user asks for autosave, build it against local storage and say so.
+   Read `node_modules/@thatopen/services/docs/rate-limits.md` before writing any
+   save, sync, or polling code — it has the per-endpoint limits and the pattern.
+
+2. **All UI must be built with Lit**, using the web components from `@thatopen/ui` (`BUI`) — `bim-button`, `bim-panel`, `bim-panel-section`, `bim-toolbar`, `bim-dropdown`, `bim-input`, and the rest of `packages/core`. Always consult the design system before writing any UI: `https://raw.githubusercontent.com/ThatOpen/engine_ui-components/refs/heads/main/DESIGN.md`.
