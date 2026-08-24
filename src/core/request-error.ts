@@ -23,6 +23,19 @@ function parseErrorBody(body: string): {
 }
 
 /**
+ * Reads `details.retryAfter` (seconds) from a parsed error body. The platform
+ * puts it there on `RATE_LIMITED` responses so the value survives proxies that
+ * strip the `Retry-After` header.
+ */
+function retryAfterFromDetails(details: unknown): number | undefined {
+  if (!details || typeof details !== 'object') return undefined;
+  const value = (details as Record<string, unknown>).retryAfter;
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? value
+    : undefined;
+}
+
+/**
  * Error thrown by {@link EngineServicesClient} when the platform API responds
  * with a non-2xx status. Exposes the HTTP `status` and — when the API returns a
  * structured JSON body — its `code` and `details`, so callers can react to
@@ -39,6 +52,17 @@ function parseErrorBody(body: string): {
  *   }
  * }
  * ```
+ *
+ * @example Rate limiting
+ * ```ts
+ * catch (err) {
+ *   if (err instanceof RequestError && err.status === 429) {
+ *     console.log(err.code);       // "RATE_LIMITED"
+ *     console.log(err.details);    // { limit, windowSeconds, retryAfter, scope }
+ *     console.log(err.retryAfter); // seconds to wait before trying again
+ *   }
+ * }
+ * ```
  */
 export class RequestError extends Error {
   readonly status: number;
@@ -46,7 +70,18 @@ export class RequestError extends Error {
   readonly details?: unknown;
   readonly body: string;
 
-  constructor(status: number, statusText: string, body: string) {
+  /**
+   * Seconds to wait before retrying, taken from the `Retry-After` header or
+   * from `details.retryAfter`. Only present on rate-limited (429) responses.
+   */
+  readonly retryAfter?: number;
+
+  constructor(
+    status: number,
+    statusText: string,
+    body: string,
+    retryAfter?: number,
+  ) {
     const parsed = parseErrorBody(body);
     super(parsed.message ?? `${statusText || 'Request failed'} (${status})`);
     this.name = 'RequestError';
@@ -54,5 +89,6 @@ export class RequestError extends Error {
     this.code = parsed.code;
     this.details = parsed.details;
     this.body = body;
+    this.retryAfter = retryAfter ?? retryAfterFromDetails(parsed.details);
   }
 }

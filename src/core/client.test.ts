@@ -32,6 +32,22 @@ function errorResponse(status: number, message = 'Bad Request'): Response {
   } as unknown as Response;
 }
 
+function throttledResponse(retryAfter?: string): Response {
+  const body = JSON.stringify({
+    message: 'Rate limit exceeded: max 30 requests per 60s for this endpoint.',
+    code: 'RATE_LIMITED',
+    details: { limit: 30, windowSeconds: 60, retryAfter: 12, scope: 'user' },
+  });
+  return {
+    ok: false,
+    status: 429,
+    statusText: 'Too Many Requests',
+    headers: { get: (name: string) => (name === 'Retry-After' ? retryAfter ?? null : null) },
+    text: async () => body,
+    json: async () => JSON.parse(body),
+  } as unknown as Response;
+}
+
 function getCall(
   fetchMock: Mock,
   index = 0,
@@ -571,6 +587,126 @@ describe('EngineServicesClient — HTTP contract', () => {
       await expect(
         client.getHiddenFileSignedUrlsBatch(['h1']),
       ).rejects.toMatchObject({ status: 429 });
+    });
+  });
+});
+
+describe('EngineServicesClient — retry policy', () => {
+  let fetchMock: Mock;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  async function runWithTimers<T>(promise: Promise<T>): Promise<T> {
+    const settled = promise.then(
+      (value) => ({ ok: true as const, value }),
+      (error: unknown) => ({ ok: false as const, error }),
+    );
+    await vi.runAllTimersAsync();
+    const result = await settled;
+    if (!result.ok) throw result.error;
+    return result.value;
+  }
+
+  it('does not retry a 4xx that is not a rate limit', async () => {
+    fetchMock.mockResolvedValue(errorResponse(404, 'Not Found'));
+    const client = new EngineServicesClient(TOKEN, API, { retries: 3 });
+
+    await expect(runWithTimers(client.listFiles())).rejects.toMatchObject({
+      status: 404,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a 429 and succeeds on the next attempt', async () => {
+    fetchMock
+      .mockResolvedValueOnce(throttledResponse('2'))
+      .mockResolvedValueOnce(okResponse([{ _id: 'file-1' }]));
+    const client = new EngineServicesClient(TOKEN, API, { retries: 2 });
+
+    const files = await runWithTimers(client.listFiles());
+
+    expect(files).toEqual([{ _id: 'file-1' }]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('waits for the Retry-After window before retrying a 429', async () => {
+    fetchMock
+      .mockResolvedValueOnce(throttledResponse('2'))
+      .mockResolvedValueOnce(okResponse([]));
+    const client = new EngineServicesClient(TOKEN, API, { retries: 1 });
+
+    const pending = client.listFiles();
+    const settled = pending.then(() => 'done');
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await expect(settled).resolves.toBe('done');
+  });
+
+  it('gives up after the configured number of retries', async () => {
+    fetchMock.mockResolvedValue(throttledResponse('1'));
+    const client = new EngineServicesClient(TOKEN, API, { retries: 2 });
+
+    await expect(runWithTimers(client.listFiles())).rejects.toMatchObject({
+      status: 429,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('retries server errors and network failures', async () => {
+    fetchMock
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(errorResponse(503, 'Service Unavailable'))
+      .mockResolvedValueOnce(okResponse([]));
+    const client = new EngineServicesClient(TOKEN, API, { retries: 3 });
+
+    await expect(runWithTimers(client.listFiles())).resolves.toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not retry when retries are left at the default of 0', async () => {
+    fetchMock.mockResolvedValue(throttledResponse('1'));
+    const client = new EngineServicesClient(TOKEN, API);
+
+    await expect(runWithTimers(client.listFiles())).rejects.toMatchObject({
+      status: 429,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('exposes retryAfter, code and details from a throttled response', async () => {
+    fetchMock.mockResolvedValue(throttledResponse('7'));
+    const client = new EngineServicesClient(TOKEN, API);
+
+    await expect(runWithTimers(client.listFiles())).rejects.toMatchObject({
+      status: 429,
+      code: 'RATE_LIMITED',
+      retryAfter: 7,
+      details: { limit: 30, windowSeconds: 60, retryAfter: 12, scope: 'user' },
+    });
+  });
+
+  it('falls back to details.retryAfter when the header is missing', async () => {
+    fetchMock.mockResolvedValue(throttledResponse(undefined));
+    const client = new EngineServicesClient(TOKEN, API);
+
+    await expect(runWithTimers(client.listFiles())).rejects.toMatchObject({
+      retryAfter: 12,
     });
   });
 });

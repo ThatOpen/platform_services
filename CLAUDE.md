@@ -73,6 +73,19 @@ Examples of comment-worthy behavior:
 
 Local `.thatopen` (project root) takes priority over global `~/.thatopen/config.json`. The `resolveConfig()` helper in `src/cli/lib/config.ts` handles this — use it, don't re-implement.
 
+## Rate limits
+
+`docs/rate-limits.md` is the user-facing page: per-endpoint limits, the `429` shape, and the
+local-draft save pattern. The numbers are **copied from the backend**, so they go stale silently
+— the source of truth is the `@Throttle` decorators in `platform_backend-api`
+(`src/api/**/**.controller.ts`) plus the `ThrottlerModule.forRoot` default in `src/app.module.ts`.
+Re-check them whenever a limit changes, and keep the hard rule at the top of `resources/AGENTS.md`
+in sync with them.
+
+Client-side: `EngineServicesClient` retries only network failures, `429` and `5xx`, with
+exponential backoff plus jitter, honouring `Retry-After`. `RequestError.retryAfter` carries the
+wait in seconds (header first, then `details.retryAfter`). Retries stay off by default (`retries: 0`).
+
 ## Backend permissions contract
 
 When a request includes a `projectId`, the backend validates that the resource belongs to that project and the caller has permission there — regardless of access in other projects. This enforcement is server-side and invisible in the client code.

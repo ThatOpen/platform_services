@@ -57,6 +57,29 @@ describe('RequestError', () => {
     expect(err.code).toBeUndefined();
   });
 
+  it('keeps the retryAfter passed by the client', () => {
+    const err = new RequestError(429, 'Too Many Requests', '', 12);
+    expect(err.retryAfter).toBe(12);
+  });
+
+  it('falls back to details.retryAfter when none is passed', () => {
+    const err = new RequestError(429, 'Too Many Requests', JSON.stringify({
+      message: 'Rate limit exceeded',
+      code: 'RATE_LIMITED',
+      details: { limit: 30, windowSeconds: 60, retryAfter: 42 },
+    }));
+    expect(err.code).toBe('RATE_LIMITED');
+    expect(err.retryAfter).toBe(42);
+  });
+
+  it('leaves retryAfter undefined when neither source has one', () => {
+    const err = new RequestError(429, 'Too Many Requests', JSON.stringify({
+      message: 'Rate limit exceeded',
+      details: { retryAfter: 'soon' },
+    }));
+    expect(err.retryAfter).toBeUndefined();
+  });
+
   it('is an instance of Error and RequestError with the right name', () => {
     const err = new RequestError(403, 'Forbidden', '');
     expect(err).toBeInstanceOf(Error);

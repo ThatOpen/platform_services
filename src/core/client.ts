@@ -50,6 +50,59 @@ const ITEM_TYPE_FILE = 'FILE';
 const ITEM_TYPE_COMPONENT = 'TOOL';
 const ITEM_TYPE_APP = 'APP';
 
+const RETRY_BASE_DELAY_MS = 500;
+const RETRY_MAX_DELAY_MS = 30_000;
+const RETRY_JITTER_RATIO = 0.25;
+
+const sleep = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Reads `Retry-After` (seconds, or an HTTP date) from a response. Returns
+ * `undefined` when the header is absent, unparseable, or when the runtime
+ * hands over a response-like object without headers.
+ */
+function parseRetryAfter(response: Response): number | undefined {
+  const raw = response.headers?.get?.('Retry-After');
+  if (!raw) return undefined;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds);
+  const timestamp = Date.parse(raw);
+  if (Number.isNaN(timestamp)) return undefined;
+  return Math.max(0, (timestamp - Date.now()) / 1000);
+}
+
+/**
+ * Only network failures, rate limits and server errors are worth repeating.
+ * Retrying a 400/401/403/404 burns quota on a request that cannot succeed —
+ * and on 429 it is what turns a rate limit into an outage.
+ */
+function isRetryable(error: unknown): boolean {
+  if (!(error instanceof RequestError)) return true;
+  return error.status === 429 || error.status >= 500;
+}
+
+/**
+ * Exponential backoff with jitter, overridden by the server's `Retry-After`
+ * when it sent one. Capped at {@link RETRY_MAX_DELAY_MS} so a long server-side
+ * window never parks a request for minutes.
+ */
+function retryDelayMs(error: unknown, attempt: number): number {
+  const backoff = Math.min(
+    RETRY_BASE_DELAY_MS * 2 ** attempt,
+    RETRY_MAX_DELAY_MS,
+  );
+  const jitter = backoff * RETRY_JITTER_RATIO * Math.random();
+  const serverDelay =
+    error instanceof RequestError && error.retryAfter != null
+      ? error.retryAfter * 1000
+      : undefined;
+  if (serverDelay != null) {
+    return Math.min(serverDelay, RETRY_MAX_DELAY_MS) + jitter;
+  }
+  return backoff + jitter;
+}
+
 /**
  * Minimal shape of an OBC.Components-like object.
  * Avoids hard-coupling to `@thatopen/components` at the public API level.
@@ -132,7 +185,13 @@ export type DownloadItemFileParams = {
 
 /** Configuration options for the {@link EngineServicesClient} constructor. */
 export type EngineServicesClientProps = {
-  /** Number of automatic retries on request failure. Default: 0. */
+  /**
+   * Number of automatic retries on request failure. Default: 0.
+   *
+   * Retries are spaced with exponential backoff plus jitter, and honour the
+   * server's `Retry-After` when it sends one. Only network failures, 429s and
+   * 5xx are retried — other 4xx fail immediately.
+   */
   retries?: number;
   /**
    * If true, sends the token as an `Authorization: Bearer` header instead of
@@ -255,7 +314,9 @@ export class EngineServicesClient {
   }
 
   /**
-   * Sets the number of automatic retries for failed requests.
+   * Sets the number of automatic retries for failed requests. Retries use
+   * exponential backoff with jitter and honour `Retry-After`; only network
+   * failures, 429s and 5xx are retried.
    * @param retries - Number of retries (0 = no retries).
    */
   setRetries(retries: number) {
@@ -331,9 +392,10 @@ export class EngineServicesClient {
         | 'application/x-www-form-urlencoded';
       retries?: number;
       responseType?: 'json' | 'blob';
+      retryAttempt?: number;
     },
   ): Promise<T> {
-    const { body, query, contentType, retries, responseType } =
+    const { body, query, contentType, retries, responseType, retryAttempt } =
       requestData || {};
     const url = this.#buildUrl(path);
 
@@ -367,6 +429,7 @@ export class EngineServicesClient {
           response.status,
           response.statusText,
           textResponse,
+          parseRetryAfter(response),
         );
       }
 
@@ -379,16 +442,17 @@ export class EngineServicesClient {
         .then((data) => data as T)
         .catch(() => undefined as T);
     } catch (e) {
-      let retriesAmmount = retries != null ? retries : this.retries;
-      if (retriesAmmount) {
-        retriesAmmount = retriesAmmount - 1;
+      const retriesLeft = retries != null ? retries : this.retries;
+      if (retriesLeft > 0 && isRetryable(e)) {
+        const attempt = retryAttempt ?? 0;
+        await sleep(retryDelayMs(e, attempt));
         return await this.#requestApi(method, path, {
           ...requestData,
-          retries: retriesAmmount,
+          retries: retriesLeft - 1,
+          retryAttempt: attempt + 1,
         });
-      } else {
-        throw e;
       }
+      throw e;
     }
   }
 
