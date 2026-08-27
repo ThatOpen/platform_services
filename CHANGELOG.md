@@ -1,5 +1,11 @@
 # thatopen-services
 
+## 0.12.0
+
+### Minor Changes
+
+- 47b18f3: Export `ProjectManager`, the canonical project-level data store for origin/georeferencing, BIM site coordinates, asset coordinates, and graphics settings.
+
 ## 0.11.0
 
 ### Minor Changes
