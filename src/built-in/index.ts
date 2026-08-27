@@ -1576,6 +1576,239 @@ export type HelloWorld = InstanceType<typeof _HelloWorld>;
  */
 export const HelloWorld = { uuid: '2c4ae432-fc24-43e9-9783-0c960c674e96' } as typeof _HelloWorld & { uuid: '2c4ae432-fc24-43e9-9783-0c960c674e96' };
 
+export type ProjectNamespaceKey = "origin" | "georeferencing" | "appSettings";
+export interface ProjectNamespace {
+    label: string;
+    description?: string;
+}
+export interface ProjectEntity<T = unknown> {
+    namespaceId: ProjectNamespaceKey;
+    label: string;
+    description?: string;
+    data: T;
+}
+/** GIS origin point that fixes the scene's (0,0,0) to a real-world coordinate. */
+export interface OriginData {
+    lat: number;
+    lon: number;
+    height: number;
+    rotation: number;
+}
+export interface BimSite {
+    label: string;
+    description?: string;
+    lat: number;
+    lon: number;
+    height: number;
+    rotation: number;
+    /** Column-major 4x4 matrix (16 values) mapping BIM local space to the site's georeferenced frame. */
+    baseMatrix: number[];
+}
+export interface BimCoordinatesData {
+    defaultSiteId?: string;
+    sites: Record<string, BimSite>;
+}
+export type AssetCoordinateType = "splat" | "ifc" | "point-cloud" | (string & {});
+export interface AssetCoordinate {
+    fileId: string;
+    type: AssetCoordinateType;
+    lat: number;
+    lon: number;
+    height: number;
+    rotation: number;
+}
+export interface GraphicsSettingsData {
+    stylePreset: string;
+    postproduction: boolean;
+    edges: {
+        enabled: boolean;
+        color: string;
+        opacity: number;
+    };
+    ambientOcclusion: {
+        enabled: boolean;
+        value: number;
+    };
+    tonalShading: {
+        enabled: boolean;
+        value: number;
+    };
+    surfaceColor: {
+        enabled: boolean;
+    };
+    transparentBackground: {
+        enabled: boolean;
+        color: string;
+    };
+    grid: {
+        enabled: boolean;
+        color: string;
+    };
+    gridHeight: {
+        auto: boolean;
+        value: number;
+    };
+    antiAliasing: boolean;
+    nativeResolution: boolean;
+    adaptiveResolution: {
+        enabled: boolean;
+        value: number;
+    };
+    minResolution: number;
+    renderScale: number;
+}
+export interface ProjectManagerData {
+    schemaVersion: 1;
+    namespaces: Record<ProjectNamespaceKey, ProjectNamespace>;
+    entities: {
+        origin: ProjectEntity<OriginData>;
+        bimCoordinates: ProjectEntity<BimCoordinatesData>;
+        assetCoordinates: ProjectEntity<AssetCoordinate[]>;
+        graphicsSettings: ProjectEntity<GraphicsSettingsData>;
+    };
+}
+export interface SingletonEntity<T> {
+    get(): T | undefined;
+    set(data: T): Promise<void>;
+    update(partial: Partial<T>): Promise<void>;
+}
+export interface BimCoordinatesEntity {
+    get(): BimCoordinatesData;
+    getSites(): Record<string, BimSite>;
+    getSite(siteId: string): BimSite | undefined;
+    getDefaultSite(): BimSite | undefined;
+    /** Creates a new site. `ProjectManager` generates the opaque `siteId` — callers
+     *  never invent their own (see the class-level JSDoc on `ProjectManager` for why). */
+    createSite(site: BimSite): Promise<string>;
+    /** Updates a site that already exists (from `createSite`). Throws if `siteId`
+     *  isn't in `sites` — this is not an upsert; use `createSite` to add one. */
+    setSite(siteId: string, site: BimSite): Promise<void>;
+    setDefaultSite(siteId: string): Promise<void>;
+    removeSite(siteId: string): Promise<void>;
+}
+export interface AssetCoordinatesEntity {
+    getAll(): AssetCoordinate[];
+    get(fileId: string): AssetCoordinate | undefined;
+    getByType(type: AssetCoordinateType): AssetCoordinate[];
+    set(fileId: string, data: Omit<AssetCoordinate, "fileId">): Promise<void>;
+    remove(fileId: string): Promise<void>;
+}
+
+/**
+ * ProjectManager is the platform's canonical store for project-level
+ * configuration and data — origin/georeferencing/app-settings today, with
+ * room to grow. It persists a single JSON file (`${ProjectManager.uuid}.json`)
+ * loose directly inside `__project_data` (same folder convention `GISManager`
+ * already used) — NOT in a per-app subfolder like `collider`/`cde`, which are
+ * for secondary, per-builtin data. Sharing that root folder with other
+ * builtins doesn't change its role: it's still the one canonical project
+ * record, meant to stop each builtin from inventing its own ad-hoc
+ * project-persistence pattern.
+ *
+ * Schema shape (see `src/types.ts` for the full rationale):
+ * - `namespaces`/`entities` are maps keyed by a fixed, readable slug — a
+ *   closed set this code defines, never created at runtime.
+ * - `bimCoordinates.data.sites` is the one open, runtime-created collection
+ *   today, so its keys are opaque generated ids instead of slugs.
+ * - `origin`/`graphicsSettings` are singletons; `sites`/`assetCoordinates`
+ *   are collections.
+ * - `entities[id]` is a uniform envelope: `namespaceId`, mandatory `label`,
+ *   optional `description` (omitted, not stored empty), free-form `data`.
+ *
+ * Id generation rule: whenever a collection needs an opaque id (today just
+ * `sites`, potentially more collections later), `ProjectManager` generates it
+ * internally (`crypto.randomUUID()`, no prefix) — callers never invent their
+ * own. `createSite` is the current example; follow the same pattern for any
+ * future `create*` method.
+ */
+declare class _ProjectManager extends OBC.Component {
+    static readonly uuid: "6f3a9c2e-8b1d-4e6a-9c3f-1d7b5a8e2c4f";
+    enabled: boolean;
+    /** True once init(client) has been called — safe to use the entity accessors. */
+    get ready(): boolean;
+    /** Suppress auto-save while bulk-loading data. */
+    private _loadingData;
+    readonly onSaveStart: OBC.Event<void>;
+    readonly onSaveComplete: OBC.Event<boolean>;
+    private _client?;
+    private _fileId?;
+    private _data;
+    private _saveTimer?;
+    private _savePromise?;
+    private _scheduleSave;
+    private _queueSave;
+    private _doSave;
+    /** Cancels the pending debounce and runs the save immediately. Awaits completion. */
+    flush(): Promise<void>;
+    init(client: PlatformClient): Promise<void>;
+    /** Opaque id generator for any collection needing one (currently just
+     *  `bimCoordinates.sites`) — see the class-level JSDoc's id-generation rule. */
+    private _generateId;
+    origin: SingletonEntity<OriginData>;
+    graphicsSettings: SingletonEntity<GraphicsSettingsData>;
+    bimCoordinates: BimCoordinatesEntity;
+    assetCoordinates: AssetCoordinatesEntity;
+    getNamespaces(): Record<ProjectNamespaceKey, ProjectNamespace>;
+    getNamespace(key: ProjectNamespaceKey): Record<string, unknown>;
+}
+
+/**
+ * ProjectManager is the platform's canonical store for project-level
+ * configuration and data — origin/georeferencing/app-settings today, with
+ * room to grow. It persists a single JSON file (`${ProjectManager.uuid}.json`)
+ * loose directly inside `__project_data` (same folder convention `GISManager`
+ * already used) — NOT in a per-app subfolder like `collider`/`cde`, which are
+ * for secondary, per-builtin data. Sharing that root folder with other
+ * builtins doesn't change its role: it's still the one canonical project
+ * record, meant to stop each builtin from inventing its own ad-hoc
+ * project-persistence pattern.
+ *
+ * Schema shape (see `src/types.ts` for the full rationale):
+ * - `namespaces`/`entities` are maps keyed by a fixed, readable slug — a
+ *   closed set this code defines, never created at runtime.
+ * - `bimCoordinates.data.sites` is the one open, runtime-created collection
+ *   today, so its keys are opaque generated ids instead of slugs.
+ * - `origin`/`graphicsSettings` are singletons; `sites`/`assetCoordinates`
+ *   are collections.
+ * - `entities[id]` is a uniform envelope: `namespaceId`, mandatory `label`,
+ *   optional `description` (omitted, not stored empty), free-form `data`.
+ *
+ * Id generation rule: whenever a collection needs an opaque id (today just
+ * `sites`, potentially more collections later), `ProjectManager` generates it
+ * internally (`crypto.randomUUID()`, no prefix) — callers never invent their
+ * own. `createSite` is the current example; follow the same pattern for any
+ * future `create*` method.
+ */
+export type ProjectManager = InstanceType<typeof _ProjectManager>;
+/**
+ * ProjectManager is the platform's canonical store for project-level
+ * configuration and data — origin/georeferencing/app-settings today, with
+ * room to grow. It persists a single JSON file (`${ProjectManager.uuid}.json`)
+ * loose directly inside `__project_data` (same folder convention `GISManager`
+ * already used) — NOT in a per-app subfolder like `collider`/`cde`, which are
+ * for secondary, per-builtin data. Sharing that root folder with other
+ * builtins doesn't change its role: it's still the one canonical project
+ * record, meant to stop each builtin from inventing its own ad-hoc
+ * project-persistence pattern.
+ *
+ * Schema shape (see `src/types.ts` for the full rationale):
+ * - `namespaces`/`entities` are maps keyed by a fixed, readable slug — a
+ *   closed set this code defines, never created at runtime.
+ * - `bimCoordinates.data.sites` is the one open, runtime-created collection
+ *   today, so its keys are opaque generated ids instead of slugs.
+ * - `origin`/`graphicsSettings` are singletons; `sites`/`assetCoordinates`
+ *   are collections.
+ * - `entities[id]` is a uniform envelope: `namespaceId`, mandatory `label`,
+ *   optional `description` (omitted, not stored empty), free-form `data`.
+ *
+ * Id generation rule: whenever a collection needs an opaque id (today just
+ * `sites`, potentially more collections later), `ProjectManager` generates it
+ * internally (`crypto.randomUUID()`, no prefix) — callers never invent their
+ * own. `createSite` is the current example; follow the same pattern for any
+ * future `create*` method.
+ */
+export const ProjectManager = { uuid: '6f3a9c2e-8b1d-4e6a-9c3f-1d7b5a8e2c4f' } as typeof _ProjectManager & { uuid: '6f3a9c2e-8b1d-4e6a-9c3f-1d7b5a8e2c4f' };
+
 /** `main.bcf`'s path relative to `__project_data/` — shared with
  *  `requestBcfSave` (`UIManager/src/utils/bcf-storage.ts`) so both sides of
  *  the save/load round-trip agree on where the file lives. */

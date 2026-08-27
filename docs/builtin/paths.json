@@ -40,6 +40,10 @@
     "description": "ClashesManager — Structural engineers and BIM coordinators routinely detect geometric clashes between disciplines — structural steel penetrating ductwork, pipes clashing with slabs — and need to track the status of each issue through resolution without leaving their BIM environment."
   },
   {
+    "path": "src/built-in/ProjectManager/example.ts",
+    "description": "ProjectManager — Project-level configuration and data — GIS origin, georeferencing, app settings, and other project-scoped concerns — need a single canonical place to live. Without it, every builtin that needs to persist something at the project level (not per-file, not per-user) ends up inventing its own file, its own save/load pattern, and its own place to put it."
+  },
+  {
     "path": "src/built-in/UIManager/src/app/example.ts",
     "description": "top-app — Front-end developers building BIM web apps need to coordinate several async initialization steps before the UI can be shown — loading the engine, preparing fragment workers, registering loaders — and users need visible feedback on what is happening during that wait, rather than a blank screen."
   },
@@ -94,5 +98,13 @@
   {
     "path": "src/built-in/UIManager/src/topics-panel/example.ts",
     "description": "topics-panel — Every coordination workflow needs a place to track issues, clashes, and action items against a 3D model — who's responsible, what still needs review, and where in the model it actually is. Building that from scratch means a BCF-compatible data model, a form, comment threads, viewpoint capture/navigation, document links, and a persistence layer — all before a single issue gets tracked."
+  },
+  {
+    "path": "src/built-in/UIManager/src/viewer/example.ts",
+    "description": "top-viewer — Every BIM app needs a 3D viewport: a scene, a camera, a grid, element highlighting, and the plumbing to keep loaded models framed and rendering efficiently as they stream in. Building that from scratch is a project on its own, before a single button or panel gets wired to it."
+  },
+  {
+    "path": "src/built-in/UIManager/src/viewer-toolbar/example.ts",
+    "description": "top-viewer-toolbar — A 3D viewport is only as useful as the controls around it: selecting a target set, hiding/isolating/ghosting elements, clipping, measuring, walking through the model. Building that toolbar — and keeping every button in sync with tool state and with each other — is real work, before you've customized anything."
   }
 ]
