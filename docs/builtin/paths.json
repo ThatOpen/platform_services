@@ -96,6 +96,10 @@
     "description": "top-models-list — top-models-list is the project's 3D-viewable-files tree: it mirrors the real storage folder structure, converts IFC to fragments, and loads `.frag`/`.potree`/`.splat` models into the 3D scene. Its loaders are PLUGGABLE — the panel owns the UI and the orchestration (progress, refresh, association), but the HOST decides how each extra file format is loaded, so you can teach it new formats without forking the built-in."
   },
   {
+    "path": "src/built-in/UIManager/src/settings-panel/example.ts",
+    "description": "top-settings-panel — Every viewer app ends up needing the same settings screen: rendering options, clip/measurement styling, a \"which cloud component converts this format\" picker, a keyboard-shortcut reference — plus a search box that filters all of it and a \"restore defaults\" button that resets whatever has persisted state. Building that, and keeping it in sync with the tools it configures, is real work before you've added a single setting of your own."
+  },
+  {
     "path": "src/built-in/UIManager/src/topics-panel/example.ts",
     "description": "topics-panel — Every coordination workflow needs a place to track issues, clashes, and action items against a 3D model — who's responsible, what still needs review, and where in the model it actually is. Building that from scratch means a BCF-compatible data model, a form, comment threads, viewpoint capture/navigation, document links, and a persistence layer — all before a single issue gets tracked."
   },
