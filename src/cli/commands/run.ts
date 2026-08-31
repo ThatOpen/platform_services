@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { execSync, fork } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { requireResolvedConfig } from '../lib/config';
+import { requireResolvedConfig, readLocalConfig } from '../lib/config';
 import { buildEngineScript } from '../lib/engine-script';
 import { readDeclarations, validateParams } from '../lib/declarations';
 
@@ -71,15 +71,23 @@ export const runCommand = new Command('run')
 
       const bundleCode = readFileSync(bundlePath, 'utf-8');
 
+      const executionId = randomUUID();
+      const localConfig = readLocalConfig(cwd);
+
       // Create temp engine script with inlined bundle
       const engineScript = buildEngineScript(
         bundleCode,
         config.accessToken,
         config.apiUrl,
         executionParams,
+        {
+          executionId,
+          toolId: localConfig?.componentId ?? 'local',
+          toolVersion: 'local',
+        },
       );
 
-      const tmpFile = join(tmpdir(), `thatopen-run-${randomUUID()}.js`);
+      const tmpFile = join(tmpdir(), `thatopen-run-${executionId}.js`);
       writeFileSync(tmpFile, engineScript);
 
       console.log('Running cloud component...\n');

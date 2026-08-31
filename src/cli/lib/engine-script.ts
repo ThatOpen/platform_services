@@ -1,9 +1,17 @@
+/** Mirrors the platform-supplied `executionContext` global (see cloud-component template). */
+export interface EngineExecutionContext {
+  projectId?: string;
+  executionId: string;
+  toolId: string;
+  toolVersion: string;
+}
+
 /**
  * Generates the local execution engine script.
  *
  * Mirrors the server-side `v1/thatOpenEngine.js` template:
  * - Provides the same globals (OBC, THREE, WEBIFC, fs, executionReporter,
- *   thatOpenServices, executionParams).
+ *   thatOpenServices, executionParams, executionContext).
  * - Inlines the IIFE bundle code (which ends with `var main = ...`).
  * - Calls `main()` and sends the result back via IPC.
  */
@@ -12,6 +20,7 @@ export function buildEngineScript(
   accessToken: string,
   apiUrl: string,
   executionParams: object,
+  executionContext: EngineExecutionContext,
 ): string {
   return `/* eslint-disable */
 const { EngineServicesClient } = require('@thatopen/services');
@@ -37,6 +46,7 @@ const executionReporter = {
 };
 
 let thatOpenServices, executionParams;
+const executionContext = ${JSON.stringify(executionContext)};
 
 // --- User bundle code (IIFE) ---
 ${bundleCode}

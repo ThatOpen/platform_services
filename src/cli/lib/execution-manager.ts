@@ -114,6 +114,11 @@ export class ExecutionManager {
       config.accessToken,
       config.apiUrl,
       executionParams,
+      {
+        executionId,
+        toolId: componentId,
+        toolVersion: 'local',
+      },
     );
 
     const tmpFile = join(tmpdir(), `thatopen-local-${executionId}.js`);
