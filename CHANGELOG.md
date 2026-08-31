@@ -1,5 +1,11 @@
 # thatopen-services
 
+## 0.13.0
+
+### Minor Changes
+
+- dfa30c8: Inject the `executionContext` global (`projectId`, `executionId`, `toolId`, `toolVersion`) into `thatopen run`/local-server executions, matching what the platform injects at real execution time. Components reading `executionContext` locally no longer crash with "executionContext is not defined".
+
 ## 0.12.0
 
 ### Minor Changes
