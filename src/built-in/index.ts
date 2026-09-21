@@ -1594,19 +1594,21 @@ export interface OriginData {
     height: number;
     rotation: number;
 }
-export interface BimSite {
-    label: string;
-    description?: string;
-    lat: number;
-    lon: number;
-    height: number;
-    rotation: number;
-    /** Column-major 4x4 matrix (16 values) mapping BIM local space to the site's georeferenced frame. */
-    baseMatrix: number[];
-}
-export interface BimCoordinatesData {
-    defaultSiteId?: string;
-    sites: Record<string, BimSite>;
+/** Project-wide coordinate reference system + vertical datum config, shared by
+ *  every asset type that needs to decode raw projected coordinates (point
+ *  clouds, BIM) — see automatic-file-derived-georeferencing.md
+ *  (VisorUnificadoAqualia/docs/adrs). One value per project, not per asset:
+ *  every file at the same real-world site shares the same CRS/geoid. */
+export interface CrsData {
+    /** EPSG code of the project's projected CRS (e.g. 25830 for ETRS89/UTM 30N).
+     *  EPSG is a global registry, not region-specific — every project has an
+     *  applicable code, most commonly a standard UTM zone. */
+    epsgCode: number;
+    /** Geoid undulation in meters at the project's origin (orthometric ->
+     *  ellipsoidal height correction). Sampled once from a geoid model
+     *  (client-supplied, or a global EGM2008 fallback) — varies negligibly
+     *  across a single project's extent, so one scalar per project suffices. */
+    geoidUndulation: number;
 }
 export type AssetCoordinateType = "splat" | "ifc" | "point-cloud" | (string & {});
 export interface AssetCoordinate {
@@ -1662,7 +1664,7 @@ export interface ProjectManagerData {
     namespaces: Record<ProjectNamespaceKey, ProjectNamespace>;
     entities: {
         origin: ProjectEntity<OriginData>;
-        bimCoordinates: ProjectEntity<BimCoordinatesData>;
+        crs: ProjectEntity<CrsData>;
         assetCoordinates: ProjectEntity<AssetCoordinate[]>;
         graphicsSettings: ProjectEntity<GraphicsSettingsData>;
     };
@@ -1672,19 +1674,15 @@ export interface SingletonEntity<T> {
     set(data: T): Promise<void>;
     update(partial: Partial<T>): Promise<void>;
 }
-export interface BimCoordinatesEntity {
-    get(): BimCoordinatesData;
-    getSites(): Record<string, BimSite>;
-    getSite(siteId: string): BimSite | undefined;
-    getDefaultSite(): BimSite | undefined;
-    /** Creates a new site. `ProjectManager` generates the opaque `siteId` — callers
-     *  never invent their own (see the class-level JSDoc on `ProjectManager` for why). */
-    createSite(site: BimSite): Promise<string>;
-    /** Updates a site that already exists (from `createSite`). Throws if `siteId`
-     *  isn't in `sites` — this is not an upsert; use `createSite` to add one. */
-    setSite(siteId: string, site: BimSite): Promise<void>;
-    setDefaultSite(siteId: string): Promise<void>;
-    removeSite(siteId: string): Promise<void>;
+/**
+ * A singleton entity that also announces its own changes — for values other
+ * code needs to react to live (recompute/reposition something) rather than
+ * just read on demand. `onChange` fires with the new value on every
+ * `set`/`update`, regardless of whether that change has been persisted yet
+ * (see `ProjectManager.dirty`/`onDirtyChange`).
+ */
+export interface ReactiveSingletonEntity<T> extends SingletonEntity<T> {
+    onChange: import("@thatopen/components").Event<T>;
 }
 export interface AssetCoordinatesEntity {
     getAll(): AssetCoordinate[];
@@ -1708,18 +1706,10 @@ export interface AssetCoordinatesEntity {
  * Schema shape (see `src/types.ts` for the full rationale):
  * - `namespaces`/`entities` are maps keyed by a fixed, readable slug — a
  *   closed set this code defines, never created at runtime.
- * - `bimCoordinates.data.sites` is the one open, runtime-created collection
- *   today, so its keys are opaque generated ids instead of slugs.
- * - `origin`/`graphicsSettings` are singletons; `sites`/`assetCoordinates`
- *   are collections.
+ * - `origin`/`crs`/`graphicsSettings` are singletons; `assetCoordinates` is
+ *   a collection.
  * - `entities[id]` is a uniform envelope: `namespaceId`, mandatory `label`,
  *   optional `description` (omitted, not stored empty), free-form `data`.
- *
- * Id generation rule: whenever a collection needs an opaque id (today just
- * `sites`, potentially more collections later), `ProjectManager` generates it
- * internally (`crypto.randomUUID()`, no prefix) — callers never invent their
- * own. `createSite` is the current example; follow the same pattern for any
- * future `create*` method.
  */
 declare class _ProjectManager extends OBC.Component {
     static readonly uuid: "6f3a9c2e-8b1d-4e6a-9c3f-1d7b5a8e2c4f";
@@ -1730,6 +1720,31 @@ declare class _ProjectManager extends OBC.Component {
     private _loadingData;
     readonly onSaveStart: OBC.Event<void>;
     readonly onSaveComplete: OBC.Event<boolean>;
+    /**
+     * Entity ids (e.g. `"origin"`) with changes not yet persisted. Most entities
+     * auto-save (see `_scheduleSave`) so they're only ever dirty for the instant
+     * before their debounce fires — `origin` is the exception: its `set`/`update`
+     * mark it dirty WITHOUT scheduling a save (see `origin` below), so a caller
+     * driving it continuously (e.g. a drag gizmo) can update it every frame
+     * without spamming the network, and a UI can surface "unsaved changes" +
+     * call `flush()` once the user explicitly confirms.
+     *
+     * KNOWN GAP: `_doSave()` persists the whole `_data` blob (one JSON file for
+     * every entity), so an auto-saving entity's save will also flush out
+     * whatever `origin` currently holds in memory, even if the user hasn't
+     * confirmed it yet — there's no separate "committed vs. draft" copy of
+     * `origin`'s data. Accepted for now as a v1 gap (same spirit as this
+     * package's other documented v1 gaps, see the ProjectManager ADR); revisit
+     * if that coincidence turns out to matter in practice.
+     */
+    private _dirtyEntities;
+    /** True while any entity has unsaved changes. */
+    get dirty(): boolean;
+    /** Ids of entities with unsaved changes right now. */
+    get dirtyEntities(): string[];
+    /** Fires with the current `dirtyEntities` list every time it changes. */
+    readonly onDirtyChange: OBC.Event<string[]>;
+    private _markDirty;
     private _client?;
     private _fileId?;
     private _data;
@@ -1738,15 +1753,26 @@ declare class _ProjectManager extends OBC.Component {
     private _scheduleSave;
     private _queueSave;
     private _doSave;
-    /** Cancels the pending debounce and runs the save immediately. Awaits completion. */
+    /**
+     * Cancels the pending debounce (if any) and runs the save immediately.
+     * Also the only way to persist an entity that marks itself dirty WITHOUT
+     * auto-scheduling (currently just `origin`) — call this once the user
+     * explicitly confirms. Awaits completion.
+     */
     flush(): Promise<void>;
     init(client: PlatformClient): Promise<void>;
-    /** Opaque id generator for any collection needing one (currently just
-     *  `bimCoordinates.sites`) — see the class-level JSDoc's id-generation rule. */
-    private _generateId;
-    origin: SingletonEntity<OriginData>;
+    /**
+     * NOT auto-saving, unlike every other entity below — `set`/`update` mark it
+     * dirty and fire `onChange` immediately, but leave persisting up to an
+     * explicit `flush()` call. This is what lets a continuous interaction (e.g.
+     * a drag gizmo) update `origin` every frame — live for anyone listening to
+     * `onChange` — without writing to the network on every tick, while still
+     * surfacing "there's an unconfirmed change" via `dirty`/`onDirtyChange` for
+     * a UI to gate behind an explicit save action.
+     */
+    origin: ReactiveSingletonEntity<OriginData>;
+    crs: ReactiveSingletonEntity<CrsData>;
     graphicsSettings: SingletonEntity<GraphicsSettingsData>;
-    bimCoordinates: BimCoordinatesEntity;
     assetCoordinates: AssetCoordinatesEntity;
     getNamespaces(): Record<ProjectNamespaceKey, ProjectNamespace>;
     getNamespace(key: ProjectNamespaceKey): Record<string, unknown>;
@@ -1766,18 +1792,10 @@ declare class _ProjectManager extends OBC.Component {
  * Schema shape (see `src/types.ts` for the full rationale):
  * - `namespaces`/`entities` are maps keyed by a fixed, readable slug — a
  *   closed set this code defines, never created at runtime.
- * - `bimCoordinates.data.sites` is the one open, runtime-created collection
- *   today, so its keys are opaque generated ids instead of slugs.
- * - `origin`/`graphicsSettings` are singletons; `sites`/`assetCoordinates`
- *   are collections.
+ * - `origin`/`crs`/`graphicsSettings` are singletons; `assetCoordinates` is
+ *   a collection.
  * - `entities[id]` is a uniform envelope: `namespaceId`, mandatory `label`,
  *   optional `description` (omitted, not stored empty), free-form `data`.
- *
- * Id generation rule: whenever a collection needs an opaque id (today just
- * `sites`, potentially more collections later), `ProjectManager` generates it
- * internally (`crypto.randomUUID()`, no prefix) — callers never invent their
- * own. `createSite` is the current example; follow the same pattern for any
- * future `create*` method.
  */
 export type ProjectManager = InstanceType<typeof _ProjectManager>;
 /**
@@ -1794,18 +1812,10 @@ export type ProjectManager = InstanceType<typeof _ProjectManager>;
  * Schema shape (see `src/types.ts` for the full rationale):
  * - `namespaces`/`entities` are maps keyed by a fixed, readable slug — a
  *   closed set this code defines, never created at runtime.
- * - `bimCoordinates.data.sites` is the one open, runtime-created collection
- *   today, so its keys are opaque generated ids instead of slugs.
- * - `origin`/`graphicsSettings` are singletons; `sites`/`assetCoordinates`
- *   are collections.
+ * - `origin`/`crs`/`graphicsSettings` are singletons; `assetCoordinates` is
+ *   a collection.
  * - `entities[id]` is a uniform envelope: `namespaceId`, mandatory `label`,
  *   optional `description` (omitted, not stored empty), free-form `data`.
- *
- * Id generation rule: whenever a collection needs an opaque id (today just
- * `sites`, potentially more collections later), `ProjectManager` generates it
- * internally (`crypto.randomUUID()`, no prefix) — callers never invent their
- * own. `createSite` is the current example; follow the same pattern for any
- * future `create*` method.
  */
 export const ProjectManager = { uuid: '6f3a9c2e-8b1d-4e6a-9c3f-1d7b5a8e2c4f' } as typeof _ProjectManager & { uuid: '6f3a9c2e-8b1d-4e6a-9c3f-1d7b5a8e2c4f' };
 

@@ -14,10 +14,9 @@
   per-builtin data.
 
   This tutorial covers initializing the manager from the platform client; the
-  `origin` and `graphicsSettings` singletons; the `bimCoordinates` sites
-  collection used for BIM georeferencing; the `assetCoordinates` collection
-  used for splats and point clouds; auto-save and its events; and the
-  read-only namespace introspection API.
+  `origin` and `graphicsSettings` singletons; the `assetCoordinates`
+  collection used for splats and point clouds; auto-save and its events; and
+  the read-only namespace introspection API.
 
   ProjectManager has no built-in UI panel — it's a pure data layer. Apps that
   need georeferencing or project-settings UI (like Aqualia's viewer) build it
@@ -77,44 +76,6 @@ await manager.flush();
 console.log("origin after update+flush:", manager.origin.get());
 
 /* MD
-  ### 🗺️ bimCoordinates — the sites collection
-  Sites are how a project keeps georeferencing for more than one BIM model,
-  each with its own origin and transform matrix. Because sites are created by
-  users at runtime, their ids are opaque and generated internally —
-  `createSite` mints the id and returns it, while `setSite` only updates a
-  site that already exists (it throws otherwise). This split keeps storage
-  keys decoupled from mutable data like a site's label.
-*/
-
-const siteId = await manager.bimCoordinates.createSite({
-  label: "Site 1",
-  description: "Primary IFC export.",
-  lat: 40.41647848134075,
-  lon: -3.703451491164702,
-  height: 699.970526176243,
-  rotation: 0,
-  baseMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -498477.20216, -719.2375, 4389662.11289, 1],
-});
-
-await manager.bimCoordinates.setDefaultSite(siteId);
-await manager.flush();
-
-console.log("default site:", manager.bimCoordinates.getDefaultSite());
-console.log("all sites:", manager.bimCoordinates.getSites());
-
-/* MD
-  Updating an existing site goes through `setSite`, not `createSite`:
-*/
-
-await manager.bimCoordinates.setSite(siteId, {
-  ...manager.bimCoordinates.getSite(siteId)!,
-  label: "Site 1 (revised)",
-});
-await manager.flush();
-
-console.log("site after update:", manager.bimCoordinates.getSite(siteId));
-
-/* MD
   ### 🖼️ assetCoordinates — the files collection
   `assetCoordinates` georeferences individual files — splats, point clouds —
   that live outside the BIM model tree. Unlike sites, entries are keyed by
@@ -159,5 +120,5 @@ console.log("georeferencing namespace:", manager.getNamespace("georeferencing"))
   ### 🤖 What's not covered here
   ProjectManager ships without a UI panel — everything above is the data
   layer only. Building georeferencing or project-settings UI on top of
-  `origin`/`bimCoordinates`/`assetCoordinates` is up to the consuming app.
+  `origin`/`crs`/`assetCoordinates` is up to the consuming app.
 */
