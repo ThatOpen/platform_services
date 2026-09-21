@@ -5,6 +5,7 @@ import {
 } from './client';
 import { Project, ProjectData } from '../types/projects';
 import { ThatOpenContext } from '../types/context';
+import { ChannelClient, windowTransport } from './channel';
 import {
   MarkNotificationsReadResultDto,
   NotificationPageDto,
@@ -100,6 +101,7 @@ export type BearerTokenSource =
  */
 export class PlatformClient extends EngineServicesClient {
   readonly #tokenProvider?: () => string | Promise<string>;
+  #channel?: ChannelClient;
 
   /**
    * @param token - A bearer JWT, OR a function returning the current JWT
@@ -145,6 +147,35 @@ export class PlatformClient extends EngineServicesClient {
     const client = new PlatformClient(ctx.accessToken, ctx.apiUrl, props);
     (client as { context: ThatOpenContext }).context = ctx;
     return client;
+  }
+
+  /**
+   * The platform channel, from inside an app: a collaboration room shared with
+   * other users of the app, and rooms for commands from external tools (a CLI,
+   * an MCP server, a Revit plugin). Typed, and built on the `postMessage`
+   * contract with the platform shell — the app never opens a socket.
+   *
+   * Only available in an app running in the platform's iframe; reading it
+   * anywhere else throws. Created on first use.
+   *
+   * @example
+   * ```ts
+   * type McpCommands = {
+   *   'select-by-category': { payload: { category: string }; reply: { count: number } };
+   * };
+   *
+   * const mcp = client.channel.external<McpCommands>('mcp');
+   * mcp.on('select-by-category', async ({ category }) => ({ count: 3 }));
+   * await mcp.join();
+   *
+   * const collab = client.channel.collab();
+   * collab.onPeerLeft(({ from }) => removeAvatar(from));
+   * await collab.join();
+   * ```
+   */
+  get channel(): ChannelClient {
+    this.#channel ??= new ChannelClient(windowTransport());
+    return this.#channel;
   }
 
   // ─── Projects (JWT-only backend routes) ──────────────────────────

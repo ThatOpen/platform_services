@@ -60,6 +60,10 @@ Examples of comment-worthy behavior:
 
 `PlatformClient` extends `EngineServicesClient`. Both expose `fromPlatformContext()`.
 
+## `client.channel` (app-side only)
+
+`PlatformClient.channel` (`src/core/channel.ts`) is the typed app side of the platform channel: `collab<Events>()` and `external<Commands>(kind?)` rooms over the shell's `postMessage` contract (`APP_CHANNEL_CONTROL` / `APP_CHANNEL_PUBLISH` out, `THATOPEN_CHANNEL_MESSAGE` in). It throws outside the platform iframe, so its example (`examples/channel.ts`) is a copyable snippet, not a runnable script. The gateway and the shell live in `platform_backend-api`; `docs/architecture/external-channel.md` there is the source of truth for the room model and the `channel:*` message names, which this file mirrors. Routing depends on the gateway stamping `scope` and `kind` on each message; keep `ChannelIncomingMessage` in step with that envelope.
+
 ## Template authoring
 
 - Truly shared files (`.gitignore`, `AGENTS.md`, `CLAUDE.md`) live in `src/cli/templates/shared/` and are copied first. `AGENTS.md` there is a stub that points scaffolded projects to `node_modules/@thatopen/services/resources/AGENTS.md`.
