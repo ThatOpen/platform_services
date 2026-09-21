@@ -1,5 +1,11 @@
 # thatopen-services
 
+## 0.14.0
+
+### Minor Changes
+
+- 1722a72: `ProjectManager`: add a project-wide `crs` singleton (`CrsData`: `epsgCode`, `geoidUndulation`) and make `origin` and `crs` reactive (`onChange`), with dirty tracking (`dirty`, `dirtyEntities`, `onDirtyChange`). Remove the unused `bimCoordinates` sites collection and its `BimSite`/`BimCoordinatesData` types.
+
 ## 0.13.0
 
 ### Minor Changes
