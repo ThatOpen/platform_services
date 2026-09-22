@@ -40,6 +40,20 @@ async function main() {
   );
   components.get(UIManager).init();
 
+  // The platform channel, pre-wired (see ./setups/channel.ts): external tools
+  // of this account (an MCP server, a CLI, a plugin) can command this app, and
+  // other open tabs of it are reachable for collaboration. Joined HERE, before
+  // any await the boot can park on (the world, project data): a stalled fetch
+  // further down must not leave the app unreachable — and silently so, since a
+  // join that is never requested also never gets to time out loudly. It only
+  // exists inside the platform iframe, so a failure is a warning, never a boot
+  // error.
+  try {
+    setupChannel(client, components);
+  } catch (error) {
+    console.warn("[channel] unavailable outside the platform:", error);
+  }
+
   // One STABLE top-viewer node, returned by reference so re-rendering top-app
   // (when we add the panels below) reuses it instead of disposing/recreating
   // its world. No <top-viewer-tools>: the bim-viewer mounts its own tabbed
@@ -97,21 +111,23 @@ async function main() {
   const projectId: string | undefined = client?.context?.projectId;
   let projectData;
   try {
-    if (projectId) projectData = await client.getProjectData(projectId);
+    // Bounded: this request carries no AbortSignal, so a stalled response
+    // parked everything below it for good (that is how the app once ended up
+    // booted but with no panels and, before the channel moved up top, deaf to
+    // external tools). Past the deadline the app boots without project data —
+    // the same degraded path the catch below already provides.
+    if (projectId) {
+      projectData = await Promise.race([
+        client.getProjectData(projectId),
+        new Promise<undefined>((resolve) => {
+          setTimeout(() => resolve(undefined), 20_000);
+        }),
+      ]);
+    }
   } catch {
     /* dev/no-project → consumers degrade gracefully */
   }
   setAppContext(client, projectData);
-
-  // The platform channel, pre-wired (see ./setups/channel.ts): external tools
-  // of this account (an MCP server, a CLI, a plugin) can command this app, and
-  // other open tabs of it are reachable for collaboration. It only exists
-  // inside the platform iframe, so a failure is a warning, never a boot error.
-  try {
-    setupChannel(client, components);
-  } catch (error) {
-    console.warn("[channel] unavailable outside the platform:", error);
-  }
 
   // Pluggable loaders for <top-models-list>. The built-in ships the lightweight
   // defaults (.frag load, IFC→fragments convert); heavy/app-specific loaders are

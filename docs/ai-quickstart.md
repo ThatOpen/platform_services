@@ -310,10 +310,12 @@ at the same time never sees it. Replies arrive as a `channelMessage` with
 `type: "reply"` and your `requestId` — match on the `requestId`, not the type.
 
 `{ delivered: 0 }` on the ack means no tab of that account's app has the
-channel joined. Usually that means the app is not open — but it has also been
-seen with the app open and looking healthy, when the join failed silently on
-the tab's FIRST load (nothing in the console either way). **Ask the user to
-reload the app tab and retry**; that has fixed every observed case.
+channel joined — usually the app is simply not open. Apps scaffolded before
+services 0.16.1 had one more way here: they joined the channel only at the END
+of boot, so a stalled startup request left an app that looked healthy but had
+never joined, with nothing in the console either way (0.16.1 scaffolds join
+before anything boot can stall on). With the app visibly open and still
+`delivered: 0`, **ask the user to reload the app tab and retry**.
 
 To grow the app's command surface, extend `AppCommands` in
 `src/setups/channel.ts` and handle the new command — the handler's return value
