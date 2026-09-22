@@ -25,6 +25,7 @@
   "files": [
     "dist",
     "src/cli/templates",
+    "src/core/examples",
     "src/built-in",
     "docs",
     "resources"

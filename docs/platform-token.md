@@ -8,7 +8,7 @@ here rather than in each of them.
 Say this to the user, and wait:
 
 > "To log in I need a That Open Platform **access token**. You create it yourself:
-> **https://platform.thatopen.com/dashboard/data → API Tokens → create → copy**, then paste it
+> **https://platform.thatopen.com/dashboard → Account → Tokens → create → copy** (the Data overview shows the same card), then paste it
 > here."
 
 **Never print it back, never write it into a file, never commit it.** Not into a script, not into a

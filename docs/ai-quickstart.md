@@ -51,7 +51,8 @@ Steps 0–2 are identical for both; they diverge only at `create` (step 3) and h
 
 - **Node.js ≥ 18** and **npm** — verify with `node -v`.
 - A **That Open Platform API token**. The user creates it themselves:
-  → **https://platform.thatopen.com/dashboard/data → API Tokens → create → copy.**
+  → **https://platform.thatopen.com/dashboard → Account → Tokens → create → copy.**
+  (The Data overview shows the same Tokens card; both paths work.)
   Ask the user to paste it. **Never print it back, never write it into a file, never commit it.**
 
 ## 1. Install the CLI
@@ -62,8 +63,9 @@ npm install -g @thatopen/services@latest
 
 ## 2. Log in (do this BEFORE creating the project)
 
-Get the token from the platform dashboard — **https://platform.thatopen.com/dashboard/data**
-→ **API Tokens** → create → copy. Ask the user to paste it, then run:
+Get the token from the platform dashboard — **https://platform.thatopen.com/dashboard**
+→ **Account → Tokens** → create → copy (the Data overview shows the same card). Ask the
+user to paste it, then run:
 
 ```bash
 thatopen login --token <platform-token>
@@ -304,8 +306,14 @@ socket.on("channelMessage", (msg) => {
 ```
 
 A reply to your `requestId` reaches only your socket — a second tool connected
-at the same time never sees it. `{ delivered: 0 }` on the ack means no tab of
-that account's app has the channel joined: open the app first.
+at the same time never sees it. Replies arrive as a `channelMessage` with
+`type: "reply"` and your `requestId` — match on the `requestId`, not the type.
+
+`{ delivered: 0 }` on the ack means no tab of that account's app has the
+channel joined. Usually that means the app is not open — but it has also been
+seen with the app open and looking healthy, when the join failed silently on
+the tab's FIRST load (nothing in the console either way). **Ask the user to
+reload the app tab and retry**; that has fixed every observed case.
 
 To grow the app's command surface, extend `AppCommands` in
 `src/setups/channel.ts` and handle the new command — the handler's return value
