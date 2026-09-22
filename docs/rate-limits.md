@@ -74,27 +74,36 @@ try {
 copy of the change was in that request, it is gone — which is the real reason
 the local-draft pattern below matters.
 
-## The pattern: local drafts, explicit saves
+## The pattern: drafts in memory, explicit saves
 
-Keep every intermediate state in the browser. Write to the platform only when
-the user asks for it.
+Keep every intermediate state in memory. Write to the platform only when the
+user asks for it, or on a slow timer.
+
+> **Why not `localStorage`?** Platform apps run in a sandboxed iframe on an
+> **opaque origin**, where `localStorage`, `sessionStorage`, IndexedDB and
+> cookies don't return empty — they **throw, on the property access itself**.
+> Dev mode grants `allow-same-origin`, so origin storage works on the machine
+> of whoever writes the app and fails for every user. This has shipped broken
+> at least once. Inside a platform app there are exactly two stores: memory,
+> and the platform through the client API.
 
 ```ts
-const draftKey = `draft:${fileId}`;
+const drafts = new Map<string, { state: unknown; at: number }>();
 
-function onChange(state: unknown) {
-  localStorage.setItem(draftKey, JSON.stringify({ state, at: Date.now() }));
+function onChange(fileId: string, state: unknown) {
+  drafts.set(fileId, { state, at: Date.now() });
 }
 
-async function onSave(state: unknown) {
+async function onSave(fileId: string, state: unknown) {
   const blob = new Blob([JSON.stringify(state)], { type: 'application/json' });
   await client.updateFile(fileId, { file: blob, versionTag: `v${Date.now()}` });
-  localStorage.removeItem(draftKey);
+  drafts.delete(fileId);
 }
 ```
 
-On load, if a draft exists for the file, offer to restore it. That gives crash
-recovery — the thing autosave was really for — at zero requests.
+A draft in memory does not survive a reload. If surviving one matters, the
+draft itself has to go to the platform — on the explicit save, or on the slow
+timer below — because there is nowhere else to put it.
 
 Rules of thumb:
 
@@ -104,10 +113,11 @@ Rules of thumb:
 - **Never save while a save is in flight.** Keep a flag per file, and drop or
   queue the second save. Overlapping writes also create versions that are hard
   to reconcile.
-- **Big or binary work-in-progress** belongs in IndexedDB, not `localStorage`
-  (about 5 MB per origin).
-- There is **no draft-write method in the client on purpose.** Local storage is
-  the draft store; the platform stores versions the user chose to keep.
+- **Big or binary work-in-progress** stays in memory too — there is no
+  IndexedDB fallback in the sandbox, so size is bounded by RAM, which is fine:
+  it is the same object the app is already editing.
+- There is **no draft-write method in the client on purpose.** Memory is the
+  draft store; the platform stores versions the user chose to keep.
 
 ## Retries
 

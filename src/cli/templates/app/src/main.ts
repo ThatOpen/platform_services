@@ -8,6 +8,7 @@ import * as BUI from "@thatopen/ui";
 import * as MARKERJS from "@markerjs/markerjs3";
 import { PlatformClient, UIManager } from "@thatopen/services";
 import { setAppContext } from "./app";
+import { setupChannel } from "./setups/channel";
 
 // ─── A2 migration — PHASES 1+2: boot on UIManager + re-dock panels ───────────
 // Juan consolidated the old AppManager (layout) + ViewportsManager (viewport)
@@ -101,6 +102,16 @@ async function main() {
     /* dev/no-project → consumers degrade gracefully */
   }
   setAppContext(client, projectData);
+
+  // The platform channel, pre-wired (see ./setups/channel.ts): external tools
+  // of this account (an MCP server, a CLI, a plugin) can command this app, and
+  // other open tabs of it are reachable for collaboration. It only exists
+  // inside the platform iframe, so a failure is a warning, never a boot error.
+  try {
+    setupChannel(client, components);
+  } catch (error) {
+    console.warn("[channel] unavailable outside the platform:", error);
+  }
 
   // Pluggable loaders for <top-models-list>. The built-in ships the lightweight
   // defaults (.frag load, IFC→fragments convert); heavy/app-specific loaders are

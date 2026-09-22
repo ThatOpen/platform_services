@@ -36,12 +36,19 @@ Once you have these, you know everything available on the platform. Only then fe
   **Run it first** (`npm run dev`) to see it work, *then* extend it — don't rebuild a viewer from scratch.
 - **Do the thing they asked for.** If the request already says what to build, build it. Stop and ask only when you are about to change files you did not create, when the request can be read two ways that mean different work, or when the next step is destructive.
 - If something already exists in the indexes, use it — don't reimplement it.
+- **The scaffold already listens on the platform channel** (`src/setups/channel.ts`):
+  external tools (an MCP server, a CLI) command the app through `AppCommands`, and
+  tabs collaborate through `AppCollabEvents`. Extend those maps instead of opening
+  sockets — apps cannot hold their own connection. Walkthrough:
+  `node_modules/@thatopen/services/src/core/examples/channel.ts`.
 
 ## Hard rules (always apply)
 
 1. **Never write to the platform on every change.** No autosave per keystroke,
-   per drag, or inside a render loop. Keep work in progress in `localStorage` /
-   IndexedDB and call the platform on an **explicit user save** (or a timer no
+   per drag, or inside a render loop. Keep work in progress **in memory** — the
+   production sandbox has NO origin storage (`localStorage`, `sessionStorage`,
+   IndexedDB and cookies **throw** on its opaque origin; dev mode hides this) —
+   and call the platform on an **explicit user save** (or a timer no
    faster than once every 30 seconds). Writes are capped at **30 per minute**;
    crossing that returns `429` and the write is **lost**, not queued.
    If the user asks for autosave, build it against local storage and say so.

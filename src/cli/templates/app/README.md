@@ -209,6 +209,39 @@ client.onExecutionProgress(executionId, (data) => {
 client.localServerUrl = "http://localhost:4001";
 ```
 
+## The channel: external control + multiplayer
+
+This app ships listening on the platform channel (`src/setups/channel.ts`). Two
+things work out of the box:
+
+- **External tools can command it.** An MCP server, a CLI or a plugin
+  authenticated with a platform token of the same account can send the commands
+  declared in `AppCommands` (`ping`, `get-loaded-models`) and gets typed
+  replies back. This is how a desktop LLM drives the running app.
+- **Tabs of this app see each other.** Every open tab joins a collaboration
+  room shared across accounts (`AppCollabEvents`) — the base for cursors,
+  presence and live sync.
+
+To add a command, extend the map and handle it; whatever you return is the reply:
+
+```ts
+export type AppCommands = {
+  // ...existing commands...
+  "select-by-category": { payload: { category: string }; reply: { count: number } };
+};
+
+external.on("select-by-category", async ({ category }) => {
+  const count = await selectByCategory(category);
+  return { count };
+});
+```
+
+The app never opens a socket: the platform shell owns the connection and relays
+it, which is also the security boundary. Joining is opt-in per room — the
+scaffold joins at boot; move the `join()` calls behind a button to make it a
+user choice. Full walkthrough with a collab example:
+`node_modules/@thatopen/services/src/core/examples/channel.ts`.
+
 ## Configuration
 
 - `.thatopen` — local config (gitignored). Created by `npm run login`; also holds

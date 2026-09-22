@@ -127,6 +127,14 @@ machine lives at:
 https://platform.thatopen.com/dashboard/projects/<PROJECT_ID>/apps/local-app
 ```
 
+> **If the platform shows "failed to load application" and the console says
+> `Permission was denied for this request to access the `loopback` address space`**:
+> current Chrome blocks an https page from fetching `http://localhost` until the
+> user grants the **Local network access** permission. Tell the user: click the
+> icon left of the URL → Site settings → **Local network access** → **Allow**,
+> then reload. One-time, per browser profile. Verified 2026-09-22 — without the
+> grant the dev loop does not work at all; with it, everything below does.
+
 Substitute the project id. That is the local app running inside the platform's own UI, against
 the project's real data. Send the user there rather than to a bare localhost port, which is the
 app without the platform around it.
@@ -257,6 +265,54 @@ engine / UI example sets. Load those indexes before writing code. For an **app**
 must be built with Lit + `@thatopen/ui` (`BUI`)** — consult the design system first. Run the
 scaffold first, then extend it; don't rebuild from scratch.
 
+## 5b. The channel: drive the running app from outside, and multiplayer
+
+The scaffold is already listening. `src/setups/channel.ts` joins the platform
+channel at boot with two typed commands (`ping`, `get-loaded-models`), and a
+collaboration room shared by every open tab of the app. This is the bridge for
+"an LLM on the desktop drives the app" and for multiplayer, and it is the same
+system: the platform relays messages between app tabs and external tools.
+
+To command the app from outside (a script, an MCP server, your own tool):
+
+1. The user creates a **platform token** with the **API** permission
+   (dashboard → Account → Tokens). Same secrecy rules as always.
+2. Connect with `socket.io-client` and subscribe, then publish:
+
+```bash
+npm i socket.io-client   # in the external tool's own project, not the app
+```
+
+```js
+import { io } from "socket.io-client";
+
+const socket = io(`https://platform.thatopen.com?accessToken=${process.env.THATOPEN_TOKEN}`);
+// While iterating with `thatopen serve`, OMIT appId (the dev channel is keyed
+// to the account); pass the appId once the app is published.
+socket.emit("channelSubscribe", { projectId, appId, kind: "cli" });
+socket.on("channelMessage", (msg) => {
+  if (msg.type === "channel:subscribed") {
+    socket.emit(
+      "channelPublish",
+      { type: "ping", requestId: crypto.randomUUID(), payload: { echo: "hi" } },
+      (ack) => console.log(ack), // { delivered: 0 } = no app tab is listening
+    );
+  } else {
+    console.log("app says:", msg);
+  }
+});
+```
+
+A reply to your `requestId` reaches only your socket — a second tool connected
+at the same time never sees it. `{ delivered: 0 }` on the ack means no tab of
+that account's app has the channel joined: open the app first.
+
+To grow the app's command surface, extend `AppCommands` in
+`src/setups/channel.ts` and handle the new command — the handler's return value
+is the reply. The full walkthrough (typed contracts, collaboration events,
+presence) is `node_modules/@thatopen/services/src/core/examples/channel.ts`,
+indexed in the client API index you already loaded.
+
 ## 6. Publish (when ready)
 
 ```bash
@@ -283,8 +339,10 @@ component, once added to a project, is then triggered by an app or an automation
   four-point plan and waiting for approval to do what was just requested costs the user a whole turn
   and buys nothing. Stop and ask only when you are about to change files you did not create, when
   the request can be read two ways that mean different work, or when the next step is destructive.
-- **Never save to the platform on every change.** Drafts belong in `localStorage` /
-  IndexedDB; the platform gets an explicit save. Writes are capped at 30 per minute and a
+- **Never save to the platform on every change.** Drafts live in memory — the
+  production sandbox runs apps on an opaque origin where `localStorage`,
+  `sessionStorage`, IndexedDB and cookies all **throw** (they work in dev mode
+  and then break for every real user). The platform gets an explicit save. Writes are capped at 30 per minute and a
   `429` loses the write. See
   `node_modules/@thatopen/services/docs/rate-limits.md` before you write any save, sync or
   polling code.
