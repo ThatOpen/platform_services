@@ -149,28 +149,33 @@ document.body.style.margin = "0";
   gotcha below), then appended as the toolbar's light-DOM content:
 
   ```ts
+  import { html, render } from "lit";
+
   const headlessBar = document.createElement("top-viewer-toolbar");
   headlessBar.toggleAttribute("headless", true);
 
-  const customButtons = document.createElement("bim-toolbar") as unknown as HTMLElement;
-  customButtons.setAttribute("style", "pointer-events: auto;");
+  // A plain container — the `<bim-toolbar>` itself is rendered inside it.
+  const toolbarHost = document.createElement("div");
+  toolbarHost.style.pointerEvents = "auto";
   render(
     html`
-      <bim-toolbar-section label-hidden style="background: transparent;">
-        <top-viewer-mode-toggle-button></top-viewer-mode-toggle-button>
-        <top-viewer-hide-button></top-viewer-hide-button>
-        <top-viewer-select-button></top-viewer-select-button>
-      </bim-toolbar-section>
-      <bim-toolbar-section label-hidden style="background: transparent;">
-        <bim-button
-          icon="mdi:fit-to-page-outline"
-          @click=${() => myOwnFitToViewLogic()}
-        ><bim-tooltip placement="top">Zoom to fit</bim-tooltip></bim-button>
-      </bim-toolbar-section>
+      <bim-toolbar>
+        <bim-toolbar-section label-hidden style="background: transparent;">
+          <top-viewer-mode-toggle-button></top-viewer-mode-toggle-button>
+          <top-viewer-hide-button></top-viewer-hide-button>
+          <top-viewer-select-button></top-viewer-select-button>
+        </bim-toolbar-section>
+        <bim-toolbar-section label-hidden style="background: transparent;">
+          <bim-button
+            icon="mdi:fit-to-page-outline"
+            @click=${() => myOwnFitToViewLogic()}
+          ><bim-tooltip placement="top">Zoom to fit</bim-tooltip></bim-button>
+        </bim-toolbar-section>
+      </bim-toolbar>
     `,
-    customButtons,
+    toolbarHost,
   );
-  headlessBar.appendChild(customButtons);
+  headlessBar.appendChild(toolbarHost);
   // headlessBar can now be appended anywhere inside <top-viewer>.
   ```
 
@@ -208,7 +213,7 @@ document.body.style.margin = "0";
     Custom Elements v1 forbids for elements created imperatively —
     `document.createElement("bim-button")` throws `NotSupportedError`.
     Render them with lit's `render(html\`...\`, container)` instead, exactly
-    like the `customButtons` bar above — never build them by hand.
+    like the `toolbarHost` container above — never build them by hand.
   - **`bim-button` sizes itself** — square when it's icon-only, a consistent
     height when it has a label. Don't set `width`/`height`/`min-width`
     inline on it; that only fights its own layout and produces buttons that
@@ -225,7 +230,13 @@ document.body.style.margin = "0";
   ### 🧩 Standalone buttons reference
 
   Every button the default bar uses is independently importable/usable as
-  its own custom element:
+  its own custom element. They render icon-only with a tooltip; set the
+  optional `label` attribute on any of them to show text next to the icon
+  (the tooltip stays as it is):
+
+  ```html
+  <top-viewer-hide-button label="Hide"></top-viewer-hide-button>
+  ```
 
   | Element | Does |
   |---|---|
@@ -237,16 +248,105 @@ document.body.style.margin = "0";
   | `<top-viewer-focus-button>` | Frames the camera on the target set |
   | `<top-viewer-reset-button>` | Restores full visibility + opacity (global) |
   | `<top-viewer-select-button>` | Activates the default Select tool |
-  | `<top-viewer-clip-button>` | Activates the Clip tool |
+  | `<top-viewer-clip-button>` | Clipping planes: face-placing mode by default, or axis planes / a mode menu via `modes` (see below) |
   | `<top-viewer-measure-length-button>` | Activates length measurement |
   | `<top-viewer-measure-area-button>` | Activates area measurement |
   | `<top-viewer-measure-angle-button>` | Activates angle measurement |
   | `<top-viewer-measure-edge-button>` | Activates edge measurement |
   | `<top-viewer-measure-face-button>` | Activates face measurement |
   | `<top-viewer-measure-volume-button>` | Activates volume measurement |
+  | `<top-viewer-measure-button>` | All measurement modes in one button (a menu by default), or a chosen subset via `modes` (see below) |
   | `<top-viewer-projection-toggle-button>` | Toggles Perspective ⇄ Orthographic |
   | `<top-viewer-walkthrough-button>` | Toggles first-person walkthrough |
+  | `<top-viewer-navigation-button>` | Switches between orbit and first-person navigation (a menu by default), or a single chosen mode via `modes` (see below) |
 
   Each one self-wires from context — drop it anywhere under `<top-viewer>`
   and it works, with no props to pass in.
+
+  ### ✂️ Clip button modes
+
+  Without any attribute, `<top-viewer-clip-button>` enters face-placing mode:
+  double-click a face in the model and a clip plane is dropped on it. The
+  optional `modes` attribute changes what the button offers — a whitespace-
+  (or comma-) separated list of `x`, `y`, `z` and `face` (case-insensitive;
+  unknown tokens are ignored, duplicates dropped, the order you write is the
+  order shown):
+
+  ```html
+  <!-- a menu with four entries: X axis, Y axis, Z axis, Face -->
+  <top-viewer-clip-button modes="x y z face"></top-viewer-clip-button>
+
+  <!-- one mode = no menu; a click creates a horizontal cut right away -->
+  <top-viewer-clip-button modes="y"></top-viewer-clip-button>
+
+  <!-- default: face-placing mode -->
+  <top-viewer-clip-button></top-viewer-clip-button>
+  ```
+
+  - **One mode** — the button runs it directly on click. `face` is the
+    default face-placing behavior.
+  - **Two or more** — clicking opens a menu with one entry per mode ("X
+    axis", "Y axis", "Z axis", "Face"); picking one runs it and closes the
+    menu.
+  - **Axis modes** create a single plane through the center of the bounding
+    box of all loaded models (nothing happens if no model is loaded). Axes
+    follow the three.js convention — **Y is vertical**, so `y` is a
+    horizontal cut. The plane's normal is the *negative* axis — `(-1, 0, 0)`,
+    `(0, -1, 0)`, `(0, 0, -1)` — so the plane clips what lies on the
+    positive side of the axis (`y` removes everything above the middle of
+    the model). Axis planes behave exactly like face-placed ones: same
+    section styling, listed in the objects outliner, draggable by their
+    gizmo, removable with Delete.
+  - The button shows as active only while face-placing mode is on.
+
+  ### 📏 Measure button modes
+
+  `<top-viewer-measure-button>` puts the measurement tools behind a single
+  button. Without any attribute it offers all six modes — `length`, `area`,
+  `angle`, `edge`, `face`, `volume` — in a menu. The optional `modes`
+  attribute picks a subset (whitespace- or comma-separated, case-insensitive;
+  unknown tokens are ignored, duplicates dropped, your order is kept):
+
+  ```html
+  <!-- default: a menu with all six modes -->
+  <top-viewer-measure-button></top-viewer-measure-button>
+
+  <!-- a menu with just these three, in this order -->
+  <top-viewer-measure-button modes="length area volume"></top-viewer-measure-button>
+
+  <!-- one mode = no menu; a click starts that measurement right away -->
+  <top-viewer-measure-button modes="length"></top-viewer-measure-button>
+  ```
+
+  - **One mode** — a click activates it directly, exactly like the matching
+    standalone button (`length` and `area` measure freely; `edge` and `face`
+    snap to edges and faces).
+  - **Two or more** — a click opens a menu with one text-labelled entry per
+    mode ("Length", "Area", "Angle", "Edge", "Face", "Volume"); picking one
+    activates it and closes the menu.
+  - The button shows as active while any of its modes is the active
+    measurement mode, and its icon switches to that mode's icon (a ruler
+    otherwise). In the menu, the active mode's entry is marked.
+
+  ### 🧭 Navigation button modes
+
+  `<top-viewer-navigation-button>` switches how the camera moves. Without any
+  attribute it offers both modes — `orbit` and `first-person` — in a menu.
+  The optional `modes` attribute narrows or reorders them (whitespace- or
+  comma-separated, case-insensitive; unknown tokens are ignored, duplicates
+  dropped, your order is kept):
+
+  ```html
+  <!-- default: a menu with "Orbit" and "First person" -->
+  <top-viewer-navigation-button></top-viewer-navigation-button>
+
+  <!-- one mode = no menu; a click switches straight to it -->
+  <top-viewer-navigation-button modes="orbit"></top-viewer-navigation-button>
+  ```
+
+  - `orbit` turns first-person navigation off (nothing happens if it already
+    is); `first-person` turns it on (nothing happens if it already is) — the
+    same first-person navigation `<top-viewer-walkthrough-button>` toggles.
+  - The button's icon always shows the current mode, and the button is active
+    while first-person is on. In the menu, the current mode's entry is marked.
 */
