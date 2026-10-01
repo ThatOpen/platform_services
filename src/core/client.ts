@@ -1343,12 +1343,20 @@ export class EngineServicesClient {
    * Creates a hidden file attached to a parent item (e.g., dependencies, assets).
    * @param file - The file to upload.
    * @param parentFileId - The parent item's unique identifier.
+   * @param tag - Optional label to tell hidden files of the same parent apart;
+   *   filter on it with {@link getHiddenFilesByParent}. Up to 50 characters:
+   *   letters, digits and `:._-`, starting with a letter or digit.
    * @returns The hidden file ID.
    */
-  async createHiddenFile(file: File | Blob, parentFileId: string) {
+  async createHiddenFile(
+    file: File | Blob,
+    parentFileId: string,
+    tag?: string,
+  ) {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('parentItemId', parentFileId);
+    if (tag != null) formData.append('tag', tag);
 
     return await this.#requestApi<CreateHiddenItemResult>(
       'POST',
@@ -1365,14 +1373,21 @@ export class EngineServicesClient {
    * (e.g. 3D Tiles); upload in chunks of up to 100 files per call.
    * @param files - The files to upload.
    * @param parentFileId - The parent item's unique identifier.
+   * @param tag - Optional label, as in {@link createHiddenFile}. One tag
+   *   applies to every file in the batch.
    * @returns One result per uploaded file, in order, each with its hidden file ID.
    */
-  async createHiddenFilesBatch(files: (File | Blob)[], parentFileId: string) {
+  async createHiddenFilesBatch(
+    files: (File | Blob)[],
+    parentFileId: string,
+    tag?: string,
+  ) {
     const formData = new FormData();
     for (const file of files) {
       formData.append('files', file);
     }
     formData.append('parentItemId', parentFileId);
+    if (tag != null) formData.append('tag', tag);
 
     return await this.#requestApi<CreateHiddenItemsBatchResult>(
       'POST',
@@ -1482,14 +1497,17 @@ export class EngineServicesClient {
   }
 
   /**
-   * Lists all hidden files attached to a parent item.
+   * Lists the hidden files attached to a parent item.
    * @param parentFileId - The parent item's unique identifier.
+   * @param tag - Optional filter: only hidden files uploaded with this tag. A
+   *   tagged listing comes back in creation order.
    * @returns Array of hidden file entities.
    */
-  async getHiddenFilesByParent(parentFileId: string) {
+  async getHiddenFilesByParent(parentFileId: string, tag?: string) {
     return await this.#requestApi<HiddenFileEntity[]>(
       'GET',
       `${ITEM_PATH}/${parentFileId}/${HIDDEN_PATH}`,
+      { ...(tag != null && { query: { tag } }) },
     );
   }
 

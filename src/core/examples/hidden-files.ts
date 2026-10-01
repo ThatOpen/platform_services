@@ -39,6 +39,13 @@ async function main() {
   const hidden2 = await client.createHiddenFile(hiddenBlob2, parentId);
   console.log(`Created hidden file 2: [${hidden2.hiddenFileId}]`);
 
+  // --- Tags ---
+  // The tag is optional on upload; a batch upload applies one tag to every file in it.
+  // Filtering by tag returns that tag's files in creation order.
+  const tagged = await client.createHiddenFile(hiddenBlob1, parentId, 'example:tagged');
+  const taggedList = await client.getHiddenFilesByParent(parentId, 'example:tagged');
+  console.log(`\nHidden files tagged 'example:tagged': ${taggedList.length} (first: [${tagged.hiddenFileId}] tag=${taggedList[0]?.tag})`);
+
   // --- Get ---
   const fetched = await client.getHiddenFile(hidden1.hiddenFileId);
   console.log(`\nHidden file 1 detail:`);

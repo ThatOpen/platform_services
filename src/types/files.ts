@@ -7,6 +7,8 @@ export type HiddenFileEntity = {
   fileId: string;
   _id: ObjectId;
   parentItemId: ObjectId;
+  /** Label set on upload; absent on untagged files. */
+  tag?: string;
 };
 
 export type CreateHiddenItemResult = {

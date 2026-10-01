@@ -456,6 +456,63 @@ describe('EngineServicesClient — HTTP contract', () => {
     });
   });
 
+  describe('hidden file tags', () => {
+    it('createHiddenFile sends the tag form field when given', async () => {
+      fetchMock.mockResolvedValue(okResponse({ hiddenFileId: 'h1' }));
+      const client = new EngineServicesClient(TOKEN, API);
+      await client.createHiddenFile(new Blob(['x']), 'p1', 'queue');
+      const body = getCall(fetchMock).init.body as FormData;
+      expect(body.get('tag')).toBe('queue');
+      expect(body.get('parentItemId')).toBe('p1');
+    });
+
+    it('createHiddenFile omits the tag field when not given', async () => {
+      fetchMock.mockResolvedValue(okResponse({ hiddenFileId: 'h1' }));
+      const client = new EngineServicesClient(TOKEN, API);
+      await client.createHiddenFile(new Blob(['x']), 'p1');
+      const body = getCall(fetchMock).init.body as FormData;
+      expect(body.has('tag')).toBe(false);
+    });
+
+    it('createHiddenFilesBatch sends one tag for the whole batch', async () => {
+      fetchMock.mockResolvedValue(okResponse({ results: [] }));
+      const client = new EngineServicesClient(TOKEN, API);
+      await client.createHiddenFilesBatch(
+        [new Blob(['a']), new Blob(['b'])],
+        'p1',
+        'bpack:3',
+      );
+      const body = getCall(fetchMock).init.body as FormData;
+      expect(body.getAll('tag')).toEqual(['bpack:3']);
+      expect(body.getAll('files')).toHaveLength(2);
+    });
+
+    it('createHiddenFilesBatch omits the tag field when not given', async () => {
+      fetchMock.mockResolvedValue(okResponse({ results: [] }));
+      const client = new EngineServicesClient(TOKEN, API);
+      await client.createHiddenFilesBatch([new Blob(['a'])], 'p1');
+      const body = getCall(fetchMock).init.body as FormData;
+      expect(body.has('tag')).toBe(false);
+    });
+
+    it('getHiddenFilesByParent sends the tag query param when given', async () => {
+      fetchMock.mockResolvedValue(okResponse([]));
+      const client = new EngineServicesClient(TOKEN, API);
+      await client.getHiddenFilesByParent('p1', 'queue');
+      const { pathname, params } = parseUrl(getCall(fetchMock).url);
+      expect(pathname).toBe('/api/item/p1/hidden');
+      expect(params.get('tag')).toBe('queue');
+    });
+
+    it('getHiddenFilesByParent omits the tag query param when not given', async () => {
+      fetchMock.mockResolvedValue(okResponse([]));
+      const client = new EngineServicesClient(TOKEN, API);
+      await client.getHiddenFilesByParent('p1');
+      const { params } = parseUrl(getCall(fetchMock).url);
+      expect(params.has('tag')).toBe(false);
+    });
+  });
+
   describe('batch reads', () => {
     it('getHiddenFileSignedUrlsBatch POSTs the ids and unwraps results', async () => {
       const results = [
