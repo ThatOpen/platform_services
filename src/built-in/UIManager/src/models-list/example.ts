@@ -7,7 +7,7 @@
 
   A behaviour worth knowing: registering a loader does NOT control whether a file shows up in the tree — the tree always mirrors the project's real storage folders, so an unrecognized file is still listed as long as it's a source (IFC/LAS/PLY) or derivative (`.frag`/`.potree`/`.splat`) extension; the loaders registry only decides whether a file's row gets a load action or none.
 
-  Known gaps (intentionally deferred, not forgotten): file upload and the base-model/auto-coordinate settings aren't ported, so `allow-upload` is currently a no-op. Everything else per-file is here, including editable attach/detach via a picker — MINUS delete, dropped on purpose. See `models-list/legacy-example.ts` + `models-list/impl.ts` for the retired implementation those gaps would be ported from.
+  Known gaps (intentionally deferred, not forgotten): the base-model/auto-coordinate settings aren't ported, and the panel has no default upload of its own: `allow-upload` is opt-in (off by default) and adds an "Upload file" item to the row menu of the root and folder rows, which hands each picked file to the uploader you registered for its extension (see the uploader section below) — files with no uploader aren't uploaded. Everything else per-file is here, including editable attach/detach via a picker — MINUS delete, dropped on purpose. See `models-list/legacy-example.ts` + `models-list/impl.ts` for the retired implementation those gaps would be ported from.
 
   By the end you'll have a files tree that knows how to load a custom format and how to run a custom IFC conversion, with the panel's UI untouched.
 */
@@ -57,7 +57,9 @@ const modelsList = document.createElement("top-models-list") as ModelsListV2;
 // ── Extension point 1: a custom loader, keyed by file extension ──────────────
 // A ModelLoader is `(fileId, ctx) => void | Promise<void>`. The panel calls it
 // when the user loads a file whose extension matches. `ctx` gives you everything
-// you need: { name, ext, components, client, getAlignment, setAlignment }. Do
+// you need: { name, ext, components, client, getAlignment, setAlignment, progress }.
+// For a long-running load call `ctx.progress(percent, label?)` to show it on the
+// row (omit `percent` while unknown). Do
 // whatever it takes to put the file in the scene — fetch it via the client,
 // parse it, and add geometry to a world from `components`.
 modelsList.registerLoader("xyz", async (fileId, ctx) => {
@@ -86,6 +88,63 @@ modelsList.registerLoader("xyz", async (fileId, ctx) => {
 //       // ...poll until done, then open the produced tileset...
 //     },
 //   });
+
+// ── Upload: opt in, then register an uploader per file extension ─────────────
+// `allow-upload` adds an "Upload file" item to the row menu of the root and
+// folder rows. It opens a file picker and hands each picked file to the
+// uploader registered for its extension, which fully owns that upload. Files
+// whose extension has no uploader are not uploaded (the user gets a warning).
+// `ctx` carries { name, ext, folderId, projectId, components, client };
+// `folderId` is undefined when the upload was started from the root row. While
+// the uploader runs, the panel shows a temporary row for the file; call
+// `ctx.progress(percent, label?)` to drive its progress bar (omit `percent`
+// while unknown for a spinner). The list refreshes once an uploader has run.
+modelsList.setAttribute("allow-upload", "");
+modelsList.registerUploader("ifc", async (file, ctx) => {
+  // Create the file in `ctx.folderId` (or the project root) with `ctx.client`,
+  // upload `file`'s bytes, and report success/failure however your app does.
+  ctx.progress(undefined, "Preparing…");
+  ctx.progress(50);
+  console.log(`[ifc uploader] would upload "${file.name}" to`, ctx.folderId ?? "the project root");
+});
+
+// Declarative form: modelsList.uploaders = { ifc: async (file, ctx) => { ... } };
+
+// ── File actions: extra entries in a file row's three-dots menu ──────────────
+// The menu already holds the panel's own items (fit camera, attach/detach); the
+// actions you register for an extension are added after them. Pass a fixed list,
+// or a resolver that runs every time the menu opens (it may be async — the menu
+// shows a loading state meanwhile). While an action runs the file's row shows
+// its status instead of its buttons: call `ctx.progress(percent, label?)` to
+// drive it, and `ctx.reload()` if the action added/removed/renamed files.
+modelsList.registerActions("ifc", [
+  {
+    label: "Re-index",
+    icon: "mdi:database-refresh-outline",
+    run: async (fileId, ctx) => {
+      ctx.progress(undefined, "Indexing…");
+      // await ctx.client.…
+      ctx.progress(100);
+      console.log(`[ifc action] re-indexed "${ctx.name}" (${fileId})`);
+    },
+  },
+]);
+modelsList.registerActions("ply", async (fileId, ctx) => {
+  // Build the menu from state fetched when it opens, e.g. whether a derived
+  // file already exists for `fileId` (using `ctx.client`).
+  const alreadyConverted = false;
+  return [
+    {
+      label: "Regenerate 3D tiles",
+      icon: "mdi:cube-scan",
+      disabled: !alreadyConverted,
+      run: async (_id, actionCtx) => {
+        actionCtx.progress(25, "Converting…");
+        await actionCtx.reload();
+      },
+    },
+  ];
+});
 
 // ── Extension point 2: override the IFC → fragments converter ────────────────
 // OMIT this to keep the built-in default (drives the project's IfcFragmenter

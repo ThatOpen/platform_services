@@ -246,7 +246,7 @@ document.body.style.margin = "0";
   | `<top-viewer-isolate-button>` | Shows only the target set |
   | `<top-viewer-ghost-button>` | Renders the target set semi-transparent |
   | `<top-viewer-focus-button>` | Frames the camera on the target set |
-  | `<top-viewer-reset-button>` | Restores full visibility + opacity (global) |
+  | `<top-viewer-reset-button>` | Shows everything and clears ghosting (global); the optional `reset` attribute can also remove sections and measurements (see below) |
   | `<top-viewer-select-button>` | Activates the default Select tool |
   | `<top-viewer-clip-button>` | Clipping planes: face-placing mode by default, or axis planes / a mode menu via `modes` (see below) |
   | `<top-viewer-measure-length-button>` | Activates length measurement |
@@ -349,4 +349,27 @@ document.body.style.margin = "0";
     same first-person navigation `<top-viewer-walkthrough-button>` toggles.
   - The button's icon always shows the current mode, and the button is active
     while first-person is on. In the menu, the current mode's entry is marked.
+  ### ♻️ Reset button options
+
+  By default `<top-viewer-reset-button>` restores full visibility and clears
+  ghosting. The optional `reset` attribute lists what it resets — any of
+  `visibility`, `sections` (every clipping plane and its section styling)
+  and `measurements` (every measurement), whitespace- or comma-separated,
+  case-insensitive, unknown tokens ignored:
+
+  ```html
+  <!-- default: visibility only -->
+  <top-viewer-reset-button></top-viewer-reset-button>
+
+  <!-- reset everything -->
+  <top-viewer-reset-button reset="visibility sections measurements"></top-viewer-reset-button>
+  ```
+
+  - Parts always run in the order visibility, sections, measurements, and one
+    failing part doesn't stop the others.
+  - When `sections` or `measurements` is listed, the viewer returns to the
+    default Select tool afterwards, so nobody is left inside a half-finished
+    measure or clip mode.
+  - The tooltip describes what the button resets, and first-person navigation
+    is left as it is.
 */

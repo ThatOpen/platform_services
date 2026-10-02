@@ -94,10 +94,12 @@ components.get(UIManager).init();
   ghost, show all, clear selection) that also registers the actual keyboard
   shortcuts while mounted.
 
-  **Search box** — filters every section's own rows by label, stock or
-  custom, as long as a section opts in (see below).
+  **Search box** — sits at the top of the panel, above the sections, and
+  filters every section's own rows by label, stock or custom, as long as a
+  section opts in (see below).
 
-  **Restore defaults** — a two-click-confirm button that resets every
+  **Restore defaults** — a two-click-confirm button in the panel header that
+  resets every
   section with persisted state (currently: Graphics) back to its defaults.
 
   ### 🧩 Building your own section
