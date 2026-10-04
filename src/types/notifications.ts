@@ -10,14 +10,17 @@
 // own package and depending on it normally. Until then this mirrors
 // `src/common/dto/notifications.dto.ts` and has to be updated alongside it.
 
-export type NotificationCategoryDto = 'automation' | 'invitation';
+export type NotificationCategoryDto = 'automation' | 'invitation' | 'file';
 
 export type NotificationTypeDto =
   | 'automation.run.started'
   | 'automation.run.finished'
   | 'invitation.added'
   | 'invitation.accepted'
-  | 'project.role_changed';
+  | 'project.role_changed'
+  | 'project.transfer.proposed'
+  /** A file version landed in a project the recipient belongs to. */
+  | 'file.version_added';
 
 /**
  * One notification as the API returns it.
