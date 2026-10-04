@@ -32,6 +32,10 @@ To use beta engine libraries instead of the stable ones, see:
 
 Once scaffolded, open `AGENTS.md` in the scaffolded project root — it has everything needed to start building.
 
+Reading this repository without a scaffolded project (as a person or an AI agent)? The same
+guide lives here: [`resources/AGENTS.md`](./resources/AGENTS.md), alongside
+[`docs/ai-quickstart.md`](./docs/ai-quickstart.md) for the zero-to-running-app path.
+
 ## Beta engine libraries (Founding Members)
 
 Founding Members get early access to the private beta engine libraries (`@thatopen-platform/*-beta`). The CLI configures access automatically — no npm account or manual token needed.

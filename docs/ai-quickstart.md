@@ -81,6 +81,22 @@ first: the next step's install pulls the private `@thatopen-platform/*-beta` pac
 `create` uses your logged-in token to write an authenticated `.npmrc` so that install can
 resolve them. No npm account or manual npm token is involved.
 
+### The two credentials, side by side (misusing them is the classic first failure)
+
+| | **Platform API token** | **User session JWT** |
+|---|---|---|
+| Where it comes from | Dashboard → Account → Tokens | The platform session (Auth0); inside an app, `PlatformClient.fromPlatformContext()` |
+| Lifetime | Long-lived until revoked | Hours |
+| Client | `EngineServicesClient` | `PlatformClient` (extends the other, so it can do both) |
+| Can | Files, folders, versions, components, executions — anything with an explicit `projectId` | All of that **plus** the JWT-only routes: `listProjects`, `getProject`, `getProjectData`, `checkPermission`, notifications |
+| Cannot | The JWT-only routes above — they identify a *person*, a token identifies a *token* | Run unattended: it expires with the session |
+| How it travels | `Authorization: Bearer` (the CLI does this for you); the `?accessToken=` query form is legacy | `Authorization: Bearer` |
+
+The failure mode this table prevents: building a service on an API token and discovering
+that `checkPermission` or `listProjects` answers 401 — not because of a bug, but because
+those questions are only answerable about a person. If a feature needs them unattended,
+that is a platform gap to report, not a header to keep fiddling with.
+
 ## 3. Scaffold a beta project
 
 **[app]**
@@ -190,7 +206,11 @@ Copy this skeleton. It is the boot of an app that works.
 async function main() {
   const client = PlatformClient.fromPlatformContext();
 
-  // 1 ── built-ins registered, UI shell up
+  // 1 ── built-ins registered, UI shell up. This is the FULL globals set a
+  //      built-in may ask for: OBC, OBF, BUI, THREE, FRAGS, MARKERJS (plus
+  //      CUI only if your app still uses the deprecated @thatopen/ui-obc).
+  //      Only OBC and BUI are strictly required, but a built-in that needs
+  //      a missing one fails at init, so pass everything you import.
   const { components } = await client.setup<OBC.Components>(
     { OBC, OBF, BUI, THREE, FRAGS, MARKERJS },
     { uuid: UIManager.uuid },

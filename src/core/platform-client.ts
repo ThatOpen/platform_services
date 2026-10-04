@@ -3,7 +3,7 @@ import {
   EngineServicesClient,
   EngineServicesClientProps,
 } from './client';
-import { Project, ProjectData } from '../types/projects';
+import { Project, ProjectData, ProjectWithRole } from '../types/projects';
 import { ThatOpenContext } from '../types/context';
 import { ChannelClient, windowTransport } from './channel';
 import {
@@ -179,6 +179,25 @@ export class PlatformClient extends EngineServicesClient {
   }
 
   // ─── Projects (JWT-only backend routes) ──────────────────────────
+
+  /**
+   * Lists the caller's projects, each with their role in it. The discovery
+   * call: everything else on this surface takes a projectId, and until this
+   * method there was no way to find out which ids exist — a portfolio
+   * dashboard had to be configured by hand. `ProjectWithRole` existed as a
+   * type with no producer; this is the producer.
+   *
+   * @example
+   * ```ts
+   * const projects = await client.listProjects();
+   * for (const { project, role } of projects) {
+   *   console.log(project.title, role?.name ?? 'no role');
+   * }
+   * ```
+   */
+  async listProjects() {
+    return await this.request<ProjectWithRole[]>('GET', PROJECT_PATH);
+  }
 
   /**
    * Gets a project by ID. JWT-only — lives here because

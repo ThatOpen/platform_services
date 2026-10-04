@@ -30,7 +30,9 @@ export interface CDENamingSchema {
     separator: string;
     segments: CDENamingSegment[];
 }
-export interface CDEFile extends Omit<Item, 'creatingUser'> {
+// `Base` now declares `createdBy` itself (the field the API actually
+// returns); this narrows it to the string the CDE panels render.
+export interface CDEFile extends Omit<Item, 'createdBy'> {
     createdBy: string;
     metadata: Record<string, CDEMetadataValue>;
     versions?: ItemVersion[];

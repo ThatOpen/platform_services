@@ -333,19 +333,23 @@ export class EngineServicesClient {
    * {@link initBuiltInComponent} call will use these globals automatically
    * — you no longer need to pass a `globals` argument to each one.
    *
-   * @param globals - Map of global names to module namespaces.
-   *   Common keys: `OBC`, `OBF`, `BUI`, `CUI`, `THREE`, `FRAGS`, `MARKERJS`.
+   * @param globals - Map of global names to module namespaces. The FULL set
+   *   a built-in may ask for: `OBC`, `OBF`, `BUI`, `THREE`, `FRAGS`,
+   *   `MARKERJS` (plus `CUI` only if the app still uses the deprecated
+   *   `@thatopen/ui-obc`). Only `OBC` and `BUI` are strictly required by
+   *   `setup()`; passing everything you import is the safe default, because
+   *   a built-in that needs a missing one fails at init.
    *
    * @example
    * ```ts
    * import * as OBC from "@thatopen/components";
    * import * as OBF from "@thatopen/components-front";
    * import * as BUI from "@thatopen/ui";
-   * import * as CUI from "@thatopen/ui-obc";
    * import * as THREE from "three";
    * import * as FRAGS from "@thatopen/fragments";
+   * import * as MARKERJS from "@markerjs/markerjs3";
    *
-   * client.setBuiltInGlobals({ OBC, OBF, BUI, CUI, THREE, FRAGS });
+   * client.setBuiltInGlobals({ OBC, OBF, BUI, THREE, FRAGS, MARKERJS });
    *
    * // Now just pass the component — no globals needed:
    * await client.initBuiltInComponent(AppManager, components);

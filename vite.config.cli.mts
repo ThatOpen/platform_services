@@ -3,6 +3,9 @@ import { resolve } from 'path';
 
 export default defineConfig({
   build: {
+    // Same reason as the library build: a readable stack from the installed
+    // CLI beats a bug report that starts at cli.js:1:400000.
+    sourcemap: true,
     lib: {
       entry: resolve(__dirname, 'src/cli/index.ts'),
       formats: ['cjs'],
