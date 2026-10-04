@@ -10,6 +10,7 @@ import {
 import { createBundleZip } from '../lib/zip';
 import { declarationsPath, readDeclarations } from '../lib/declarations';
 import { EngineServicesClient } from '../../core/client';
+import { cliClient } from '../lib/cli-client';
 import { RequestError } from '../../core/request-error';
 
 export const publishCommand = new Command('publish')
@@ -114,10 +115,7 @@ export const publishCommand = new Command('publish')
       const iconPath = opts.icon || localConfig?.iconPath;
 
       // Upload
-      const client = new EngineServicesClient(
-        config.accessToken,
-        config.apiUrl,
-      );
+      const client = cliClient(config.accessToken, config.apiUrl);
 
       try {
         let itemId: string | undefined;

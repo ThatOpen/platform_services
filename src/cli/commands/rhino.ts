@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { Command } from 'commander';
-import { EngineServicesClient } from '../../core/client';
+import { cliClient } from '../lib/cli-client';
 import { requireResolvedConfig } from '../lib/config';
 import { assertHostClosed, fetchPluginPackage } from '../lib/plugin-install';
 
@@ -43,7 +43,7 @@ rhinoCommand
       );
     }
 
-    const client = new EngineServicesClient(cfg.accessToken, cfg.apiUrl);
+    const client = cliClient(cfg.accessToken, cfg.apiUrl);
     console.log(`Fetching ${RHINO_PLUGIN_PACKAGE}@${opts.version}...`);
     const { dir, cleanup } = await fetchPluginPackage(client, RHINO_PLUGIN_PACKAGE, opts.version);
 

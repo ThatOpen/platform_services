@@ -300,7 +300,10 @@ export class EngineServicesClient {
     }
     this.apiUrl = `${url}/api`;
     this.accessToken = accessToken;
-    this.wsUrl = `${url}?accessToken=${accessToken}`;
+    // Origin only. The credential travels in the Socket.IO auth payload at
+    // connect time, never in the URL: a failing handshake prints its URL in
+    // consoles and proxy logs, token included.
+    this.wsUrl = url;
     this.retries = retries;
     this.useBearer = useBearer;
     this.context = { appId: '', projectId: '', accessToken, apiUrl };
@@ -369,8 +372,8 @@ export class EngineServicesClient {
    */
   /**
    * Socket origin without namespace or query, for gateways other than the
-   * execution one. `wsUrl` already carries a token that may be stale when a
-   * provider is in play, so callers append their own.
+   * execution one. Callers pass their own credential in the Socket.IO auth
+   * payload, resolved at connect time so a provider-backed client is current.
    */
   protected get socketOrigin(): string {
     return this.wsUrl.split('?')[0];
@@ -1318,10 +1321,10 @@ export class EngineServicesClient {
     executionId: string,
     onUpdateCallback: (data: ExecutionSuscriptionReturnType) => void,
   ) {
-    const wsUrl = this.localServerUrl
-      ? `${this.localServerUrl}?accessToken=${this.accessToken}`
-      : this.wsUrl;
+    const wsUrl = this.localServerUrl ?? this.wsUrl;
+    // The token rides the auth payload of the connect packet, not the URL.
     const socket = await io(wsUrl, {
+      auth: { accessToken: this.accessToken },
       ...(this.localServerUrl && { transports: ['websocket'] }),
     });
 

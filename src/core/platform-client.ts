@@ -427,12 +427,14 @@ export class PlatformClient extends EngineServicesClient {
     onEvent: (event: LiveNotificationEvent) => void,
   ): Promise<() => void> {
     // Resolved per connection rather than reused from construction, so a
-    // provider-backed client opens the socket with a current token.
+    // provider-backed client opens the socket with a current token. It rides
+    // the auth payload, never the URL: a failing handshake prints its URL in
+    // the browser console, token included.
     const token = await this.resolveAccessToken();
-    const socket = io(
-      `${this.socketOrigin}/notifications?accessToken=${encodeURIComponent(token)}`,
-      { transports: ['websocket'] },
-    );
+    const socket = io(`${this.socketOrigin}/notifications`, {
+      auth: { accessToken: token },
+      transports: ['websocket'],
+    });
 
     socket.on('notification.created', (data: { id: string }) =>
       onEvent({ type: 'created', id: data?.id }),

@@ -83,6 +83,7 @@ const executeAndReportProcess = async (newThatOpenServices, newExecutionParams) 
 const thatOpenServicesInstance = new EngineServicesClient(
   ${JSON.stringify(accessToken)},
   ${JSON.stringify(apiUrl)},
+  { useBearer: true },
 );
 
 executeAndReportProcess(thatOpenServicesInstance, ${JSON.stringify(executionParams)});

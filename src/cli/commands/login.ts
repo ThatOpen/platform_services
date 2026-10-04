@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { writeConfig, updateLocalConfig, readLocalConfig } from '../lib/config';
-import { EngineServicesClient } from '../../core/client';
+import { cliClient } from '../lib/cli-client';
 import { setupNpmrc } from '../lib/npmrc';
 
 export const loginCommand = new Command('login')
@@ -38,7 +38,7 @@ export const loginCommand = new Command('login')
 
     console.log('Validating token...');
 
-    const client = new EngineServicesClient(opts.token, apiUrl);
+    const client = cliClient(opts.token, apiUrl);
 
     try {
       await client.listApps();

@@ -25,12 +25,18 @@ describe('PlatformClient — live notifications', () => {
     client = new PlatformClient('jwt-1', API);
   });
 
-  it('connects to the notifications namespace with the token', async () => {
+  it('connects to the notifications namespace with the token in the auth payload', async () => {
     await client.onNotification(() => {});
 
-    const url = (ioMock.mock.calls[0] as unknown as string[])[0];
+    const [url, opts] = ioMock.mock.calls[0] as unknown as [
+      string,
+      { auth?: { accessToken?: string } },
+    ];
     expect(url).toContain('/notifications');
-    expect(url).toContain('accessToken=jwt-1');
+    // The URL must NOT carry the credential: a failing handshake prints it
+    // whole in the browser console. The auth payload travels in the body.
+    expect(url).not.toContain('accessToken');
+    expect(opts.auth?.accessToken).toBe('jwt-1');
     // No /api on a socket URL; that prefix is for REST only.
     expect(url).not.toContain('/api/');
   });
@@ -44,9 +50,10 @@ describe('PlatformClient — live notifications', () => {
     await providerClient.onNotification(() => {});
 
     expect(provider).toHaveBeenCalled();
-    expect((ioMock.mock.calls[0] as unknown as string[])[0]).toContain(
-      'accessToken=fresh-token',
-    );
+    const opts = (
+      ioMock.mock.calls[0] as unknown as [string, { auth?: { accessToken?: string } }]
+    )[1];
+    expect(opts.auth?.accessToken).toBe('fresh-token');
   });
 
   it('maps each server event onto one callback shape', async () => {

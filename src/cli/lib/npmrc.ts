@@ -6,6 +6,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { EngineServicesClient } from '../../core/client';
+import { cliClient } from './cli-client';
 import { RequestError } from '../../core/request-error';
 import { resolveConfig } from './config';
 
@@ -79,7 +80,7 @@ export async function configureBetaNpmrc(dir: string): Promise<void> {
     );
     return;
   }
-  const client = new EngineServicesClient(config.accessToken, config.apiUrl);
+  const client = cliClient(config.accessToken, config.apiUrl);
   const result = await setupNpmrc(client, dir);
   if (result.status === 'written') {
     console.log(`  Beta access configured — wrote .npmrc for ${result.scope}.`);
