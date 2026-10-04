@@ -11,7 +11,10 @@ export async function createBundleZip(
   outputZipPath: string,
   declarationsJsonPath?: string,
 ): Promise<void> {
-  const bundleCode = readFileSync(bundleJsPath, 'utf-8');
+  // BYTES, not text. Reading with 'utf-8' replaced every invalid sequence
+  // with U+FFFD - silent corruption for any bundle that embeds binary data
+  // (a base64 worker is fine, raw bytes in a string literal are not).
+  const bundleCode = readFileSync(bundleJsPath);
   const zip = new JSZip();
   zip.file('bundle', bundleCode);
 
@@ -20,6 +23,13 @@ export async function createBundleZip(
     zip.file('declarations.json', declarations);
   }
 
-  const buffer = await zip.generateAsync({ type: 'nodebuffer' });
+  // JSZip defaults to STORE: a 27 MB bundle used to travel as 27 MB.
+  // Level 6 on purpose - JSZip's level 9 took tens of seconds per megabyte
+  // when this was written, for single-digit percent over level 6.
+  const buffer = await zip.generateAsync({
+    type: 'nodebuffer',
+    compression: 'DEFLATE',
+    compressionOptions: { level: 6 },
+  });
   writeFileSync(outputZipPath, buffer);
 }

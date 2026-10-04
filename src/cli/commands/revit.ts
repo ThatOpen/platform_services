@@ -59,9 +59,16 @@ revitCommand
   .command('status')
   .description('Show the add-in status and the current project / central')
   .action(async () => {
-    await connect();
+    const cfg = await connect();
     const r = await callAddin('status');
-    console.log(JSON.stringify(r, null, 2));
+    // `base` FIRST, from the same config this command just sent the add-in.
+    // The status used to print user, project, central, versions - everything
+    // except which platform it all pointed at, and publishing into the wrong
+    // environment succeeds and looks completely normal (the share guide warns
+    // about exactly that). A dev and a prod project id are indistinguishable
+    // without this line; it cost a user an hour on 2026-10-03.
+    const status = typeof r === 'object' && r !== null ? r : { status: r };
+    console.log(JSON.stringify({ base: cfg.apiUrl, ...status }, null, 2));
   });
 
 revitCommand

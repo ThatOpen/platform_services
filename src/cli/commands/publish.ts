@@ -27,6 +27,10 @@ export const publishCommand = new Command('publish')
   )
   .option('--skip-build', 'Skip the build step')
   .option('--icon <path>', 'Path to an icon file (PNG, WebP, or ICO, max 512 KB)')
+  .option(
+    '--project-id <id>',
+    'Project to publish the new app/component into (first publish only)',
+  )
   .action(
     async (opts: {
       name?: string;
@@ -35,6 +39,7 @@ export const publishCommand = new Command('publish')
       componentId?: string;
       skipBuild?: boolean;
       icon?: string;
+      projectId?: string;
     }) => {
       const cwd = process.cwd();
       const config = requireResolvedConfig(cwd);
@@ -59,6 +64,35 @@ export const publishCommand = new Command('publish')
       const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
       const projectName = opts.name || pkg.name || basename(cwd);
       const versionTag = opts.versionTag || pkg.version || '1.0.0';
+      const projectId = opts.projectId || localConfig?.projectId;
+
+      const client = cliClient(config.accessToken, config.apiUrl);
+
+      // A duplicate tag used to surface AFTER the build and the whole upload
+      // (the server checks last). Ask first, so the failure costs a second
+      // rather than the bundle's round trip. Best-effort: a check that cannot
+      // run must not block a publish the server would accept.
+      if (existingId) {
+        try {
+          const versions = await client.listVersions(existingId);
+          if (versions.some((v: { tag?: string }) => v.tag === versionTag)) {
+            console.error(
+              `Version ${versionTag} already exists for this ${
+                isComponent ? 'component' : 'app'
+              }. Bump the version in package.json or pass --version-tag.`,
+            );
+            process.exit(1);
+          }
+        } catch {
+          // The upload path will report the real problem if there is one.
+        }
+      }
+
+      if (existingId && opts.projectId) {
+        console.warn(
+          '--project-id only applies on the first publish; this update keeps the existing item where it is.',
+        );
+      }
 
       // Build
       if (!opts.skipBuild) {
@@ -115,8 +149,6 @@ export const publishCommand = new Command('publish')
       const iconPath = opts.icon || localConfig?.iconPath;
 
       // Upload
-      const client = cliClient(config.accessToken, config.apiUrl);
-
       try {
         let itemId: string | undefined;
 
@@ -128,6 +160,7 @@ export const publishCommand = new Command('publish')
             projectName,
             versionTag,
             cwd,
+            projectId,
           );
         } else {
           itemId = await publishApp(
@@ -137,6 +170,7 @@ export const publishCommand = new Command('publish')
             projectName,
             versionTag,
             cwd,
+            projectId,
           );
         }
 
@@ -189,6 +223,7 @@ async function publishApp(
   name: string,
   versionTag: string,
   cwd: string,
+  projectId?: string,
 ): Promise<string | undefined> {
   if (appId) {
     // Auto-recover if the app was archived (deleted from UI)
@@ -215,6 +250,9 @@ async function publishApp(
       file: zipFile,
       name,
       versionTag,
+      // The API has always accepted it; the CLI just never sent it, so a CI
+      // publish could not land an app inside a project.
+      ...(projectId && { projectId }),
     });
     console.log('App created:', JSON.stringify(result, null, 2));
 
@@ -239,6 +277,7 @@ async function publishComponent(
   name: string,
   versionTag: string,
   cwd: string,
+  projectId?: string,
 ): Promise<string | undefined> {
   const componentProps = {
     type: 'CLOUD' as const,
@@ -273,6 +312,7 @@ async function publishComponent(
       name,
       versionTag,
       componentProps,
+      ...(projectId && { projectId }),
     });
     console.log('Component created:', JSON.stringify(result, null, 2));
 
