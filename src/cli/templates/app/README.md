@@ -40,7 +40,7 @@ Apps run inside the That Open Platform within a project, not as standalone websi
 To develop locally:
 
 1. Run `npm run dev` — watches source with esbuild and serves the bundle on port 4000.
-2. Open your project on the platform and click the debug button.
+2. Open your project on the platform, click the Local App icon, then Get Started.
 3. Live reload is enabled — save a file to rebuild automatically.
 
 **Important**: use `npm run dev` (it runs `thatopen serve` under the hood). Do NOT run
