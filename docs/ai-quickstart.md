@@ -51,8 +51,8 @@ Steps 0–2 are identical for both; they diverge only at `create` (step 3) and h
 
 - **Node.js ≥ 18** and **npm** — verify with `node -v`.
 - A **That Open Platform API token**. The user creates it themselves:
-  → **https://platform.thatopen.com/dashboard → Account → Tokens → create → copy.**
-  (The Data overview shows the same Tokens card; both paths work.)
+  → **https://platform.thatopen.com/dashboard/data → API Tokens → Add → copy.**
+  (Account Settings — avatar menu → Account Settings → API Tokens — shows the same card.)
   Ask the user to paste it. **Never print it back, never write it into a file, never commit it.**
 
 ## 1. Install the CLI
@@ -64,7 +64,7 @@ npm install -g @thatopen/services@latest
 ## 2. Log in (do this BEFORE creating the project)
 
 Get the token from the platform dashboard — **https://platform.thatopen.com/dashboard**
-→ **Account → Tokens** → create → copy (the Data overview shows the same card). Ask the
+→ **Data → API Tokens** → Add → copy (Account Settings shows the same card). Ask the
 user to paste it, then run:
 
 ```bash
@@ -85,7 +85,7 @@ resolve them. No npm account or manual npm token is involved.
 
 | | **Platform API token** | **User session JWT** |
 |---|---|---|
-| Where it comes from | Dashboard → Account → Tokens | The platform session (Auth0); inside an app, `PlatformClient.fromPlatformContext()` |
+| Where it comes from | Dashboard → Data → API Tokens | The platform session (Auth0); inside an app, `PlatformClient.fromPlatformContext()` |
 | Lifetime | Long-lived until revoked | Hours |
 | Client | `EngineServicesClient` | `PlatformClient` (extends the other, so it can do both) |
 | Can | Files, folders, versions, components, executions — anything with an explicit `projectId` | All of that **plus** the JWT-only routes: `listProjects`, `getProject`, `getProjectData`, `checkPermission`, notifications |
@@ -298,7 +298,7 @@ system: the platform relays messages between app tabs and external tools.
 To command the app from outside (a script, an MCP server, your own tool):
 
 1. The user creates a **platform token** with the **API** permission
-   (dashboard → Account → Tokens). Same secrecy rules as always.
+   (dashboard → Data → API Tokens). Same secrecy rules as always.
 2. Connect with `socket.io-client` and subscribe, then publish:
 
 ```bash
