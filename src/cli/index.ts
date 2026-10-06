@@ -10,6 +10,7 @@ import { localServerCommand } from './commands/local-server';
 import { swapCommand } from './commands/swap';
 import { revitCommand } from './commands/revit';
 import { rhinoCommand } from './commands/rhino';
+import { mcpCommand } from './commands/mcp';
 
 const pkg = JSON.parse(
   readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'),
@@ -17,18 +18,24 @@ const pkg = JSON.parse(
 
 let updateMessage: string | undefined;
 
-fetch('https://registry.npmjs.org/@thatopen/services/latest', {
-  signal: AbortSignal.timeout(3000),
-})
-  .then((res) => res.ok && res.json())
-  .then((data) => {
-    if (data?.version && data.version !== pkg.version) {
-      updateMessage =
-        `\n  ⚠ Update available: ${pkg.version} → ${data.version}` +
-        `\n  Run "npm install -g @thatopen/services@latest" to update.\n`;
-    }
+// Under `thatopen mcp`, stdout is the MCP protocol stream — a banner printed
+// into it is a parse error in the client, so the check is skipped outright.
+const isMcp = process.argv.includes('mcp');
+
+if (!isMcp) {
+  fetch('https://registry.npmjs.org/@thatopen/services/latest', {
+    signal: AbortSignal.timeout(3000),
   })
-  .catch(() => {});
+    .then((res) => res.ok && res.json())
+    .then((data) => {
+      if (data?.version && data.version !== pkg.version) {
+        updateMessage =
+          `\n  ⚠ Update available: ${pkg.version} → ${data.version}` +
+          `\n  Run "npm install -g @thatopen/services@latest" to update.\n`;
+      }
+    })
+    .catch(() => {});
+}
 
 process.on('exit', () => {
   if (updateMessage) console.log(updateMessage);
@@ -50,5 +57,6 @@ program.addCommand(localServerCommand);
 program.addCommand(swapCommand);
 program.addCommand(revitCommand);
 program.addCommand(rhinoCommand);
+program.addCommand(mcpCommand);
 
 program.parse(process.argv);

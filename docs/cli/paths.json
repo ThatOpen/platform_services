@@ -12,6 +12,10 @@
     "description": "Authenticate with the ThatOpen platform by validating an access token against the API. Saves credentials globally (~/.thatopen/config.json) by default, or locally to the project's .thatopen file with --local. Local config takes priority over global."
   },
   {
+    "path": "docs/cli/mcp.md",
+    "description": "Start an MCP server over stdio that lets an LLM on the desktop (Claude Desktop, Claude Code, any MCP client) drive a running That Open app through the platform channel: send it commands and read the replies."
+  },
+  {
     "path": "docs/cli/publish.md",
     "description": "Build and upload the project to the platform. Automatically detects app vs cloud component from the local .thatopen config. On first publish, saves the assigned item ID back to .thatopen so subsequent runs update the same item instead of creating a new one."
   },

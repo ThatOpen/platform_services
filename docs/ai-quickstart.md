@@ -349,6 +349,32 @@ is the reply. The full walkthrough (typed contracts, collaboration events,
 presence) is `node_modules/@thatopen/services/src/core/examples/channel.ts`,
 indexed in the client API index you already loaded.
 
+## 5c. The desktop MCP server: `thatopen mcp`
+
+The raw socket above is for tools you write. For an LLM on the desktop (Claude
+Desktop, Claude Code, anything that speaks MCP), the CLI ships the same bridge
+as a ready-made MCP server over stdio:
+
+```json
+{
+  "mcpServers": {
+    "thatopen-platform": {
+      "command": "npx",
+      "args": ["-y", "@thatopen/services", "mcp"]
+    }
+  }
+}
+```
+
+Credentials come from `thatopen login` (`~/.thatopen/config.json`); to inject
+them instead, set `THATOPEN_TOKEN` and `THATOPEN_API_URL` in the server's
+`env`. Two tools: `platform-status` (can the platform be reached, is the
+subscription alive) and `send-app-command` (publish a command to a running
+app — `ping`, `get-loaded-models`, or whatever the app declares — and return
+its reply). The project is named per call, by id or dashboard URL, so one MCP
+session can drive whichever project the user has open; while iterating with
+`thatopen serve`, `app_id` is omitted, same rule as the raw socket.
+
 ## 6. Publish (when ready)
 
 ```bash
