@@ -308,7 +308,13 @@ npm i socket.io-client   # in the external tool's own project, not the app
 ```js
 import { io } from "socket.io-client";
 
-const socket = io(`https://platform.thatopen.com?accessToken=${process.env.THATOPEN_TOKEN}`);
+// WebSocket-only matters: the default long-polling handshake spreads several
+// HTTP requests across the platform's load-balanced instances and can die
+// before it upgrades. The token rides the auth payload, not the URL.
+const socket = io("https://platform.thatopen.com", {
+  transports: ["websocket"],
+  auth: { accessToken: process.env.THATOPEN_TOKEN },
+});
 // While iterating with `thatopen serve`, OMIT appId (the dev channel is keyed
 // to the account); pass the appId once the app is published.
 socket.emit("channelSubscribe", { projectId, appId, kind: "cli" });

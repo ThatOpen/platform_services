@@ -1327,9 +1327,13 @@ export class EngineServicesClient {
   ) {
     const wsUrl = this.localServerUrl ?? this.wsUrl;
     // The token rides the auth payload of the connect packet, not the URL.
+    // WebSocket-only: the long-polling handshake makes several HTTP requests,
+    // and behind the platform's load balancer (no session affinity) they can
+    // land on different backend instances, which kills the session before it
+    // upgrades. One WebSocket is one connection, so it cannot hop.
     const socket = await io(wsUrl, {
       auth: { accessToken: this.accessToken },
-      ...(this.localServerUrl && { transports: ['websocket'] }),
+      transports: ['websocket'],
     });
 
     socket.on('connect', function () {
