@@ -73,8 +73,11 @@ app.elements = {
 };
 
 app.layouts = {
-  // Each layout defines its own CSS grid template. Only areas used in a template
-  // are rendered for that layout — unused elements are not created.
+  // Each layout defines its own CSS grid template. The app mounts the UNION
+  // of every layout's areas ONCE and switching layouts toggles which are
+  // visible (the rest stay mounted with display:none), so panel state
+  // survives a switch - element factories run on mount, not per layout.
+  // To react to a switch, listen for the `top:layout-changed` event.
   viewer: {
     label: "Viewer",
     icon: "solar:3d-square-bold",
