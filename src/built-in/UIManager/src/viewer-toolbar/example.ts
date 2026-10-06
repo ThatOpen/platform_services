@@ -245,6 +245,7 @@ document.body.style.margin = "0";
   | `<top-viewer-show-button>` | Un-hides the target set |
   | `<top-viewer-isolate-button>` | Shows only the target set |
   | `<top-viewer-ghost-button>` | Renders the target set semi-transparent |
+  | `<top-viewer-gis-ghost-button>` | Makes the GIS map (the 3D tiles of `GISManager`) see-through ⇄ opaque; disabled until the tiles are loaded; the optional `opacity` attribute (0 to 1, default `0.3`) sets the see-through level |
   | `<top-viewer-focus-button>` | Frames the camera on the target set |
   | `<top-viewer-reset-button>` | Shows everything and clears ghosting (global); the optional `reset` attribute can also remove sections and measurements (see below) |
   | `<top-viewer-select-button>` | Activates the default Select tool |

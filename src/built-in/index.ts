@@ -428,6 +428,11 @@ declare class _CDEManager extends OBC.Component implements OBC.Transitionable<CD
     private _permissions;
     private _projectDataFolderId;
     private _appFolderIds;
+    /** In-flight folder ensures. Two concurrent first calls (user config and
+     *  app config load in parallel) used to each miss the cache and create a
+     *  second folder of the same name; the promise is the lock. */
+    private _projectDataFolderPromise;
+    private _appFolderPromises;
     private _excludedFolderIds;
     private _projectMembers;
     get projectMembers(): {
@@ -471,8 +476,20 @@ declare class _CDEManager extends OBC.Component implements OBC.Transitionable<CD
     getSelectedFiles(): CDEFile[];
     getActivity(fileId: string): CDEFileActivity[];
     updateFilesMetadata(fileIds: string[], updates: Record<string, string>): Promise<void>;
+    /** The context this component cannot work without. Reading or writing
+     *  project data with no context used to resolve with null / the empty
+     *  string while persisting NOTHING - a call indistinguishable from
+     *  success, which cost an integrator days (reported 2026-10-01). A
+     *  missing context is a setup problem and must say so. */
+    private _requireCtx;
     readProjectData(app: string, filename: string): Promise<any>;
     writeProjectData(app: string, filename: string, data: unknown): Promise<string>;
+    /** Of several same-named folders, always the oldest. Duplicates exist in
+     *  real projects (the backend had no unique index and this class had no
+     *  lock), and `loadFolders` used to pick the LAST root match while the
+     *  ensure path picked the FIRST: reads and writes could land in different
+     *  folders of the same name. ObjectIds sort by creation time as strings. */
+    private static _oldest;
     private _ensureProjectDataFolder;
     private _ensureAppFolder;
     private _loadPermissions;
@@ -948,6 +965,1040 @@ export type FileList = InstanceType<typeof _FileList>;
  * ```
  */
 export const FileList = { uuid: 'b0b5e2a2-0b3a-4a6b-8b1c-0b1c4a6b8b1c' } as typeof _FileList & { uuid: 'b0b5e2a2-0b3a-4a6b-8b1c-0b1c4a6b8b1c' };
+
+/** A point-layer vertex whose Z gives the surface height at that place. */
+export interface HeightNode {
+    lon: number;
+    lat: number;
+    z: number;
+}
+/**
+ * One orthometric height per vertex, in the same nesting as the geometry's
+ * coordinates: `number` for a Point, `number[]` for a LineString/MultiPoint/
+ * ring, `number[][]` for a MultiLineString/Polygon, and so on.
+ */
+export type HeightTree = number | HeightTree[];
+/**
+ * Which rule gave a line end its height (see `resolveLineEnds`): 1 = its own
+ * property, 2 = node surface height minus depth, 3 = copied from the other end
+ * (pipe drawn level), 4 = node surface height (no depth available).
+ */
+export type EndRule = 1 | 2 | 3 | 4;
+export interface FeatureHeights {
+    /**
+     * "placed": `heights` holds the per-vertex heights. "flat": draw this
+     * feature with the legacy flat behaviour. "skipped": it cannot be placed
+     * and must not be drawn.
+     */
+    status: "placed" | "flat" | "skipped";
+    heights?: HeightTree;
+    /** "attributes" lines only — the rule that resolved each end. */
+    startRule?: EndRule;
+    endRule?: EndRule;
+}
+export interface LayerHeights {
+    /** True when the whole layer must be drawn with the legacy flat behaviour. */
+    fallback: boolean;
+    /** One entry per input feature, same order. Empty when `fallback`. */
+    features: FeatureHeights[];
+    /** Number of "skipped" features. */
+    skipped: number;
+    /** How many line ends each rule resolved ("attributes" layers). */
+    ruleCounts: Record<EndRule, number>;
+}
+/** A value read from a property or Z is MISSING when it is not a finite number or is exactly 0. */
+export declare function isMissingHeight(value: unknown): boolean;
+/**
+ * Horizontal distance in metres between two lon/lat pairs — equirectangular
+ * approximation, plenty for the sub-metre comparisons and line-length weights
+ * it is used for here.
+ */
+export declare function horizontalDistance(lon1: number, lat1: number, lon2: number, lat2: number): number;
+/**
+ * Spatial hash over nodes: cells are twice the snap distance wide, so any node
+ * within the snap distance of a query lies in the 3×3 block of cells around
+ * it — a lookup costs the same at 2,000 nodes as at 50,000.
+ */
+export declare class NodeIndex {
+    private readonly _snapDistance;
+    private readonly _cells;
+    private readonly _cellSize;
+    private readonly _lonScale;
+    constructor(nodes: HeightNode[], _snapDistance: number);
+    private _cell;
+    private _key;
+    /** The nearest node within the snap distance of (lon, lat), or null. */
+    nearest(lon: number, lat: number): HeightNode | null;
+}
+/**
+ * Resolves the heights of a line's two ends (rules 1–4, see `EndRule`).
+ * Both ends get rules 1–2 first, so rule 3 never copies a value that itself
+ * came from rule 3/4. Returns null when an end ends up with no height at all.
+ */
+export declare function resolveLineEnds(properties: GeoJSON.GeoJsonProperties, start: [number, number], end: [number, number], config: VectorLayerHeightConfig, index: NodeIndex | null): {
+    start: number;
+    end: number;
+    startRule: EndRule;
+    endRule: EndRule;
+} | null;
+/**
+ * Resolves the orthometric height of every vertex of every feature in a
+ * layer, following the rules documented on `VectorLayerHeightConfig` ("geometry"
+ * and "attributes"). Emits at most ONE `console.warn` per call (the fallback,
+ * or the skipped-feature summary), never one per vertex/feature.
+ */
+export declare function resolveLayerHeights(features: GeoJSON.Feature[], config: VectorLayerHeightConfig, nodes?: HeightNode[], layerId?: string): LayerHeights;
+
+/**
+ * Pixels either side of a fat line's own stroke (`Line2`) that still count as
+ * a hit — the strokes are only a couple of pixels wide, so without it a click
+ * has to land on the exact pixel row of the line. three adds
+ * `raycaster.params.Line2.threshold` to the material's full `linewidth` and
+ * then tests against HALF of the sum, hence the doubling in
+ * `pickVectorFeature()`.
+ */
+export declare const VECTOR_PICK_TOLERANCE_PX = 6;
+/** What a pick found: which feature of which layer, and where along the ray. */
+export interface VectorPickHit {
+    layerId: string;
+    /** Index in the layer's `geojson.features`. */
+    featureIndex: number;
+    /** Distance from the ray origin (the camera, for a perspective camera). */
+    distance: number;
+    point: THREE.Vector3;
+}
+/**
+ * Nearest vector-layer feature under a pointer, or null.
+ *
+ * `objects` are the roots `VectorLayers` built (each, or one of its
+ * descendants, carries `userData.{layerId, featureIndex}`) — raycast directly
+ * rather than through a scene, since they may live in the world's scene or in
+ * the private deferred-mode one. `ndc` is the pointer in normalised device
+ * coordinates; `size` is the renderer's pixel size, which fat lines need both
+ * to set their `LineMaterial.resolution` and to turn
+ * {@link VECTOR_PICK_TOLERANCE_PX} into world units.
+ */
+export declare function pickVectorFeature(objects: THREE.Object3D[], camera: THREE.Camera, ndc: THREE.Vector2, size: THREE.Vector2): VectorPickHit | null;
+
+/**
+ * Per-layer style — `simplestyle-spec` property names, see
+ * docs/adrs/vector-layer-style-property-naming.md for why. Layer-level only
+ * (applies to every feature in the layer), not per-feature.
+ */
+export interface VectorLayerStyle {
+    stroke?: string;
+    "stroke-width"?: number;
+    fill?: string;
+    "fill-opacity"?: number;
+}
+/** Per-layer placement options (not styling). */
+export interface VectorLayerOptions {
+    /**
+     * Height of every feature relative to the origin, in metres (negative =
+     * below ground, e.g. buried utilities). Default 0.
+     */
+    elevation?: number;
+    /**
+     * Opt-in per-feature heights (see `VectorLayerHeightConfig`). When set and
+     * resolvable, each vertex is placed at its own height + the project's geoid
+     * undulation instead of flat at `elevation`. Absent = legacy flat drawing.
+     */
+    height?: VectorLayerHeightConfig;
+    /** "attributes" heights only — surface nodes (a line end snaps to the nearest one for its surface height). */
+    nodes?: HeightNode[];
+}
+/**
+ * One feature's geometry in scene coordinates, for 2D consumers (the
+ * minimap). `rings` holds a single vertex for points, the vertices for
+ * lines, and outer ring + holes for polygons (multi-geometries are split
+ * into one feature per part).
+ */
+export interface VectorMapFeature {
+    type: "point" | "line" | "polygon";
+    rings: THREE.Vector3[][];
+    /** Index in the layer's `geojson.features` — the same identity a 3D pick yields, shared by every part of a multi-geometry. */
+    featureIndex: number;
+}
+/** A loaded layer as seen by 2D consumers. */
+export interface VectorMapLayer {
+    id: string;
+    style: {
+        stroke: string;
+        strokeWidth: number;
+        fill?: string;
+        fillOpacity: number;
+    };
+    features: VectorMapFeature[];
+}
+export declare const VECTOR_HOVER_COLOR = "#FFC107";
+export declare const VECTOR_SELECTION_COLOR = "#00E5FF";
+/**
+ * Payload of `VectorLayers.onFeatureSelected`: the selected feature's identity
+ * plus its attribute-table row. `properties` is the feature's own
+ * `properties` object, untouched (keys keep whatever the source file has).
+ */
+export interface VectorFeatureSelection {
+    layerId: string;
+    layerName: string;
+    /** Index in the layer's `geojson.features`. */
+    featureIndex: number;
+    geometryType: string;
+    properties: GeoJSON.GeoJsonProperties;
+}
+/**
+ * Internal submodule of `GISManager` for vector GIS layers (shapefile/GeoJSON —
+ * shapefiles are converted to GeoJSON at ingestion time, see docs/adrs). Kept as
+ * a plain internal class rather than a separate `OBC.Component`: `GISManager`
+ * already covers "everything GIS", not just the basemap, so this stays behind
+ * `gisManager.vectorLayers` instead of its own public component with its own
+ * `components.get(...)` entry point.
+ *
+ * Positions features using the same georeferencing math `ReorientationPlugin`
+ * uses to align the 3D Tiles (`Ellipsoid.getObjectFrame()`, WGS84 lat/lon/
+ * height/azimuth -> a rigid ECEF<->scene-local transform), computed directly
+ * from `GISManager`'s own origin params rather than read off the tileset's
+ * `matrixWorld` — see `geoToWorld()` for why: that transform is a pure
+ * function of the 4 origin parameters (confirmed by reading
+ * `ReorientationPlugin.transformLatLonHeightToOrigin`, which touches nothing
+ * tileset-specific besides which `group`/`ellipsoid` object to write into),
+ * so vector layers don't need to wait for a tileset to exist or load, and
+ * stay correct even when `GISManager.snapToGround()` changes the origin's
+ * height independently of any tileset event.
+ */
+export declare class VectorLayers {
+    world?: OBC.World;
+    getOrigin?: () => {
+        latitude: number;
+        longitude: number;
+        height: number;
+        rotation: number;
+    };
+    getGeoidUndulation?: () => number;
+    private static readonly _POINT_RADIUS;
+    private _occlusionScene;
+    /** Called once the deferred scene exists, so the owner registers its pass. */
+    ensurePass?: () => void;
+    /** Fires whenever layers are added, removed or rebuilt (e.g. origin change). */
+    readonly onLayersChanged: OBC.Event<void>;
+    /**
+     * Fires with the newly selected feature, or null when the selection is
+     * cleared. Not fired when the already-selected feature is selected again.
+     */
+    readonly onFeatureSelected: OBC.Event<VectorFeatureSelection | null>;
+    getLayerName?: (id: string) => string | undefined;
+    private _selected;
+    private _hovered;
+    private readonly _highlighted;
+    private readonly _layers;
+    private readonly _mapLayers;
+    /** Loaded layers' geometry for 2D consumers (see `VectorMapFeature`). */
+    get mapLayers(): VectorMapLayer[];
+    private readonly _layerSources;
+    get hasLayers(): boolean;
+    /**
+     * Draws every loaded layer into the renderer's current target, with fat
+     * lines sized for a `width`×`height` pixel target (their width is in
+     * pixels of it). Used by `GISManager`'s deferred pass; also works in
+     * composer mode (objects drawn one by one). The minimap doesn't use this —
+     * it draws `mapLayers` as live 2D vectors instead.
+     */
+    render(renderer: THREE.WebGLRenderer, camera: THREE.Camera, width: number, height: number): void;
+    /**
+     * @param id When given, tracks everything this call adds under that id so
+     * `removeLayer(id)` can clean it up later — calling `addLayer` again with an
+     * id already in use replaces it (removes the old one first), rather than
+     * duplicating it. Without an id, nothing is tracked and there is nothing to
+     * remove later (matches the previous, untracked behaviour).
+     */
+    addLayer(geojson: GeoJSON.FeatureCollection, style?: VectorLayerStyle, id?: string, options?: VectorLayerOptions): void;
+    /** Removes and disposes everything the given `id`'s `addLayer()` call added. No-op if unknown/already removed. */
+    removeLayer(id: string): void;
+    private _dropLayer;
+    /**
+     * Nearest feature under a pointer (NDC), or null — see
+     * `pickVectorFeature()`. Costs nothing when no layer is loaded.
+     */
+    pickFeature(ndc: THREE.Vector2): VectorPickHit | null;
+    /** Selects (and highlights) one feature, replacing any previous selection. No event if it is already the selected one. */
+    selectFeature(layerId: string, featureIndex: number): void;
+    /** The current selection as the `onFeatureSelected` payload (null when nothing is selected) — for consumers created after the event fired. */
+    get selection(): VectorFeatureSelection | null;
+    /** Drops the selection and its highlight. No-op (no event) when nothing is selected. */
+    clearSelection(): void;
+    /** The currently selected / hovered feature (null = none) — read by the 2D map to draw the same states as 3D. */
+    get selectedFeature(): {
+        layerId: string;
+        featureIndex: number;
+    } | null;
+    get hoveredFeature(): {
+        layerId: string;
+        featureIndex: number;
+    } | null;
+    /** Scene-space box of everything built for one feature (null if it isn't loaded), at its real resolved heights. */
+    getFeatureBounds(layerId: string, featureIndex: number): THREE.Box3 | null;
+    /** Hover-highlights one feature (null = none). Does not touch the selection and fires no event. */
+    setHoveredFeature(hit: {
+        layerId: string;
+        featureIndex: number;
+    } | null): void;
+    /** Top-level objects built for one feature (empty if the layer/feature isn't loaded). */
+    private _featureObjects;
+    private _paint;
+    isLayerLoaded(id: string): boolean;
+    /**
+     * Rebuilds every currently loaded layer's geometry from its cached
+     * geojson/style, using the current `getOrigin()` — the fix for
+     * loaded-layer-geometry-freezing-at-load-time: `addLayer()` only reads
+     * `getOrigin()` once, at build time, so an origin change (gizmo drag,
+     * lat/lon/height/rotation inputs, `snapToGround()`) otherwise never moves
+     * already-loaded layers. Callers should debounce this — see
+     * `GISManager.setPosition()` — since it rebuilds real geometry, not just
+     * repositions existing objects.
+     */
+    reprojectAll(): void;
+    /** Scene-space bounding box of everything `id`'s `addLayer()` call added — `null` if the id is unknown or nothing was actually added. */
+    getLayerBounds(id: string): THREE.Box3 | null;
+    private _disposeObject;
+    private _resolveTargetScene;
+    /**
+     * WGS84 lat/lon/height (degrees, metres above the ellipsoid) -> scene-local
+     * position, computed straight from `GISManager`'s origin params — the exact
+     * same math `ReorientationPlugin.transformLatLonHeightToOrigin` runs against
+     * `tiles.group.matrix` (`Ellipsoid.getObjectFrame()` for the origin's own
+     * lat/lon/height/azimuth -> ECEF<->local transform, inverted), just without
+     * needing a `TilesRenderer` to hold the intermediate result. No tileset
+     * required, and always current — including immediately after
+     * `GISManager.snapToGround()` changes the origin height, with nothing to
+     * resync.
+     */
+    geoToWorld(lat: number, lon: number, height?: number): THREE.Vector3;
+    /**
+     * lon/lat (GeoJSON coordinate order) -> scene position, X/Z only — Y is the
+     * layer's `elevation` (relative to the origin). This is the legacy flat
+     * path, used by every layer that doesn't opt in to per-feature heights:
+     * `geoToWorld`'s real Y depends on the gap between the origin's height and
+     * each vertex's own height, which produced large, confusing vertical
+     * offsets for raw file Z values — so for these layers per-vertex heights
+     * are ignored and the whole layer sits flat at its `elevation`. Layers with
+     * a `height` config go through `_toScenePosition()` instead.
+     */
+    private _toSceneVector;
+    /**
+     * One vertex's scene position: with a resolved orthometric `height`, the
+     * full `geoToWorld()` result for `height + undulation` (all three
+     * components, Y included); without one, the legacy flat `_toSceneVector()`.
+     */
+    private _toScenePosition;
+    /** Renderer's current pixel size — `LineMaterial` needs it to size `linewidth` correctly. */
+    private _resolution;
+    private _buildFeatureObject;
+    private _buildMapFeatures;
+    private _buildPoint;
+    private _buildLine;
+    /**
+     * Surface (`THREE.ShapeGeometry`, triangulated — handles non-convex rings)
+     * when `fill` is set, plus the outline for every ring either way. Built in
+     * local 2D (x, z) then rotated flat: `ShapeGeometry` lives in the XY plane,
+     * and rotating +90° around X maps local (x, y, 0) -> scene (x, 0, y), which
+     * lines up with `_toSceneVector`'s (x, 0, z) exactly; the layer's
+     * `elevation` is re-applied afterwards as a plain vertical translation.
+     * With per-vertex `heights` the outlines follow them, while the (planar)
+     * surface sits at the average resolved height of the outer ring.
+     */
+    private _buildPolygonSurface;
+}
+
+export interface GISManagerState {
+    apiToken: string;
+    assetId: string;
+    latitude: number;
+    longitude: number;
+    height: number;
+    rotation: number;
+    tilesVisible: boolean;
+    gizmoVisible: boolean;
+    tilesOffsetEast: number;
+    tilesOffsetNorth: number;
+    tilesOffsetUp: number;
+    /** See-through factor for the tiles (1 = opaque) — see `GISManager.setTilesOpacity`. */
+    tilesOpacity: number;
+}
+/** One entry in the persisted vector-layer manifest — metadata only, not the geometry itself. */
+export interface GISVectorLayerConfig {
+    id: string;
+    name: string;
+    fileId: string;
+    /**
+     * File format: `"shapefile"` (a zip with .shp/.dbf/.prj…) or `"geojson"`. When
+     * missing or unrecognised the downloaded bytes decide (zip signature →
+     * shapefile, leading `{` → GeoJSON).
+     */
+    type: string;
+    style: VectorLayerStyle;
+    /** Opt-in per-feature heights (see `VectorLayerHeightConfig`); absent = flat. */
+    height?: VectorLayerHeightConfig;
+}
+/** How a layer's features get their height. Absent = legacy behaviour: the whole layer is drawn flat. */
+export interface VectorLayerHeightConfig {
+    /**
+     * "geometry": each vertex uses its own Z (third GeoJSON coordinate).
+     * "attributes": lines get their start/end heights from feature properties.
+     */
+    source: "geometry" | "attributes";
+    /** "attributes" only — property holding the height of a line's first vertex. */
+    startProperty?: string;
+    /** "attributes" only — property holding the height of a line's last vertex. */
+    endProperty?: string;
+    /** "attributes" only — property holding the depth below the surface at the first vertex. */
+    startDepthProperty?: string;
+    /** "attributes" only — property holding the depth below the surface at the last vertex. */
+    endDepthProperty?: string;
+    /** "attributes" only — ids of point layers (in this same manifest) whose Z gives the surface height at a line end. */
+    nodeLayers?: string[];
+    /** "attributes" only — max horizontal distance (m) between a line end and a node for them to count as the same place. Default 0.5. */
+    nodeSnapDistance?: number;
+}
+/**
+ * Shape of `{GISManager.uuid}.json`, the project-storage file
+ * `GISManager.init()` reads. Origin lives in `ProjectManager`'s own record
+ * instead (the platform's canonical project data) — this file is only the
+ * vector-layer manifest.
+ */
+export interface GISPersistedConfig {
+    layers: GISVectorLayerConfig[];
+    /** Small local East/North/Up fine-tune offset (metres) for Google 3D
+     *  Tiles — see `GISManager.setTilesOffset`'s own doc comment. Optional:
+     *  absent means "no offset saved yet", same as `{0,0,0}`. */
+    tilesOffset?: {
+        east: number;
+        north: number;
+        up: number;
+    };
+}
+
+/** Calls `visit` with every [lon, lat, …] vertex of a GeoJSON geometry (all supported types, collections included). */
+export declare function forEachVertex(geometry: GeoJSON.Geometry | null, visit: (coord: number[]) => void): void;
+/**
+ * Horizontal (scene X/Z) bounding box of every vertex of every given feature
+ * collection, each vertex taken through `project(lat, lon)` (the real
+ * `geoToWorld`). Heights are irrelevant here and left at 0. Vertices with
+ * non-finite coordinates are ignored; null when nothing usable is left.
+ */
+export declare function layersBoundsXZ(collections: GeoJSON.FeatureCollection[], project: (lat: number, lon: number) => THREE.Vector3): THREE.Box3 | null;
+/** The square, in scene X/Z, that a minimap capture covers. */
+export interface MinimapExtent {
+    centerX: number;
+    centerZ: number;
+    /** Half the side of the square, in metres. */
+    half: number;
+}
+/**
+ * Extra room around the content's extent, as a FRACTION of its half-size (not
+ * metres), so the outermost features don't sit exactly on the image edge.
+ */
+export declare const MINIMAP_EXTENT_MARGIN = 0.05;
+/**
+ * The capture square for the vector layers' box (world space): centred on its
+ * X/Z centre, with half the larger X/Z span as its half-size (the image stays
+ * square), plus `margin`. With nothing usable — no box, an empty or non-finite
+ * one, or content with no horizontal size at all — falls back to
+ * `fallbackHalf` metres around the origin.
+ */
+export declare function computeMinimapExtent(box: THREE.Box3 | null | undefined, fallbackHalf: number, margin?: number): MinimapExtent;
+
+/**
+ * What to do when the Highlighter's "select" style highlights something:
+ * - "undo-bim": the highlight belongs to a click that a vector feature just
+ *   won (it fires inside that click's short window) — take the BIM highlight
+ *   back and keep the vector selection;
+ * - "clear-vector": a genuine BIM selection (viewer, model tree, objects
+ *   panel, …) — the vector selection must go;
+ * - "none": nothing to do (an empty highlight outside the window).
+ */
+export type BimHighlightAction = "undo-bim" | "clear-vector" | "none";
+export declare function bimHighlightAction(insideVectorWinWindow: boolean, bimSelectionEmpty: boolean): BimHighlightAction;
+/** Whether a Highlighter selection map (`modelId → Set<localId>`) selects nothing. */
+export declare function isModelIdMapEmpty(map: Record<string, Set<number>> | null | undefined): boolean;
+
+/**
+ * What the minimap needs from `GISManager`, provided as a private hook object
+ * (the minimap never reaches into `GISManager` itself).
+ */
+export interface MinimapSource {
+    /**
+     * Gets the Google GIS tiles ready to be drawn from `camera` (registers it
+     * with the streaming renderer and waits until the content it sees has
+     * loaded).
+     */
+    prepare(camera: THREE.OrthographicCamera, resolution: number): Promise<void>;
+    /** Draws the tiles into the renderer's CURRENT render target (a fresh, transparent one). */
+    draw(renderer: THREE.WebGLRenderer, camera: THREE.OrthographicCamera): void;
+    /** Undoes whatever `prepare` set up. Always called, even if `prepare` threw. */
+    cleanup(camera: THREE.OrthographicCamera): void;
+    /**
+     * Live opacity (0..1) the map applies when drawing the captured image — read
+     * on every redraw, so it can change without recapturing.
+     */
+    opacity(): number;
+    /** Horizontal world box of ALL the project's vector layers (null when there is none). */
+    getVectorLayersBox(): Promise<THREE.Box3 | null>;
+}
+/**
+ * Result of a capture: the image plus what's needed to map world ↔ image.
+ */
+export interface MinimapCapture {
+    /** Top-down, north-up image of the GIS tiles (canvas pixels, sRGB, transparent elsewhere). */
+    image: HTMLCanvasElement;
+    /** Live opacity (0..1) to draw `image` with. */
+    opacity: () => number;
+    /** Side of the image, in pixels. */
+    size: number;
+    /** Copy of the camera the image was taken with, for world ↔ map conversion. */
+    camera: THREE.OrthographicCamera;
+}
+/**
+ * A marker drawn over the minimap (an HTML overlay on the panel's canvas,
+ * following zoom and pan; hidden while there is no capture).
+ */
+export interface MinimapMarker {
+    id: string;
+    /** Scene coordinates. Read on every redraw, so a marker follows if this changes. */
+    position: THREE.Vector3;
+    label?: string;
+    /**
+     * Builds the marker's element. A FACTORY, not an element: a panel can be
+     * destroyed and recreated (the user switching layouts), and each one needs
+     * its own DOM node. A marker with one owns its click behaviour; without it
+     * the panel draws a default badge with the label and reports clicks through
+     * `onMarkerClicked`.
+     */
+    createElement?: () => HTMLElement;
+}
+/** What changed in the marker list — the panel just reconciles against `markers`. */
+export interface MinimapMarkersChange {
+    kind: "added" | "updated" | "removed" | "cleared";
+    /** The marker's id (absent for "cleared"). */
+    id?: string;
+}
+/**
+ * Internal submodule of `GISManager` for the 2D minimap, same pattern as
+ * `VectorLayers` (a plain internal class behind `gisManager.minimap`, not its
+ * own component). Baked top-down image: renders the Google GIS tiles once,
+ * from an orthographic camera looking straight down at the middle of the
+ * project's vector layers, into an in-memory image (never persisted). The UI
+ * (`<top-map-panel>`) draws live overlays (vector layers, camera arrow, view
+ * cone) on top of that static image, game-minimap style.
+ *
+ * North-up: scene axes follow the codebase's +X=West, +Y=Up, +Z=North
+ * convention (origin rotation fixed at 0), so the camera's "up" is +Z. The
+ * world ↔ map conversions go through the capture camera's own projection, so
+ * they stay correct without hardcoding that convention anywhere else.
+ */
+export declare class Minimap {
+    private readonly _source;
+    world?: OBC.World;
+    /**
+     * Fallback only: half the side of the captured square, in metres, centred on
+     * the origin — used when the project has no usable vector layers. Otherwise
+     * the area is the box of all of them.
+     */
+    halfExtent: number;
+    /**
+     * Side of the captured image, in pixels (clamped to the GPU's max texture
+     * size). Fixed, so the map gets coarser as the site gets larger: the image
+     * covers the whole data-driven extent. Scaling the image with the extent was
+     * tried and was too slow to capture. The intended improvement is to recapture
+     * only the visible area when the user zooms in on the map, so sharpness no
+     * longer depends on the size of the site.
+     */
+    resolution: number;
+    readonly onCaptured: OBC.Event<MinimapCapture>;
+    /** Fires once per `addMarker` / `updateMarker` / `removeMarker` / `clearMarkers` that changed something. */
+    readonly onMarkersChanged: OBC.Event<MinimapMarkersChange>;
+    /** Fires with the id when the panel's DEFAULT marker (one without `createElement`) is clicked. */
+    readonly onMarkerClicked: OBC.Event<string>;
+    private readonly _markers;
+    private _capture;
+    private _capturing;
+    constructor(_source: MinimapSource);
+    get capture(): MinimapCapture | null;
+    get capturing(): boolean;
+    /** Every marker, by id (read-only). */
+    get markers(): ReadonlyMap<string, MinimapMarker>;
+    getMarker(id: string): MinimapMarker | undefined;
+    /** Adds a marker, or replaces the one with the same id. */
+    addMarker(marker: MinimapMarker): void;
+    /** Changes some fields of a marker. Returns false (and fires nothing) if there is no such marker. */
+    updateMarker(id: string, partial: Partial<Omit<MinimapMarker, "id">>): boolean;
+    /** Returns false (and fires nothing) if there is no such marker. */
+    removeMarker(id: string): boolean;
+    clearMarkers(): void;
+    /**
+     * The area the next capture covers: the box of all the project's vector
+     * layers (waits for them to be read as data), or `halfExtent` around the
+     * origin without any.
+     */
+    getExtent(): Promise<MinimapExtent>;
+    /** Renders the GIS tiles into a fresh image. */
+    captureMap(): Promise<MinimapCapture>;
+    /** World point → normalized image coords (0..1, origin top-left), or null without a capture. */
+    worldToMap(point: THREE.Vector3): {
+        x: number;
+        y: number;
+    } | null;
+    /** Normalized image coords → world point on the horizontal plane at `height`. */
+    mapToWorld(x: number, y: number, height?: number): THREE.Vector3 | null;
+    private _render;
+    dispose(): void;
+}
+
+/** The file formats a vector layer can come in (the manifest entry's `type`). */
+export type VectorLayerFormat = "shapefile" | "geojson";
+/**
+ * Which parser a downloaded layer file needs. The manifest's `type` decides
+ * when it is recognised; otherwise the bytes do: a zip signature (`PK\x03\x04`)
+ * means a shapefile, a first non-whitespace `{` means GeoJSON. Anything else
+ * throws, with a message meant for the user.
+ */
+export declare function detectLayerFormat(type: string | undefined, bytes: Uint8Array): VectorLayerFormat;
+type CrsKind = {
+    kind: "lonlat";
+} | {
+    kind: "reproject";
+    from: string;
+} | {
+    kind: "unsupported";
+    name: string;
+};
+/**
+ * Reads the legacy GeoJSON `crs` member's name. Understands the CRS84 URN,
+ * EPSG URNs (with or without a version), `EPSG:<code>` and the OpenGIS http
+ * form. EPSG:4326 is taken as lon/lat as-is: GDAL/QGIS write lon/lat even when
+ * they label it 4326. Reprojected: EPSG:3857 and the UTM families (326xx/327xx
+ * WGS84, 258xx ETRS89, 269xx NAD83), their definition built from the code.
+ */
+export declare function parseCrsName(name: string): CrsKind;
+/**
+ * Parses GeoJSON text into a `FeatureCollection` in WGS84 lon/lat (`z` kept).
+ * The coordinate system comes from the legacy `crs` member; without one the
+ * coordinates must already be lon/lat, which is checked. Throws a clear error
+ * for an unsupported CRS, or projected coordinates that don't say which CRS
+ * they are in. The legacy `crs` member is dropped from the result.
+ */
+export declare function parseGeoJSONLayer(text: string): Promise<GeoJSON.FeatureCollection>;
+
+/**
+ * Streams Cesium Ion 3D Tiles (Google Photorealistic 3D Tiles by default) co-located
+ * with the BIM model.
+ *
+ * Rendering path depends on `world.renderer.postproduction.mode`:
+ * - DEFERRED: the deferred G-buffer capture pass only draws objects whose material
+ *   carries the engine's "capture-emission" marker (set on Fragments/BIM surface
+ *   materials only) — every other object, however opaque, is hidden for the
+ *   duration of the capture (confirmed directly from the engine's own
+ *   `SurfaceCapturePass` docs). So tiles are added to a private off-scene
+ *   `THREE.Scene` and drawn via `addOcclusionPass` (direct mode — opaque,
+ *   self-occluding, same as `PointCloudLoader`), which runs AFTER the deferred
+ *   composite and bypasses the G-buffer requirement entirely.
+ * - COMPOSER: the EffectComposer path renders the real scene graph directly, no
+ *   special material marker needed, so tiles are added straight to
+ *   `world.scene.three` like any other mesh.
+ *
+ * The Cesium Ion API token is kept in memory only (no persistence yet) — see
+ * docs/adrs for the pending decision on where project geo-location should live.
+ */
+declare class _GISManager extends OBC.Component {
+    static readonly uuid: "d8f3a1c2-6b4e-4f9a-8c1d-2e7b5a9f3c60";
+    enabled: boolean;
+    readonly onStateChanged: OBC.Event<GISManagerState>;
+    readonly onLoadError: OBC.Event<string>;
+    readonly onLayersLoaded: OBC.Event<GISVectorLayerConfig[]>;
+    readonly onVectorLayerError: OBC.Event<{
+        id: string;
+        message: string;
+    }>;
+    readonly onOffsetDirtyChange: OBC.Event<boolean>;
+    readonly onOffsetSaveComplete: OBC.Event<boolean>;
+    world?: OBC.World;
+    vectorLayersConfig: GISVectorLayerConfig[];
+    private _client?;
+    private _projectId?;
+    private _appDataStore?;
+    private _offsetDirty;
+    get offsetDirty(): boolean;
+    readonly vectorLayers: VectorLayers;
+    /**
+     * Fires when a click selects a vector feature (payload: its layer, index and
+     * attribute row) and with null when the selection is cleared — re-exposed
+     * from `vectorLayers` for consumers (the future properties panel).
+     */
+    readonly onFeatureSelected: OBC.Event<VectorFeatureSelection | null>;
+    /**
+     * Fires on every `selectVectorFeature(..., { focus: true })`, including a
+     * re-select of the already-selected feature (which fires no
+     * `onFeatureSelected`) — carries the scene-space sphere the 3D camera frames,
+     * so other views (the 2D map) can focus the same neighbourhood.
+     */
+    readonly onFocusRequested: OBC.Event<{
+        layerId: string;
+        featureIndex: number;
+        sphere: THREE.Sphere;
+    }>;
+    private _apiToken;
+    private _assetId;
+    private _latitude;
+    private _longitude;
+    private _height;
+    private _rotation;
+    private _tilesVisible;
+    private _gizmoVisible;
+    private _tilesOffsetEast;
+    private _tilesOffsetNorth;
+    private _tilesOffsetUp;
+    private _tiles;
+    private _reorientation;
+    private _draco;
+    private _occlusionScene;
+    private _usingOcclusionPass;
+    private _locationControls;
+    private _controlPoint;
+    private _dragStartMatrix;
+    private _tilesOpacity;
+    private _fadeTarget;
+    private _fadeQuad;
+    private _passRegistered;
+    private _ensureOcclusionPass;
+    private readonly _occlusion;
+    private _ensureFadeTarget;
+    private _disposeFade;
+    /** Freezes the reference frame for the upcoming gesture — see `_onControlPointMoved`. */
+    private readonly _onDragStart;
+    /**
+     * Fires on every pointer move during the drag (live relocation). Always
+     * converts the TOTAL offset since the drag began (that's what
+     * `_controlPoint.position` holds throughout) through the FROZEN
+     * start-of-gesture matrix, never the live `tiles.group.matrixWorld` —
+     * otherwise every event would re-apply the same growing total against a frame
+     * already shifted by all earlier events, compounding into runaway motion.
+     *
+     * Immediately resets `_controlPoint.position` back to (0,0,0) afterwards, so
+     * the gizmo reads as a joystick fixed at the origin — only the terrain visibly
+     * moves. This is safe precisely because of the point above: TransformControls
+     * computes each event's position from its own frozen drag-start reference plus
+     * the raw mouse offset, never incrementally from the object's last value, so
+     * it doesn't notice or care that we reset it out from under it.
+     */
+    private readonly _onControlPointMoved;
+    /** Gesture is over — nothing left to commit (every event already did), just clear the frozen reference. */
+    private readonly _onDragEnd;
+    private readonly _minimapSource;
+    /** The 2D minimap (a baked top-down image of the GIS tiles over the project's vector layers) — see `Minimap`. */
+    readonly minimap: Minimap;
+    private readonly _onBeforeUpdate;
+    private readonly _onOriginChange;
+    private readonly _onCrsChange;
+    private static readonly _CLICK_MAX_MOVE_PX;
+    private static readonly _BIM_CLEAR_WINDOW_MS;
+    private _pickDown?;
+    private _clearBimUntil;
+    private _bimClearHandler?;
+    /**
+     * Wires the click and hover handling on the viewer canvas. Window-level
+     * CAPTURE listeners filtered to the canvas, so they run before the
+     * Highlighter's own canvas listeners for the same event (it selects BIM
+     * elements on mouse up). The canvas lives inside `top-viewer`'s shadow root,
+     * where an event observed at `window` is retargeted to the shadow host — so
+     * the filter compares `composedPath()[0]` (the real origin), never
+     * `event.target`. The canvas itself is looked up per event rather than
+     * cached: the world can resolve before its renderer exists.
+     *
+     * "Nearest wins" between a vector feature and a BIM element: on mouse DOWN,
+     * only if the raycast hits a vector feature, the BIM element under the same
+     * pixel is picked with `FastModelPickers` (`getItemAt` + `getPointAt`, the
+     * same GPU pick the Highlighter selects with) and the two camera distances
+     * are compared; the camera doesn't move during a click, so the answer is
+     * ready by mouse up. On mouse up, if the vector feature won it is selected
+     * and the BIM selection that same click makes is undone (the Highlighter
+     * can't be told to skip a click — disabling it for one event leaves its
+     * internal pointer state stuck — so its highlight is cleared the moment it
+     * fires). Otherwise the vector selection is cleared and the Highlighter
+     * proceeds as always. Gaussian-splat and Google 3D tiles are not considered.
+     */
+    private _setupFeaturePicking;
+    private readonly _onHighlighterSetup;
+    private get _pickCanvas();
+    /** True when the event really originated on the viewer canvas (see `_setupFeaturePicking`). */
+    private _isOnCanvas;
+    private _hoverPoint?;
+    private _hoverFrame;
+    private readonly _onHoverMove;
+    private readonly _runHover;
+    private readonly _clearHover;
+    /** Vector layers loaded and the viewer in plain select mode (no modal tool). */
+    private _canPick;
+    private _ensureBimClearHandler;
+    private _ndc;
+    private _isPickable;
+    private readonly _onPickDown;
+    private readonly _onPickUp;
+    /**
+     * Horizontal scene-space box of ALL the project's vector layers (every
+     * manifest entry, displayed or not), for the minimap extent — the only thing
+     * that defines it. Layers are read as data through the shared per-layer
+     * cache (so nothing downloads twice and nothing is added to the scene), then
+     * projected with the CURRENT origin on every call, so an origin change never
+     * leaves a stale box. A layer that fails to load is skipped with one warning.
+     */
+    private _vectorLayersBox;
+    constructor(components: OBC.Components);
+    /**
+     * Reads `{GISManager.uuid}.json` from project storage (same pattern as
+     * `ClashesManager`/`TopicsManager`'s own `init(client)` — a plain method
+     * call, not `@lit/context`).
+     * Restores the origin (lat/lon/height/rotation) by composition from
+     * `ProjectManager` — the platform's canonical project record — instead of
+     * duplicating it into GIS's own persisted file, plus the vector-layer
+     * manifest (metadata only — id/name/fileId/type/style, NOT the geometry
+     * itself) from GIS's own `{GISManager.uuid}.json`. If that layers file
+     * doesn't exist yet in the project, leaves the layer list empty and does
+     * NOT create one — that only happens later, on an explicit save.
+     *
+     * Assumes `ProjectManager.init(client)` has already run by the time this is
+     * called — the caller must chain `GISManager.init()` after
+     * the `ProjectManager.init()` promise resolves. If `GISManager` can ever be
+     * initialized in a different order/context, `ProjectManager.origin.get()`
+     * below would just read stale/undefined data silently — revisit this if
+     * that assumption stops holding (e.g. by awaiting `ProjectManager.init`
+     * here directly, if `GISManager` can no longer rely on caller ordering).
+     *
+     * No-op (never throws) if there's no project context, no matching file, or
+     * the read fails for any reason — the app should always be usable with
+     * defaults, storage is a progressive enhancement here, not a hard
+     * dependency.
+     */
+    init(client: PlatformClient): Promise<void>;
+    /** Whether loading a vector layer also frames the camera on it. Off for now. */
+    fitCameraOnLayerLoad: boolean;
+    /**
+     * Downloads the given layer's shapefile `.zip` from project storage
+     * (`vectorLayersConfig` entry's `fileId`), parses it with `shpjs.parseZip`
+     * (dynamic import — same heavy-dependency convention as the rest of this
+     * component), and renders it via `vectorLayers.addLayer(geojson, style,
+     * id)`. The single entry point for "the user checked this layer's box" —
+     * callers don't need to touch storage/shpjs/`VectorLayers` directly, and
+     * don't need their own try/catch: failures are reported via
+     * `onVectorLayerError`, mirroring `enableTiles()`/`onLoadError`.
+     */
+    loadVectorLayer(id: string): Promise<void>;
+    private readonly _layerGeoJSON;
+    private _getLayerGeoJSON;
+    /**
+     * Surface nodes for a layer whose heights come from attributes: every
+     * Point/MultiPoint coordinate with a finite Z in the layers named by
+     * `height.nodeLayers`. Those layers are only read as data here — nothing is
+     * added to the scene and the panel's checkboxes are untouched. An unknown id
+     * is warned about and skipped.
+     */
+    private _loadHeightNodes;
+    private _downloadAndParseLayer;
+    /**
+     * Real-world vector data can easily sit tens of km from the origin (a whole
+     * shapefile's extent, not just small hand-built test shapes) —
+     * far outside the default camera framing (~87 units from origin). Frames
+     * the camera on the layer's actual bounding box right after it loads, same
+     * `CameraControls.fitToBox()` the point-cloud loader already uses for the
+     * same reason, so newly loaded data doesn't just silently look like nothing
+     * rendered.
+     */
+    private _fitCameraToLayer;
+    private static readonly _FOCUS_MIN_RADIUS;
+    /**
+     * The single entry point for selecting a vector feature — the 3D click and
+     * the 2D map's click both come through here, so they share one selection
+     * state, one `onFeatureSelected` event and one camera travel. With `focus`,
+     * the camera flies to the feature: `CameraControls.fitToSphere()` (animated)
+     * on the bounding sphere of what `VectorLayers` built for it, at its real
+     * resolved heights; the viewing direction is kept, only the target and the
+     * distance change. Selecting the already-selected feature fires no event but
+     * still focuses. Clearing stays `vectorLayers.clearSelection()`.
+     */
+    selectVectorFeature(layerId: string, featureIndex: number, options?: {
+        focus?: boolean;
+    }): void;
+    private _focusVectorFeature;
+    /** Removes a layer loaded via `loadVectorLayer` — the "user unchecked the box" counterpart. */
+    unloadVectorLayer(id: string): void;
+    private _firstWorld;
+    get apiToken(): string;
+    set apiToken(value: string);
+    get assetId(): string;
+    set assetId(value: string);
+    get latitude(): number;
+    get longitude(): number;
+    get height(): number;
+    get rotation(): number;
+    get tilesVisible(): boolean;
+    get gizmoVisible(): boolean;
+    get tilesOffsetEast(): number;
+    get tilesOffsetNorth(): number;
+    get tilesOffsetUp(): number;
+    get tilesOpacity(): number;
+    /**
+     * See-through factor for the tiles (0..1, 1 = opaque), mirrored by the
+     * minimap's terrain image. In-memory only. Applies in DEFERRED mode (the
+     * viewer's default); the composer path keeps the tiles opaque.
+     */
+    setTilesOpacity(opacity: number): void;
+    toggleGizmo(): void;
+    /** Manual geo-location input (sliders) — no IFC georeferencing read yet, see docs/adrs. */
+    setPosition(latitude: number, longitude: number, height?: number, rotation?: number): void;
+    /**
+     * Small local fine-tune offset (metres, East/North/Up) layered ON TOP of
+     * the origin-derived tiles position — a manual calibration knob for Google
+     * Photorealistic 3D Tiles' own (independently known) absolute-positioning
+     * inaccuracy, NOT a change to `ProjectManager.origin`/real georeferencing.
+     * Re-derives the tiles position from the CURRENT origin fields + this
+     * offset on every call (via `_reorientation`), so repeated calls replace
+     * rather than accumulate.
+     *
+     * NOT auto-saved — marks `offsetDirty`/fires `onOffsetDirtyChange` instead,
+     * same pattern `ProjectManager.origin` uses, so a caller driving this
+     * continuously (the fine-tune sliders) doesn't write to the network on
+     * every tick. `saveTilesOffset()` persists explicitly.
+     */
+    setTilesOffset(east: number, north: number, up: number): void;
+    /**
+     * Persists the current tiles fine-tune offset to `{GISManager.uuid}.json`
+     * (loose in `__project_data`, alongside `ProjectManager`'s own file — see
+     * `_appDataStore`), preserving whatever `layers` are already in there.
+     * `save()` itself is fire-and-forget/debounced — `offsetDirty` only clears
+     * (and `onOffsetSaveComplete` fires) once `_appDataStore.onSaveComplete`
+     * confirms the write actually succeeded (wired in `init()`), not
+     * optimistically here.
+     */
+    saveTilesOffset(): void;
+    private _applyTilesOffset;
+    private _reprojectDebounce?;
+    private _scheduleReprojectLayers;
+    /**
+     * Casts a ray straight down from high above the recentered origin against the
+     * currently loaded tile geometry to find the real ground elevation at
+     * (latitude, longitude), then re-applies the reorientation using that as
+     * `height` so the visible terrain/rooftop lands at world (0,0,0) instead of
+     * wherever `height=0` (the bare WGS84 ellipsoid, which can be hundreds of
+     * meters away from the real surface at elevated locations) happened to put it.
+     *
+     * Relies on the ENU tangent-plane guarantee `transformLatLonHeightToOrigin`
+     * gives at the origin: after recentering at some height, "up" from that lat/lon
+     * is exactly world +Y, and world Y directly corresponds to metres of height — so
+     * a hit at world Y = `dy` means the real surface is `dy` metres higher than the
+     * height currently used, and re-running the transform with
+     * `height + dy` should bring it to Y ≈ 0. Only accurate near the origin (a few
+     * km), which is exactly the regime this is used in.
+     *
+     * Tries straight down first, then straight up (content can end up above OR below
+     * the origin depending on how far off `height=0` was from the real surface).
+     *
+     * Uses `TilesRenderer.raycast()` — 3d-tiles-renderer's own documented raycasting
+     * entry point — instead of a generic `THREE.Raycaster.intersectObject(tiles.group)`.
+     * The library keeps its own tile-activity bookkeeping (`activeTiles`,
+     * `tile.traversal.used`, per-tile bounding volumes) separate from the plain
+     * Object3D tree, and only that entry point knows how to walk it; a generic
+     * scene-graph raycast against `tiles.group` silently finds nothing.
+     *
+     * Tile traversal (`markUsedTiles` in the engine's own source) bails out
+     * immediately — without even descending into children — for any tile whose
+     * bounding volume isn't in the frustum of AT LEAST ONE registered camera:
+     * `if (!tile.traversal.inFrustum) return;`. That branch is never visited, let
+     * alone loaded or marked active, regardless of `displayActiveTiles` (which only
+     * affects the final visibility toggle of tiles that already got marked active —
+     * a narrower case). So if the real viewport camera isn't looking anywhere near
+     * the target point, nothing here ever loads and the raycast finds nothing no
+     * matter what.
+     *
+     * `TilesRenderer` supports multiple simultaneously-registered cameras
+     * (`cameras: Camera[]`), and a tile counts as "in frustum" if ANY of them sees
+     * it. So we register a throwaway camera positioned high above the origin,
+     * looking straight down — wide FOV and far plane so its frustum (a cone
+     * widening downward, centred on the target column) covers a generous height
+     * range around the origin regardless of whether the real surface turns out to
+     * be above or below it — force one `update()` traversal with it registered,
+     * then remove it again. The real viewport camera's own registration and
+     * behaviour are untouched throughout.
+     *
+     * Returns false if no tile geometry was found (nothing to snap to) — caller
+     * should retry once more of the tileset streams in. The first call after
+     * moving to a new area may land approximately rather than exactly, since the
+     * newly-forced-into-frustum content is still streaming in asynchronously in
+     * the background — calling it again shortly after tends to refine it further.
+     */
+    snapToGround(): boolean;
+    /**
+     * `CesiumIonAuth.fetch()`/`refreshToken()` (see `3d-tiles-renderer/core/plugins/auth/CesiumIonAuth.js`)
+     * only ever throws `"CesiumIonAuthPlugin: Failed to load data with error code {status}"`
+     * on a non-OK HTTP response — no further detail. Map the common statuses to
+     * something a user can actually act on; fall back to the raw message otherwise.
+     */
+    private _toFriendlyLoadError;
+    /**
+     * Sets everything up and resolves only once the FIRST real outcome is known —
+     * either actual content loaded ("load-tileset") or the initial fetch (auth
+     * against the token/asset) failed ("load-error") — instead of resolving the
+     * instant the TilesRenderer is constructed, before any network activity has
+     * even started. `tilesVisible`/state only flips to enabled on success; on
+     * failure everything set up here is torn down again and the promise rejects,
+     * so the caller (the panel) never has to un-render a half-enabled state.
+     */
+    enableTiles(): Promise<void>;
+    disableTiles(): void;
+    /** Tears down everything `enableTiles()` set up, without touching `_tilesVisible`. */
+    private _teardownTiles;
+    dispose(): void;
+    private _trigger;
+}
+
+/**
+ * Streams Cesium Ion 3D Tiles (Google Photorealistic 3D Tiles by default) co-located
+ * with the BIM model.
+ *
+ * Rendering path depends on `world.renderer.postproduction.mode`:
+ * - DEFERRED: the deferred G-buffer capture pass only draws objects whose material
+ *   carries the engine's "capture-emission" marker (set on Fragments/BIM surface
+ *   materials only) — every other object, however opaque, is hidden for the
+ *   duration of the capture (confirmed directly from the engine's own
+ *   `SurfaceCapturePass` docs). So tiles are added to a private off-scene
+ *   `THREE.Scene` and drawn via `addOcclusionPass` (direct mode — opaque,
+ *   self-occluding, same as `PointCloudLoader`), which runs AFTER the deferred
+ *   composite and bypasses the G-buffer requirement entirely.
+ * - COMPOSER: the EffectComposer path renders the real scene graph directly, no
+ *   special material marker needed, so tiles are added straight to
+ *   `world.scene.three` like any other mesh.
+ *
+ * The Cesium Ion API token is kept in memory only (no persistence yet) — see
+ * docs/adrs for the pending decision on where project geo-location should live.
+ */
+export type GISManager = InstanceType<typeof _GISManager>;
+/**
+ * Streams Cesium Ion 3D Tiles (Google Photorealistic 3D Tiles by default) co-located
+ * with the BIM model.
+ *
+ * Rendering path depends on `world.renderer.postproduction.mode`:
+ * - DEFERRED: the deferred G-buffer capture pass only draws objects whose material
+ *   carries the engine's "capture-emission" marker (set on Fragments/BIM surface
+ *   materials only) — every other object, however opaque, is hidden for the
+ *   duration of the capture (confirmed directly from the engine's own
+ *   `SurfaceCapturePass` docs). So tiles are added to a private off-scene
+ *   `THREE.Scene` and drawn via `addOcclusionPass` (direct mode — opaque,
+ *   self-occluding, same as `PointCloudLoader`), which runs AFTER the deferred
+ *   composite and bypasses the G-buffer requirement entirely.
+ * - COMPOSER: the EffectComposer path renders the real scene graph directly, no
+ *   special material marker needed, so tiles are added straight to
+ *   `world.scene.three` like any other mesh.
+ *
+ * The Cesium Ion API token is kept in memory only (no persistence yet) — see
+ * docs/adrs for the pending decision on where project geo-location should live.
+ */
+export const GISManager = { uuid: 'd8f3a1c2-6b4e-4f9a-8c1d-2e7b5a9f3c60' } as typeof _GISManager & { uuid: 'd8f3a1c2-6b4e-4f9a-8c1d-2e7b5a9f3c60' };
 
 /** One element mutation inside a revit-flow commit. */
 export interface RevitFlowChange {

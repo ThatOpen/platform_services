@@ -40,6 +40,10 @@
     "description": "ClashesManager — Structural engineers and BIM coordinators routinely detect geometric clashes between disciplines — structural steel penetrating ductwork, pipes clashing with slabs — and need to track the status of each issue through resolution without leaving their BIM environment."
   },
   {
+    "path": "src/built-in/GISManager/example.ts",
+    "description": "GISManager — Georeferenced BIM projects need their surroundings: the real terrain and buildings around the model, and the project's GIS layers (parcels, networks, boundaries) drawn at the right place in the 3D scene and on a 2D map."
+  },
+  {
     "path": "src/built-in/ProjectManager/example.ts",
     "description": "ProjectManager — Project-level configuration and data — GIS origin, georeferencing, app settings, and other project-scoped concerns — need a single canonical place to live. Without it, every builtin that needs to persist something at the project level (not per-file, not per-user) ends up inventing its own file, its own save/load pattern, and its own place to put it."
   },
@@ -88,8 +92,20 @@
     "description": "clashes-panel — BIM coordinators need a dedicated review environment where they can see all detected clashes, filter by status, navigate to each issue in the 3D viewer, and mark items as resolved — without writing any UI code themselves."
   },
   {
+    "path": "src/built-in/UIManager/src/gis-panel/example.ts",
+    "description": "gis-panel — A georeferenced project is much easier to review with its real surroundings around the model, and with the GIS layers of the site (networks, parcels, boundaries) switched on and off from a list. Streaming the terrain and buildings needs a Cesium Ion token and a way to load and unload them, and fine-tuning their position needs a few controls."
+  },
+  {
+    "path": "src/built-in/UIManager/src/gis-properties-panel/example.ts",
+    "description": "gis-properties-panel — A GIS feature (a pipe, a parcel, a manhole) is useless without its attributes: diameter, material, owner, installation date. Users want to click a feature, in the 3D view or on the map, and read them."
+  },
+  {
     "path": "src/built-in/UIManager/src/git-history-panel/example.ts",
     "description": "git-history-panel — `top-git-history` is a GitKraken-style commit timeline for the **revit-flow** feature. It lists the commits pushed by the Revit add-in (newest first) and, when you click a commit, drives the shared 3D viewer to color that commit's changed elements — created green, modified blue, deleted red — on the loaded baseline model."
+  },
+  {
+    "path": "src/built-in/UIManager/src/map-panel/example.ts",
+    "description": "map-panel — In a large site, the 3D camera alone is a poor way to get oriented: users want a plan view to see where they are, where the GIS features are, and to jump somewhere else with a click."
   },
   {
     "path": "src/built-in/UIManager/src/models-list/example.ts",
