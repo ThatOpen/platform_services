@@ -10,7 +10,11 @@ export const serveCommand = new Command('serve')
     'Build in watch mode and serve the IIFE bundle for local development',
   )
   .option('--port <port>', 'Port for the bundle server', '4000')
-  .action(async (opts: { port: string }) => {
+  .option(
+    '--no-reload',
+    'Rebuild on save but do not reload the open app; reload it yourself when you want the new bundle',
+  )
+  .action(async (opts: { port: string; reload: boolean }) => {
     const cwd = process.cwd();
     const pkgPath = join(cwd, 'package.json');
 
@@ -34,6 +38,10 @@ export const serveCommand = new Command('serve')
     const sseClients: Set<ServerResponse> = new Set();
 
     function notifyClients() {
+      // With --no-reload the bundle is rebuilt and waits: an app that is in
+      // the middle of something (a long automated run) is not torn down by
+      // a save somewhere in its sources.
+      if (!opts.reload) return;
       for (const client of sseClients) {
         client.write('data: reload\n\n');
       }
@@ -118,6 +126,67 @@ export const serveCommand = new Command('serve')
           },
         },
         {
+          // The beta components packages point their `main` at `dist`. When
+          // they resolve to local repos (linked for development), bundling the
+          // dist is a trap: the dist itself contains a self-import of the
+          // package by name, which rollup answered with the PREVIOUS dist at
+          // build time — so the bundle carries two copies of every module and
+          // their singleton state splits silently. Consuming `src/index.ts`
+          // instead collapses every path (entry, self-import, cross-package)
+          // onto one physical module. Only when a `src` entry exists next to
+          // the resolved `dist`, so published packages are untouched.
+          name: 'beta-components-from-source',
+          setup(build) {
+            if (!isBeta) return;
+            const PKG =
+              /^(@thatopen\/components(-front)?|@thatopen-platform\/components(-front)?-beta)$/;
+            build.onResolve({ filter: PKG }, async (args) => {
+              if (args.pluginData === 'beta-src') return null;
+              const resolved = await build.resolve(args.path, {
+                kind: args.kind,
+                resolveDir: cwd,
+                pluginData: 'beta-src',
+              });
+              if (resolved.errors.length > 0) return null;
+              const srcEntry = resolved.path.replace(
+                /([\\/])dist[\\/][^\\/]+$/,
+                '$1src$1index.ts',
+              );
+              if (srcEntry === resolved.path || !existsSync(srcEntry)) {
+                return { path: resolved.path, sideEffects: resolved.sideEffects };
+              }
+              return { path: srcEntry };
+            });
+          },
+        },
+        {
+          // With published packages every `import "three"` lands in the app's
+          // single copy, because npm hoists one three to the app root. When the
+          // beta packages resolve to local repos instead (linked for
+          // development), each repo carries its own nested three, esbuild
+          // bundles one instance per repo, and three objects from one instance
+          // are silently invisible to the renderer of another. Re-resolving
+          // every `three` import from the app root restores the published
+          // behavior: one three, the app's.
+          name: 'dedupe-three',
+          setup(build) {
+            build.onResolve({ filter: /^three(\/.+)?$/ }, async (args) => {
+              if (args.pluginData === 'dedupe-three') return null;
+              const resolved = await build.resolve(args.path, {
+                kind: args.kind,
+                resolveDir: cwd,
+                pluginData: 'dedupe-three',
+              });
+              if (resolved.errors.length > 0) return null;
+              return {
+                path: resolved.path,
+                external: resolved.external,
+                sideEffects: resolved.sideEffects,
+              };
+            });
+          },
+        },
+        {
           name: 'reload',
           setup(build) {
             build.onEnd((result) => {
@@ -199,7 +268,9 @@ export const serveCommand = new Command('serve')
         'Open your project on the platform and click the debug button.',
       );
       console.log(
-        'Live reload is enabled — save a file to rebuild automatically.',
+        opts.reload
+          ? 'Live reload is enabled — save a file to rebuild automatically.'
+          : 'Live reload is off — saving rebuilds the bundle; reload the app to load it.',
       );
       console.log('');
     });
