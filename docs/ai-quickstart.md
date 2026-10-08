@@ -297,8 +297,11 @@ system: the platform relays messages between app tabs and external tools.
 
 To command the app from outside (a script, an MCP server, your own tool):
 
-1. The user creates a **platform token** with the **API** permission
-   (dashboard → Data → API Tokens). Same secrecy rules as always.
+1. The user creates a **platform token** (dashboard → Data → API Tokens). Same
+   secrecy rules as always. The token itself needs no special permission: what
+   the channel checks is the token owner's role in the project, which must allow
+   **API calls**. Project Admin and Member have it by default; a custom role
+   needs it ticked.
 2. Connect with `socket.io-client` and subscribe, then publish:
 
 ```bash
