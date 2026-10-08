@@ -79,7 +79,10 @@ components.get(UIManager).init();
   ### 🤖 What the default panel manages automatically
 
   **Graphics** — point/line/edge styling, background, shadows, ambient
-  occlusion — whatever `top-viewer` supports, persisted across reloads.
+  occlusion — whatever `top-viewer` supports, persisted across reloads. When the
+  app uses `GISManager`, a "GIS Map" group also appears, with the sky on/off, the
+  horizon fade (how far before the camera's far plane the map dissolves, 0 = hard
+  cut) and the sky's horizon and zenith colours.
 
   **Clip styling** — fill/edge color, opacity, width for the clip tool,
   shared live with `top-viewer-toolbar`'s clip button.

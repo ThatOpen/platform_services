@@ -85,7 +85,36 @@ await gis.enableTiles();
   makes the see-through effect possible. On other hosts they are added to the
   scene directly and stay opaque. You do not need to do anything for this: the
   component detects it.
+
+  On those deferred hosts the tiles also dissolve gradually near the camera's far
+  plane instead of ending in a hard edge. `horizonFade` is the fraction of the far
+  distance over which this happens: with the default `0.8` and a far plane at
+  1000, the tiles are fully visible up to 200 and fully transparent at 1000. It
+  combines with the see-through opacity, and `0` turns it off. While the map is
+  loaded the fade is a fraction of `mapFar` (see below), not of the camera's own
+  far plane.
+
+  While the tiles are loaded, the empty background behind them is also painted
+  as a sky: a gradient from `skyHorizonColor` (default `#d7e3ee`, a light hazy
+  blue) at the horizon to `skyZenithColor` (default `#6a9bd1`) straight up, so
+  the tiles dissolve into the horizon colour. Set `sky = false` to keep the
+  background as it is. Like the fade, it only exists on deferred hosts.
+
+  To let the map reach the horizon, `GISManager` takes over the far plane of the
+  world's cameras while the tiles are loaded: `mapFar`, `10000` by default. With
+  the default `horizonFade` of `0.8` the map is fully visible up to 2 km and
+  fades out until 10 km. A far plane the application or the user set is only
+  remembered while the map is loaded and comes back when `disableTiles()` runs
+  (a larger far set by code that grows it, for example when it loads a large
+  point cloud, is respected, and kept). Setting `mapFar` while the map is loaded
+  applies immediately. This works on every host, deferred or not.
 */
+
+gis.horizonFade = 0.4;
+gis.mapFar = 15000;
+gis.skyHorizonColor = "#e8d9c5";
+gis.skyZenithColor = new THREE.Color(0x4f86c6);
+gis.sky = true;
 
 gis.onStateChanged.add((state) => console.log("tiles visible:", state.tilesVisible));
 gis.setTilesOpacity(0.6);

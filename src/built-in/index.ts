@@ -30,9 +30,7 @@ export interface CDENamingSchema {
     separator: string;
     segments: CDENamingSegment[];
 }
-// `Base` now declares `createdBy` itself (the field the API actually
-// returns); this narrows it to the string the CDE panels render.
-export interface CDEFile extends Omit<Item, 'createdBy'> {
+export interface CDEFile extends Omit<Item, 'creatingUser'> {
     createdBy: string;
     metadata: Record<string, CDEMetadataValue>;
     versions?: ItemVersion[];
@@ -1668,6 +1666,64 @@ declare class _GISManager extends OBC.Component {
     private _tilesOpacity;
     private _fadeTarget;
     private _fadeQuad;
+    private _horizonTarget;
+    private _horizonQuad;
+    /**
+     * Fraction (0–1) of the camera's far distance over which the 3D tiles dissolve
+     * into what is behind them, instead of ending in a hard edge at the far plane:
+     * the tiles are fully visible up to `far * (1 - horizonFade)` and fully
+     * transparent at `far`. Default 0.8. `0` turns it off (opaque tiles are drawn
+     * straight into the frame at opacity 1, as before). Combines with
+     * `setTilesOpacity`: final alpha = opacity × fade. Deferred hosts only — where
+     * the tiles are added to the scene directly there is no fade. Vector layers
+     * are not faded.
+     */
+    horizonFade: number;
+    private readonly _far;
+    private _farCameras;
+    /**
+     * Far plane (distance) the world's cameras get while the 3D tiles are loaded, so
+     * the map reaches the horizon. Default `10000`. Changing it while the map is
+     * loaded takes effect immediately. `horizonFade` is a fraction of this far while
+     * the map is loaded (with `0.8`, the map fades from 2 km to 10 km).
+     *
+     * The camera's own far plane (e.g. the Settings panel's "Far plane") is
+     * overridden while the map is loaded: it is remembered, not applied, and comes
+     * back when the map is unloaded. Code that grows the far plane itself while the
+     * map is loaded still works: a larger far than `mapFar` is left alone, and is
+     * kept on unload.
+     */
+    get mapFar(): number;
+    set mapFar(far: number);
+    /** True while the map owns the cameras' far plane (the 3D tiles are loaded). */
+    get farOverridden(): boolean;
+    /** The far plane the user asked for, remembered while `farOverridden` (otherwise the cameras hold it). */
+    get userCameraFar(): number;
+    /** Records the far plane the user wants; not applied until the map is unloaded. Only meaningful while `farOverridden`. */
+    setUserCameraFar(far: number): void;
+    private _resolveFarCameras;
+    /**
+     * Shows a sky gradient behind everything while the 3D tiles are loaded: the
+     * empty background (pixels nothing has drawn to) goes from `skyHorizonColor` at
+     * the horizon to `skyZenithColor` straight up, so the tiles, dissolving with
+     * `horizonFade`, melt into the horizon colour. Below the horizon it is the
+     * horizon colour; an orthographic camera sees one flat colour. Default `true`;
+     * `false` leaves the background untouched. Deferred hosts only — elsewhere
+     * there is no sky. Drawn behind the vector layers and the tiles.
+     */
+    sky: boolean;
+    private readonly _skyHorizon;
+    private readonly _skyZenith;
+    private _skyHorizonColor;
+    private _skyZenithColor;
+    private _skyPass;
+    private static _setSkyRgb;
+    /** Sky colour at the horizon (any CSS colour string, hex number or `THREE.Color`). Default `"#d7e3ee"`, a light hazy blue. */
+    get skyHorizonColor(): THREE.ColorRepresentation;
+    set skyHorizonColor(color: THREE.ColorRepresentation);
+    /** Sky colour straight up. Default `"#6a9bd1"`, a deeper blue. */
+    get skyZenithColor(): THREE.ColorRepresentation;
+    set skyZenithColor(color: THREE.ColorRepresentation);
     private _passRegistered;
     private _ensureOcclusionPass;
     private readonly _occlusion;
