@@ -25,6 +25,7 @@
  * the agreed phase 2.
  */
 import type { EngineServicesClient } from './client';
+import { ProjectDocuments, type DocumentDescriptor, type DocumentView } from './documents';
 
 /** One element mutation inside a version. Wire-compatible with the plugins. */
 export interface FlowChange {
@@ -88,6 +89,13 @@ interface FlowHistoryFile {
  */
 export interface FlowSuggestion {
   opId: string;
+  /**
+   * The application that receives and executes it: 'revit', 'autocad', or a
+   * platform app like 'designer'. A suggestion without a recipient is not a
+   * suggestion; absent only in entries written before this field existed,
+   * where the recipient is the document's own source.
+   */
+  to?: string;
   /** Groups the suggestions one authored action produced across several docs. */
   batchId?: string;
   /** Hidden-file id of the payload .frag (envelope `revitflow/op@2`). */
@@ -123,6 +131,11 @@ export interface FlowDocInfo {
   source: string;
   /** The document's own id within that application. */
   docId: string;
+  /**
+   * The document folder's item id — the id the CDE and the documents API
+   * ({@link EngineServicesClient.documents}) know this document by.
+   */
+  folderId: string;
   /** The visible model file's name, when one exists yet. */
   modelName?: string;
   /**
@@ -132,6 +145,20 @@ export interface FlowDocInfo {
    * listed rather than hidden; apps decide whether to show it dimmed.
    */
   empty?: boolean;
+}
+
+/**
+ * One person's current hold on a document's elements, read from the lock
+ * registry the native plugins arbitrate through. Element keys are the native
+ * application's own ids (Revit UniqueIds). Workset-level ownership lives in
+ * Revit's own binary worksharing files (the ownership mirror) and is not
+ * readable here — what IS here is every element-level claim.
+ */
+export interface FlowOwner {
+  /** The native application's user name, as the plugin claimed with. */
+  owner: string;
+  /** The element keys this person currently holds, arbitration applied. */
+  elements: string[];
 }
 
 /** What `sync` needs: the change list plus whatever the writer knows. */
@@ -158,6 +185,11 @@ export interface SyncInput {
 
 /** What `suggest` needs. */
 export interface SuggestInput {
+  /**
+   * The application that receives and executes it. Defaults to the document's
+   * own source — the native app that owns the document.
+   */
+  to?: string;
   /**
    * The suggestion's id, when the caller minted it up front — a payload
    * (envelope `revitflow/op@2`) carries the opId INSIDE, so whoever builds
@@ -201,6 +233,11 @@ const OPS_SCHEMA = 'revitflow/ops@1';
 const LEGACY_MODEL_FILE = 'revitflow_model.frag';
 // Internal bookkeeping files that are NOT the model.
 const INTERNAL_PREFIX = 'revitflow_';
+// The element-lock anchor: a visible file in the doc folder whose HIDDEN
+// children are live claims ({ revitflowlock: 1, user, keys[], since }), one
+// per client. Arbitration is listing order: the earliest claim naming a key
+// holds it. Written by the plugins' LockRegistry; read-only here.
+const LOCKS_ANCHOR = 'bimterop-locks-anchor';
 const versionTag = () => `v-${Date.now()}`;
 
 interface StoredFile {
@@ -270,6 +307,7 @@ export class ProjectHistory {
       docs.push({
         source: name.slice(0, dash),
         docId: name.slice(dash + 1),
+        folderId: idOf(folder as never),
         modelName: model,
         ...(hasAny ? {} : { empty: true }),
       });
@@ -365,6 +403,119 @@ export class FlowDoc {
     }
     const response = await this.client.downloadFile(file.id);
     return await response.blob();
+  }
+
+  /** The document folder's item id — the id the CDE knows this document by. */
+  async folderId(): Promise<string> {
+    return await this.#folder(false);
+  }
+
+  // ─── The document descriptor ───────────────────────────────────────────────
+
+  /**
+   * The document descriptor (`document.json`), or null when the folder does
+   * not carry one yet — an old folder from before descriptors existed.
+   */
+  async descriptor(): Promise<DocumentDescriptor | null> {
+    return await this.#documents.descriptor(await this.#folder(false));
+  }
+
+  /**
+   * The first view whose format appears in `formats`, searched in the order
+   * of the list (the caller's preference wins). Falls back to the visible
+   * model .frag on a descriptor-less folder, so old documents keep viewing.
+   */
+  async view(formats: string[]): Promise<DocumentView | null> {
+    const folderId = await this.#folder(false);
+    const descriptor = await this.#documents.descriptor(folderId);
+    if (descriptor) {
+      for (const format of formats) {
+        const match = descriptor.views.find((v) => v.format === format);
+        if (match) return match;
+      }
+      return null;
+    }
+    if (!formats.includes('frag')) return null;
+    const model = await this.#modelFile();
+    return model ? { fileId: model.id, format: 'frag' } : null;
+  }
+
+  /**
+   * Registers a renderable representation, creating the descriptor when the
+   * folder predates them (named after the model file, or the folder itself).
+   * One view per format: a same-format view is replaced, not accumulated.
+   */
+  async addView(view: DocumentView): Promise<void> {
+    const folderId = await this.#folder(true);
+    const descriptor = await this.#documents.descriptor(folderId);
+    if (descriptor) {
+      await this.#documents.addView(folderId, view);
+      return;
+    }
+    const model = await this.#modelFile();
+    await this.#documents.setDescriptor(folderId, {
+      name: model?.name.replace(/\.frag$/, '') ?? this.#folderName,
+      views: [view],
+    });
+  }
+
+  // ─── Ownership (element locks) ─────────────────────────────────────────────
+
+  /**
+   * Who currently holds which elements, read from the lock registry the
+   * native plugins arbitrate through. Read-only: claiming and releasing stay
+   * with the plugins. Empty when nobody holds anything (or the document has
+   * no lock anchor yet). Arbitration is applied: a key contested by two
+   * claims counts only for the earliest one, matching the plugins' rule.
+   */
+  async ownership(): Promise<FlowOwner[]> {
+    const anchor = await this.#file(LOCKS_ANCHOR);
+    if (!anchor) return [];
+    const metas = await this.client.getHiddenFilesByParent(anchor.id);
+
+    // Fetched in parallel, kept in listing order: order IS the arbitration.
+    const claims = await Promise.all(
+      metas.map(async (meta) => {
+        try {
+          const id = idOf(meta as never);
+          const response = await this.client.downloadHiddenFile(id);
+          const parsed = JSON.parse(await response.text()) as Record<
+            string,
+            unknown
+          >;
+          if (!parsed || typeof parsed !== 'object') return null;
+          if (!('revitflowlock' in parsed)) return null;
+          if (!Array.isArray(parsed.keys)) return null;
+          return {
+            owner: String(parsed.user ?? ''),
+            keys: parsed.keys.filter((k): k is string => typeof k === 'string'),
+          };
+        } catch {
+          return null;
+        }
+      }),
+    );
+
+    const taken = new Set<string>();
+    const byOwner = new Map<string, string[]>();
+    for (const claim of claims) {
+      if (!claim) continue;
+      for (const key of claim.keys) {
+        if (!key || taken.has(key)) continue;
+        taken.add(key);
+        const list = byOwner.get(claim.owner) ?? [];
+        list.push(key);
+        byOwner.set(claim.owner, list);
+      }
+    }
+    return [...byOwner.entries()].map(([owner, elements]) => ({
+      owner,
+      elements,
+    }));
+  }
+
+  get #documents(): ProjectDocuments {
+    return new ProjectDocuments(this.client, this.project.projectId);
   }
 
   // ─── Writing versions ─────────────────────────────────────────────────────
@@ -466,6 +617,7 @@ export class FlowDoc {
 
     const suggestion: FlowSuggestion = {
       opId: input.opId ?? mintGuid(),
+      to: input.to ?? this.source,
       title: input.title,
       verb: input.verb,
       author: input.author,

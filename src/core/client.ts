@@ -1,4 +1,5 @@
 import { io } from 'socket.io-client';
+import { ProjectDocuments } from './documents';
 import { ProjectHistory } from './history';
 import { Recipes } from './recipes';
 import {
@@ -1350,7 +1351,16 @@ export class EngineServicesClient {
     });
   }
 
-  // ─── History & Recipes ───────────────────────────────────────────
+  // ─── Documents, History & Recipes ────────────────────────────────
+
+  /**
+   * A project's documents. Every document is a FOLDER holding its files plus
+   * a `document.json` descriptor naming the document, its native form and its
+   * renderable views. See `src/core/documents.ts` for the model and schema.
+   */
+  documents(projectId: string): ProjectDocuments {
+    return new ProjectDocuments(this, projectId);
+  }
 
   /**
    * A project's history of connected documents (Revit models, AutoCAD

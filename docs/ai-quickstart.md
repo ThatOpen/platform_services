@@ -352,14 +352,49 @@ is the reply. The full walkthrough (typed contracts, collaboration events,
 presence) is `node_modules/@thatopen/services/src/core/examples/channel.ts`,
 indexed in the client API index you already loaded.
 
-## 5c. History and recipes: documents, versions, change requests
+## 5c. Documents: every document is a folder
+
+A DOCUMENT is the platform's unit of content — what a person sees as one file
+in the CDE. It is stored as a FOLDER holding its actual files plus a
+`document.json` descriptor (schema `thatopen/document@1`):
+
+```json
+{
+  "schema": "thatopen/document@1",
+  "name": "Clinic building",
+  "native": { "fileId": "<id>", "format": "rvt" },
+  "views": [{ "fileId": "<id>", "format": "frag" }]
+}
+```
+
+`name` is the document's own name (what a row shows), `native` its native form
+(optional — a document born on the platform may have none), `views` its
+renderable representations, by fileId so renames do not break them. The ONE
+viewer rule: a document is READY TO VISUALIZE when it has a view in a format
+the viewer renders; otherwise the interface offers to PROCESS it, and the
+processor's last act is `addView`. A format that views itself (a PDF) lists
+the same fileId as `native` and as a view — nothing is ever deduced from
+extensions. The folder is an internal detail: interfaces show one row and
+apply move/rename/delete/permissions to the whole document. Plain files
+uploaded outside this shape still work, with fewer abilities (`descriptor()`
+returns null).
+
+```ts
+const documents = client.documents(projectId);
+const descriptor = await documents.descriptor(folderId); // null on a plain folder
+const view = await documents.view(folderId, ['frag', 'ifc']); // your preference order wins
+await documents.addView(folderId, { fileId, format: 'frag' }); // a processor's last act
+```
+
+## 5d. History and recipes: versions, change requests
 
 Three sentences hold the whole model. Every connected document (a Revit model,
 an AutoCAD drawing) has its version history: who synced, when, what changed.
 Nobody writes in somebody else's document: changes arrive as SUGGESTIONS
-(create/modify/delete native data) that the owner accepts or dismisses in the
-native app. A RECIPE is a script that writes suggestions in an application's
-own language, from whatever input.
+(create/modify/delete native data) that a recipient application — named in the
+suggestion's `to`, the document's own app by default — executes when the owner
+accepts. A RECIPE is a script that writes suggestions in an application's own
+language, from whatever input.
 
 ```ts
 const history = client.history(projectId);
@@ -367,6 +402,8 @@ const docs = await history.docs();                 // the connected documents
 const doc = history.doc('revit', docs[0].docId);
 const timeline = await doc.timeline();             // versions, oldest first
 const pending = await doc.pendingSuggestions();    // waiting for the owner
+const holders = await doc.ownership();             // who holds which elements
+const view = await doc.view(['frag']);             // same rule as any document
 
 client.recipes.register(myRecipe);                 // manifest + one run()
 await client.recipes.run('my-recipe', {            // only QUEUES a suggestion:
@@ -375,13 +412,16 @@ await client.recipes.run('my-recipe', {            // only QUEUES a suggestion:
 });
 ```
 
+`docs()` also answers `folderId` — the id the CDE knows that document by, the
+bridge between this section and 5c.
+
 This surface is the only supported way in: the storage underneath is private
 and will move. Never list or write the `bimterop` files directly. The full
 walkthrough (manifest fields, StaleHistoryError on concurrent syncs, payloads)
 is `node_modules/@thatopen/services/src/core/examples/history.ts`, indexed in
 the client API index you already loaded.
 
-## 5d. The desktop MCP server: `thatopen mcp`
+## 5e. The desktop MCP server: `thatopen mcp`
 
 The raw socket above is for tools you write. For an LLM on the desktop (Claude
 Desktop, Claude Code, anything that speaks MCP), the CLI ships the same bridge
