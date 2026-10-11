@@ -16,25 +16,58 @@
  * items) is the agreed phase 2 and will sit on top of the same manifest.
  */
 import type { EngineServicesClient } from './client';
-import type { FlowDoc, FlowSuggestion } from './history';
+import { mintGuid, type FlowDoc, type FlowSuggestion } from './history';
+
+/**
+ * How a settings property says "this names something that EXISTS". Put it on
+ * the property as `x-existing` inside {@link RecipeManifest.settingsSchema}:
+ * the app resolves the candidates and renders a list — people pick, they
+ * never type the name of a thing that exists.
+ *
+ * Resolving the candidates is the APP's job today (reading `doc.model()` of
+ * the target, or the declared source file, takes the fragments toolkit, which
+ * the SDK does not carry). The kinds are stable so nothing changes for
+ * recipes when a shared reader lands in that toolkit.
+ */
+export interface ExistingLookup {
+  /** What kind of existing thing: 'document' | 'family-type' | 'level' | 'layer' | 'workset'… */
+  of: string;
+  /** Where it exists: the target document, or the declared source. Default 'target'. */
+  from?: 'target' | 'source';
+}
 
 /** What a recipe declares about itself. Shown in catalogs, checked by apps. */
 export interface RecipeManifest {
   /** Machine name, unique in a catalog: 'rhino-points-to-revit-columns'. */
   name: string;
+  /** The human name a card shows: 'Rhino points to Revit columns'. */
+  title?: string;
   /** The one sentence a non-programmer reads: what it converts into what. */
   description: string;
+  /** The long-form explanation an app renders, as markdown. */
+  doc?: string;
   /** The native application whose language it writes: 'revit', 'autocad'… */
   to: string;
   /** The input kinds it understands: 'rhino-model', 'platform-elements', 'points', 'csv'… */
   inputs: string[];
+  /**
+   * What the app should offer as the input picker, when the input is a thing
+   * of the project rather than inline data: another connected document, or a
+   * project file (then `extensions` narrows the listing). The picked value is
+   * what arrives as `input`, and what `x-existing: { from: 'source' }`
+   * lookups read.
+   */
+  source?:
+    | { kind: 'document'; source?: string }
+    | { kind: 'project-file'; extensions?: string[] };
   /** Where it runs by default. Browser unless it must run unattended. */
   runtime?: 'browser' | 'cloud';
   /**
    * JSON Schema for `settings`. Apps generate the settings form from it, so
    * anything that names an EXISTING thing (a target document, a family, a
-   * level) must be an enum the app can fill — people pick, they never type
-   * names of things that exist.
+   * level) carries `x-existing` ({@link ExistingLookup}) and renders as a
+   * list the app fills — people pick, they never type names of things that
+   * exist. Free text is only for what a person invents.
    */
   settingsSchema?: Record<string, unknown>;
   /**
@@ -50,6 +83,12 @@ export interface RecipeContext<Settings = Record<string, unknown>> {
   projectId: string;
   /** The document the suggestion is for. Read its timeline/model if needed. */
   targetDoc: FlowDoc;
+  /**
+   * The suggestion's id, minted BEFORE the run: the payload envelope
+   * (`revitflow/op@2`) carries the opId inside, so the builder needs it.
+   * When the run is only a plan, nothing is queued and the id is discarded.
+   */
+  opId: string;
   /** The declared input, already fetched by the caller (bytes, ids, rows…). */
   input: unknown;
   settings: Settings;
@@ -111,22 +150,49 @@ export class Recipes {
   }
 
   /**
+   * Runs a recipe WITHOUT queueing anything: the dry pass. Returns the
+   * recipe's result — title, tallies per rule, targets — so an app can show
+   * what would be proposed before anybody confirms. The payload it may have
+   * built is discarded along with its opId.
+   */
+  async plan<S>(
+    name: string,
+    options: RecipeRunOptions<S>,
+  ): Promise<RecipeResult> {
+    const { result } = await this.#execute(name, options);
+    return result;
+  }
+
+  /**
    * Runs a recipe and queues its suggestion on the target document. Safe to
    * call freely: nothing touches the native application until its owner
-   * accepts the suggestion there.
+   * accepts the suggestion there. Use {@link plan} first when the app wants
+   * to show the tallies before queueing.
    */
   async run<S>(
     name: string,
-    options: {
-      projectId: string;
-      /** The target document, as `client.history(projectId).docs()` lists it. */
-      target: { source: string; docId: string };
-      input?: unknown;
-      settings?: S;
-      author: string;
-      userId?: string;
-    },
+    options: RecipeRunOptions<S>,
   ): Promise<RecipeRunOutcome> {
+    const { targetDoc, base, opId, result } = await this.#execute(
+      name,
+      options,
+    );
+
+    const suggestion = await targetDoc.suggest({
+      opId,
+      title: result.title,
+      verb: result.verb,
+      author: options.author,
+      payload: result.payload,
+      targets: result.targets,
+      userId: options.userId,
+      baseCommitGuid: base?.guid,
+    });
+
+    return { suggestion, result };
+  }
+
+  async #execute<S>(name: string, options: RecipeRunOptions<S>) {
     const recipe = this.#registry.get(name) as Recipe<S> | undefined;
     if (!recipe) throw new Error(`No recipe named "${name}" is registered.`);
     if (recipe.to !== options.target.source) {
@@ -140,24 +206,27 @@ export class Recipes {
       .doc(options.target.source, options.target.docId);
     const base = await targetDoc.latest();
 
+    // Minted BEFORE the run: the payload envelope carries the opId inside.
+    const opId = mintGuid();
     const result = await recipe.run({
       client: this.client,
       projectId: options.projectId,
       targetDoc,
+      opId,
       input: options.input,
       settings: (options.settings ?? {}) as S,
     });
-
-    const suggestion = await targetDoc.suggest({
-      title: result.title,
-      verb: result.verb,
-      author: options.author,
-      payload: result.payload,
-      targets: result.targets,
-      userId: options.userId,
-      baseCommitGuid: base?.guid,
-    });
-
-    return { suggestion, result };
+    return { recipe, targetDoc, base, opId, result };
   }
+}
+
+/** The options {@link Recipes.plan} and {@link Recipes.run} share. */
+export interface RecipeRunOptions<S = Record<string, unknown>> {
+  projectId: string;
+  /** The target document, as `client.history(projectId).docs()` lists it. */
+  target: { source: string; docId: string };
+  input?: unknown;
+  settings?: S;
+  author: string;
+  userId?: string;
 }

@@ -151,6 +151,12 @@ export interface SyncInput {
 
 /** What `suggest` needs. */
 export interface SuggestInput {
+  /**
+   * The suggestion's id, when the caller minted it up front — a payload
+   * (envelope `revitflow/op@2`) carries the opId INSIDE, so whoever builds
+   * one needs the id before this call. Minted here when absent.
+   */
+  opId?: string;
   title: string;
   /** add | set | remove | mixed. */
   verb: string;
@@ -195,6 +201,18 @@ interface StoredFile {
   name: string;
 }
 
+/**
+ * Only the folders whose parent IS `parentId`. Needed on top of the query
+ * filter because the backend ignores an unknown `parentFolderId` and answers
+ * with every folder of the project.
+ */
+function childrenOf<T extends { parentId?: unknown }>(
+  folders: T[],
+  parentId: string,
+): T[] {
+  return folders.filter((f) => String(f.parentId ?? '') === parentId);
+}
+
 /** Normalizes the `_id`/`id` split the item endpoints disagree on. */
 function idOf(item: { _id?: unknown; id?: unknown }): string {
   return String(item._id ?? item.id ?? '');
@@ -220,7 +238,10 @@ export class ProjectHistory {
       projectId: this.projectId,
     });
     const docs: FlowDocInfo[] = [];
-    for (const folder of folders) {
+    // Filtered here as well as in the query: the backend ignores an unknown
+    // `parentFolderId` filter and answers with EVERY folder of the project,
+    // which made any project folder with a dash in its name look like a doc.
+    for (const folder of childrenOf(folders, root)) {
       const name = String(folder.name ?? '');
       const dash = name.indexOf('-');
       if (dash <= 0) continue;
@@ -347,7 +368,7 @@ export class FlowDoc {
     }
 
     const version: FlowVersion = {
-      guid: cryptoRandomGuid(),
+      guid: mintGuid(),
       ...(head ? { parents: [head.guid] } : {}),
       author: input.author,
       source: input.source,
@@ -421,7 +442,7 @@ export class FlowDoc {
     const indexFile = await this.#file(OPS_FILE);
 
     const suggestion: FlowSuggestion = {
-      opId: cryptoRandomGuid(),
+      opId: input.opId ?? mintGuid(),
       title: input.title,
       verb: input.verb,
       author: input.author,
@@ -507,7 +528,9 @@ export class FlowDoc {
       parentFolderId: rootId,
       projectId: this.project.projectId,
     });
-    const found = folders.find(
+    // Same defensive filter as docs(): the backend may answer with every
+    // folder of the project, and a same-named folder elsewhere must not win.
+    const found = childrenOf(folders, rootId).find(
       (f) => String(f.name ?? '') === this.#folderName,
     );
     if (found) {
@@ -700,7 +723,8 @@ function lastByGraph(versions: FlowVersion[]): FlowVersion | undefined {
   return ordered[ordered.length - 1];
 }
 
-function cryptoRandomGuid(): string {
+/** A random v4 guid, for version guids and suggestion opIds. */
+export function mintGuid(): string {
   const anyCrypto = globalThis.crypto as { randomUUID?: () => string };
   if (anyCrypto?.randomUUID) return anyCrypto.randomUUID();
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
