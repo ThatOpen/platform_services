@@ -1,5 +1,11 @@
 # thatopen-services
 
+## 0.23.0
+
+### Minor Changes
+
+- b285947: Documents, suggestion recipients, and ownership. New `client.documents(projectId)`: every document is a FOLDER carrying a `document.json` descriptor (schema `thatopen/document@1` — the document's name, its native form, its renderable views by fileId); `descriptor()`, `view(folderId, formats)` (first match in the caller's preference order; null means "offer Process"), `addView()` (one view per format, replaced not accumulated) and `setDescriptor()`. "Ready to visualize = has a view a viewer renders" is the only rule — no derived-file or linked-file concept. `FlowDoc` gains the same three (`descriptor`/`view`/`addView`, with a frag fallback and descriptor synthesis for pre-descriptor folders), plus `folderId()` and `docs()` answering `folderId` — the id the CDE knows each document by. Suggestions now carry `to`: the application that receives and executes them (the document's own source by default). And `doc.ownership()` reads the element-lock registry the native plugins arbitrate through: who currently holds which elements, arbitration applied, read-only.
+
 ## 0.22.0
 
 ### Minor Changes
