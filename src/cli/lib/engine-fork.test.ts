@@ -21,8 +21,13 @@ describe.runIf(permissionModelAvailable)('forkEngine', () => {
     mkdirSync(join(project, 'node_modules', 'own'), { recursive: true });
     writeFileSync(join(root, 'node_modules', 'hoisted', 'index.js'), 'module.exports = 42;');
     writeFileSync(join(project, 'node_modules', 'own', 'index.js'), "module.exports = require('hoisted');");
-    mkdirSync(join(root, 'tmp'));
-    const script = join(root, 'tmp', 'engine.js');
+    // node_modules above the temp folder are searched before NODE_PATH, as
+    // happens with a node_modules in the user's home folder.
+    mkdirSync(join(root, 'tmp', 'node_modules', 'scriptside'), { recursive: true });
+    writeFileSync(join(root, 'tmp', 'node_modules', 'scriptside', 'package.json'), '{"main":"main.js"}');
+    writeFileSync(join(root, 'tmp', 'node_modules', 'scriptside', 'main.js'), "module.exports = 'found';");
+    const script = join(root, 'tmp', 'run', 'engine.js');
+    mkdirSync(join(root, 'tmp', 'run'));
     writeFileSync(
       script,
       `const r = {};
@@ -31,6 +36,7 @@ describe.runIf(permissionModelAvailable)('forkEngine', () => {
       attempt('spawn', () => require('child_' + 'process').execFileSync(process.execPath, ['-e', '0']));
       attempt('worker', () => new (require('worker_' + 'threads').Worker)('0', { eval: true }));
       r.hoisted = require('own');
+      r.scriptside = require('scriptside');
       r.canary = process.env.THATOPEN_FORK_CANARY ?? null;
       process.send(r, () => process.exit(0));`,
     );
@@ -48,6 +54,7 @@ describe.runIf(permissionModelAvailable)('forkEngine', () => {
       spawn: 'ERR_ACCESS_DENIED',
       worker: 'ERR_ACCESS_DENIED',
       hoisted: 42,
+      scriptside: 'found',
       canary: null,
     });
   });

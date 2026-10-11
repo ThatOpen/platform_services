@@ -14,7 +14,7 @@ const PERMISSION_FLAG = flags.has('--permission')
  * worker: Node's permission model (no file writes, child processes or worker
  * threads) and none of the developer's environment variables. The component
  * may read its project folder, the engine script and any node_modules above
- * the project (hoisted workspaces).
+ * either of them (hoisted workspaces, or a node_modules in the home folder).
  *
  * Paths are resolved first: the permission model checks real paths, and the
  * system temp folder is a symlink on macOS.
@@ -22,11 +22,16 @@ const PERMISSION_FLAG = flags.has('--permission')
 export function forkEngine(cwd: string, scriptPath: string): ChildProcess {
   const script = realpathSync(scriptPath);
   const project = realpathSync(cwd);
-  const readable = [script, project];
-  for (let dir = dirname(project); ; dir = dirname(dir)) {
-    const modules = join(dir, 'node_modules');
-    if (existsSync(modules)) readable.push(modules);
-    if (dirname(dir) === dir) break;
+  const readable = new Set([script, project]);
+  // Node searches node_modules above the script before NODE_PATH, and the
+  // dependencies' own lookups climb above the project: allow both chains, so
+  // modules resolve exactly as they did without the permission model.
+  for (const start of [dirname(script), dirname(project)]) {
+    for (let dir = start; ; dir = dirname(dir)) {
+      const modules = join(dir, 'node_modules');
+      if (existsSync(modules)) readable.add(modules);
+      if (dirname(dir) === dir) break;
+    }
   }
 
   const env: NodeJS.ProcessEnv = { NODE_PATH: join(project, 'node_modules') };
@@ -35,7 +40,7 @@ export function forkEngine(cwd: string, scriptPath: string): ChildProcess {
 
   return fork(script, [], {
     execArgv: PERMISSION_FLAG
-      ? [PERMISSION_FLAG, ...readable.map((p) => `--allow-fs-read=${p}`)]
+      ? [PERMISSION_FLAG, ...[...readable].map((p) => `--allow-fs-read=${p}`)]
       : [],
     stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
     env,
