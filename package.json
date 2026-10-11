@@ -72,6 +72,7 @@
     "vite-plugin-dts": "^3.9.1",
     "vite-plugin-eslint": "^1.8.1",
     "vitest": "^4.1.4",
+    "web-ifc": "^0.0.78",
     "zod": "^3.25.76"
   },
   "dependencies": {
