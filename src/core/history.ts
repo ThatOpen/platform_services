@@ -161,6 +161,38 @@ export interface FlowOwner {
   elements: string[];
 }
 
+/**
+ * The ordered recipe {@link FlowDoc.modelParts} answers: a baseline plus the
+ * steps that bring it to the asked version. See that method for the
+ * composition rule.
+ */
+export interface FlowModelParts {
+  baseline: {
+    /** The visible model file. */
+    fileId: string;
+    /** The version whose full export it is. */
+    guid: string;
+    /**
+     * True when the visible file's CURRENT content is this baseline. False
+     * when a later publish rewrote it — then download the file at
+     * `storageVersion` (when recorded) instead of its head.
+     */
+    current: boolean;
+    /** The CDE storage version the baseline landed in, when the history recorded it. */
+    storageVersion?: number;
+  };
+  /** One per version after the baseline, oldest first. */
+  steps: {
+    guid: string;
+    /** Hidden-file id of the delta .frag; absent on geometry-less versions. */
+    deltaId?: string;
+    /** Elements this version removed, by the native app's own stable ids. */
+    removedUniqueIds: string[];
+  }[];
+  /** The version the recipe reaches (the asked one, or the head). */
+  at: string;
+}
+
 /** What `sync` needs: the change list plus whatever the writer knows. */
 export interface SyncInput {
   author: string;
@@ -393,7 +425,13 @@ export class FlowDoc {
     return await response.blob();
   }
 
-  /** The visible model .frag as last fully exported. */
+  /**
+   * The visible model .frag AS LAST FULLY EXPORTED — the first commit, or the
+   * last explicit publish. Ordinary syncs only add hidden deltas, so this is
+   * NOT necessarily the head: anything computed on it (a clash run) is as of
+   * the last `full: true` version. For the model at a specific version, read
+   * {@link modelParts} and compose.
+   */
   async model(): Promise<Blob> {
     const file = await this.#modelFile();
     if (!file) {
@@ -403,6 +441,88 @@ export class FlowDoc {
     }
     const response = await this.client.downloadFile(file.id);
     return await response.blob();
+  }
+
+  /**
+   * The ordered recipe for the model AT a version: the baseline full export
+   * at-or-before it, then one step per later version up to it — each step's
+   * delta .frag (absent on geometry-less versions) and the element uniqueIds
+   * it removed. The consumer composes with its geometry engine: load the
+   * baseline, then per step replace elements by uniqueId from the delta and
+   * drop the removed. Composing is NOT done here: writing a merged .frag
+   * takes the fragments engine, which this package deliberately does not
+   * carry.
+   *
+   * UniqueIds are the native application's own stable element ids (a Revit
+   * UniqueId survives syncs, machines and full exports), which is what makes
+   * replace-by-uniqueId the whole composition rule.
+   *
+   * When the baseline is NEWER than the asked version (somebody published
+   * after it), the visible file no longer shows that moment: `baseline`
+   * then carries the older version's `storageVersion` when the history
+   * recorded one, so the consumer can download that stored file version
+   * instead of the current one.
+   */
+  async modelParts(options?: { at?: string }): Promise<FlowModelParts> {
+    const timeline = await this.timeline();
+    if (timeline.length === 0) {
+      throw new Error(
+        `Document ${this.source}-${this.docId} has no history yet.`,
+      );
+    }
+    const at = options?.at;
+    const targetIndex = at
+      ? timeline.findIndex((v) => v.guid === at)
+      : timeline.length - 1;
+    if (targetIndex < 0) {
+      throw new Error(`No version ${at} in this document's timeline.`);
+    }
+
+    // The newest full export at-or-before the target; the root failing that.
+    let baselineIndex = 0;
+    for (let i = targetIndex; i >= 0; i--) {
+      if (timeline[i].full) {
+        baselineIndex = i;
+        break;
+      }
+    }
+
+    const file = await this.#modelFile();
+    if (!file) {
+      throw new Error(
+        `Document ${this.source}-${this.docId} has no model file yet.`,
+      );
+    }
+
+    const baselineVersion = timeline[baselineIndex];
+    // Is the visible file's content the baseline we need? Only when no LATER
+    // full export rewrote it.
+    const rewrittenAfter = timeline
+      .slice(targetIndex + 1)
+      .some((v) => v.full);
+
+    const steps = timeline
+      .slice(baselineIndex + 1, targetIndex + 1)
+      .map((version) => ({
+        guid: version.guid,
+        ...(version.deltaId ? { deltaId: version.deltaId } : {}),
+        removedUniqueIds: version.changes
+          .filter((change) => change.type === 'delete')
+          .map((change) => change.uniqueId),
+      }));
+
+    return {
+      baseline: {
+        fileId: file.id,
+        guid: baselineVersion.guid,
+        current: !rewrittenAfter,
+        ...(baselineVersion.version !== undefined
+          ? { storageVersion: baselineVersion.version }
+          : {}),
+      },
+      steps,
+      at: timeline[targetIndex].guid,
+    };
   }
 
   /** The document folder's item id — the id the CDE knows this document by. */
@@ -457,6 +577,28 @@ export class FlowDoc {
       name: model?.name.replace(/\.frag$/, '') ?? this.#folderName,
       views: [view],
     });
+  }
+
+  /**
+   * Makes sure the folder carries a descriptor, WRITING one when it predates
+   * them: the visible model .frag becomes the 'frag' view. The explicit form
+   * of what {@link addView} does implicitly — reads like `descriptor()` never
+   * write, so migrating an old folder is this deliberate call. Returns the
+   * descriptor either way, or null when there is nothing to describe yet (no
+   * model file).
+   */
+  async ensureDescriptor(): Promise<DocumentDescriptor | null> {
+    const folderId = await this.#folder(false);
+    const existing = await this.#documents.descriptor(folderId);
+    if (existing) return existing;
+    const model = await this.#modelFile();
+    if (!model) return null;
+    const descriptor = {
+      name: model.name.replace(/\.frag$/, ''),
+      views: [{ fileId: model.id, format: 'frag' }],
+    };
+    await this.#documents.setDescriptor(folderId, descriptor);
+    return await this.#documents.descriptor(folderId);
   }
 
   // ─── Ownership (element locks) ─────────────────────────────────────────────
