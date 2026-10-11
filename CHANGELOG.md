@@ -1,5 +1,11 @@
 # thatopen-services
 
+## 0.26.0
+
+### Minor Changes
+
+- f3915e7: Built-in recipes and the frag reader. `readFrag(bytes)` reads a .frag's metadata and items (guids, categories, attributes) straight off the flatbuffer, no engine, no workers — on the same optional peers as `OperationBuilder`. `registerBuiltinRecipes(client)` ships the platform's own recipes: `rhino-to-revit` (the placed objects of a Rhino layer become Revit instances of a chosen type, reconciling new/moved/gone across runs, units and axes read from the source and refused when undeclared), plus `ifc-to-revit` and `frag-to-revit` (one engine reading the platform's semantic records — `Element`/`Carried` — out of a converted frag: columns on their levels and, opting in, free-standing family instances; walls, slabs and stairs are read and tallied but propose nothing until the Revit applier grows native creation, and the rules table says so). A plain IFC import without records is refused by name, never guessed at. Verified against a real converted model: levels resolve, styles split into Family:Type, positions land in feet.
+
 ## 0.25.0
 
 ### Minor Changes
