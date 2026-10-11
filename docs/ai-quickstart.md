@@ -352,7 +352,36 @@ is the reply. The full walkthrough (typed contracts, collaboration events,
 presence) is `node_modules/@thatopen/services/src/core/examples/channel.ts`,
 indexed in the client API index you already loaded.
 
-## 5c. The desktop MCP server: `thatopen mcp`
+## 5c. History and recipes: documents, versions, change requests
+
+Three sentences hold the whole model. Every connected document (a Revit model,
+an AutoCAD drawing) has its version history: who synced, when, what changed.
+Nobody writes in somebody else's document: changes arrive as SUGGESTIONS
+(create/modify/delete native data) that the owner accepts or dismisses in the
+native app. A RECIPE is a script that writes suggestions in an application's
+own language, from whatever input.
+
+```ts
+const history = client.history(projectId);
+const docs = await history.docs();                 // the connected documents
+const doc = history.doc('revit', docs[0].docId);
+const timeline = await doc.timeline();             // versions, oldest first
+const pending = await doc.pendingSuggestions();    // waiting for the owner
+
+client.recipes.register(myRecipe);                 // manifest + one run()
+await client.recipes.run('my-recipe', {            // only QUEUES a suggestion:
+  projectId, target: { source: 'revit', docId },   // trying is always safe
+  input, settings, author,
+});
+```
+
+This surface is the only supported way in: the storage underneath is private
+and will move. Never list or write the `bimterop` files directly. The full
+walkthrough (manifest fields, StaleHistoryError on concurrent syncs, payloads)
+is `node_modules/@thatopen/services/src/core/examples/history.ts`, indexed in
+the client API index you already loaded.
+
+## 5d. The desktop MCP server: `thatopen mcp`
 
 The raw socket above is for tools you write. For an LLM on the desktop (Claude
 Desktop, Claude Code, anything that speaks MCP), the CLI ships the same bridge
