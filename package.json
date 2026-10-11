@@ -82,14 +82,22 @@
   },
   "peerDependencies": {
     "@thatopen/components": "~3.4.0",
+    "@thatopen/fragments": "~3.4.0",
     "@thatopen/ui": "~3.4.0",
+    "flatbuffers": ">=23.0.0",
     "three": ">=0.182.0"
   },
   "peerDependenciesMeta": {
     "@thatopen/components": {
       "optional": true
     },
+    "@thatopen/fragments": {
+      "optional": true
+    },
     "@thatopen/ui": {
+      "optional": true
+    },
+    "flatbuffers": {
       "optional": true
     },
     "three": {

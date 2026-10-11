@@ -3,6 +3,7 @@ export * from './core/platform-client';
 export * from './core/channel';
 export * from './core/documents';
 export * from './core/history';
+export * from './core/op-builder';
 export * from './core/recipes';
 export * from './core/request-error';
 export * from './types/items';

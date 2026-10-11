@@ -415,6 +415,14 @@ await client.recipes.run('my-recipe', {            // only QUEUES a suggestion:
 `docs()` also answers `folderId` — the id the CDE knows that document by, the
 bridge between this section and 5c.
 
+To AUTHOR a suggestion's payload, `OperationBuilder` (same import) writes the
+operation .frag: `new OperationBuilder(target).add(attrs, placement)` /
+`.set(id, attrs)` / `.remove(id)`, then `await builder.build(opId)` gives the
+bytes for `suggest({ payload })`. Attributes go in the TARGET app's own terms
+and units, untranslated. It needs the optional peers `flatbuffers` and
+`@thatopen/fragments` installed (loaded only when `build()` runs — nothing
+else in the package needs them).
+
 This surface is the only supported way in: the storage underneath is private
 and will move. Never list or write the `bimterop` files directly. The full
 walkthrough (manifest fields, StaleHistoryError on concurrent syncs, payloads)

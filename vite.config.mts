@@ -11,6 +11,10 @@ export default defineConfig({
     sourcemap: true,
     lib: { entry: resolve(__dirname, 'src/index.ts'), formats: ['cjs', 'es'] },
     rollupOptions: {
+      // Optional peers, resolved from the CONSUMER's node_modules at the
+      // moment an operation is built — bundling them here would ship the
+      // whole fragments schema to every app that never authors one.
+      external: ['flatbuffers', '@thatopen/fragments'],
       output: {
         assetFileNames: 'assets/[name][extname]',
         entryFileNames: '[name].[format].js',
