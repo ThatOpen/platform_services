@@ -3,6 +3,13 @@
 The concrete contract. [The architecture notes](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/flow-architecture.md) say why any of this is
 shaped the way it is; this says what the bytes look like.
 
+> **Plug-ins only.** Since `@thatopen/services` 0.20, apps and scripts do not write this layout by
+> hand: `client.history(projectId)` reads and writes documents, version timelines and proposals,
+> and `client.recipes` runs the scripts that author them — see `src/core/examples/history.ts` in
+> the package. The bytes below are the contract for NATIVE PLUG-INS (which carry their own client),
+> and the reference for what the API does underneath. Anything else touching these files directly
+> will break when the layout moves behind the API, which is the plan.
+
 Nothing here is aspirational. Every rule below is what the Revit and Rhino plugins already do, and
 was written from their implementation rather than ahead of it — which is why the awkward parts are
 stated as plainly as the tidy ones. Where a rule exists because something broke, it says so.

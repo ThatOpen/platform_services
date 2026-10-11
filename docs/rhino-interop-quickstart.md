@@ -195,10 +195,16 @@ happened.
 Points count as items without geometry. That is correct: they are the data the converter reads, not
 something to draw.
 
-## 5. The converter
+## 5. The converter (a recipe)
 
 This is the part that is **not** in either plug-in, and should not be. It reads the published
 `.frag`, decides what it means, and queues a proposal.
+
+> A converter is one kind of **recipe**: a script that writes proposals in the target program's
+> own words. Since `@thatopen/services` 0.20, write it against the SDK instead of the raw files:
+> `client.history(projectId)` reads the queue and the timeline and queues the proposal
+> (`doc.suggest`), and `client.recipes` is the registry/runner apps use to list it, render its
+> settings form and run it safely. The four steps below are unchanged.
 
 The worked example is `RhinoColumnsConverter`: points on a named layer become Revit columns of a
 given family and type. It is written to be read and then rewritten — the next person wants walls
