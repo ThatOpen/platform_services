@@ -1,4 +1,6 @@
 import { io } from 'socket.io-client';
+import { ProjectHistory } from './history';
+import { Recipes } from './recipes';
 import {
   ExecutionEntity,
   ExecutionSuscriptionReturnType,
@@ -1346,6 +1348,29 @@ export class EngineServicesClient {
     socket.on('connect_error', function (e: unknown) {
       console.log(e);
     });
+  }
+
+  // ─── History & Recipes ───────────────────────────────────────────
+
+  /**
+   * A project's history of connected documents (Revit models, AutoCAD
+   * drawings…): their version timelines and their change requests. See
+   * `src/core/history.ts` — this surface is the only supported way to read
+   * or write it; the storage underneath is private and will move.
+   */
+  history(projectId: string): ProjectHistory {
+    return new ProjectHistory(this, projectId);
+  }
+
+  #recipes?: Recipes;
+
+  /**
+   * The recipe registry and runner: scripts that write change requests in a
+   * native application's language. See `src/core/recipes.ts`.
+   */
+  get recipes(): Recipes {
+    this.#recipes ??= new Recipes(this);
+    return this.#recipes;
   }
 
   // ─── Hidden Files ────────────────────────────────────────────────

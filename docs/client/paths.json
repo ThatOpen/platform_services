@@ -36,6 +36,10 @@
     "description": "Hidden file lifecycle — create, get, list by parent, download, and delete."
   },
   {
+    "path": "src/core/examples/history.ts",
+    "description": "History and recipes — a project's connected documents (Revit, AutoCAD…), their version timelines, change requests (suggestions), and recipes: scripts that write suggestions in an app's native language."
+  },
+  {
     "path": "src/core/examples/icons.ts",
     "description": "Item icon management — upload, download, and remove icons on any item (file, app, or component)."
   },
