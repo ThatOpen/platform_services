@@ -1,12 +1,12 @@
-﻿/**
+/**
  * The platform's own records become Revit change requests: one engine, two
  * recipes. `frag-to-revit` reads a model made or edited here (Designer);
  * `ifc-to-revit` reads the frag an IFC was converted into. Same records,
- * same rules â€” the only difference is where the file came from, and the
+ * same rules - the only difference is where the file came from, and the
  * recipe saying so to the person.
  *
  * WHAT IT PROPOSES TODAY, honestly: the Revit add-in's applier creates
- * point-placed family instances and edits/removes by id â€” nothing else yet.
+ * point-placed family instances and edits/removes by id - nothing else yet.
  * So columns (member records) and free-standing family instances become
  * proposals; walls, slabs, stairs and everything with a body are READ and
  * TALLIED but propose nothing, and the rules table says so. As the applier
@@ -40,7 +40,7 @@ interface Settings {
    * Trust the records' own style names instead: `lookRef`
    * "Family:Type" becomes the proposal's Family and Type verbatim. Revit
    * matches a type exactly and refuses the whole request when one is missing
-   * â€” right for a model that came FROM this Revit, wrong for anything else.
+   * - right for a model that came FROM this Revit, wrong for anything else.
    */
   trustStyleNames?: boolean;
   /** Also propose free-standing family instances (furniture, equipment). Needs trustStyleNames. */
@@ -115,7 +115,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       author,
     });
     // Records are metres; Revit is feet. Plane [x, y] + height is Revit
-    // [x, y, z] directly â€” both are Z up in these records.
+    // [x, y, z] directly - both are Z up in these records.
     const s = FEET_PER_METRE;
     const sourceKey = (record: OurRecord) => `${picked.fileId}:${record.id}`;
 
@@ -213,7 +213,7 @@ function sharedRun(to: 'frag' | 'ifc') {
     if (operation.length === 0) {
       throw new Error(
         `Nothing the Revit applier can do yet: "${picked.name}" has ${bodies} element(s) with a body ` +
-          '(walls, slabs, stairsâ€¦) and no column or free-standing instance. Those arrive as the applier grows.',
+          '(walls, slabs, stairs...) and no column or free-standing instance. Those arrive as the applier grows.',
       );
     }
 
@@ -253,7 +253,7 @@ const sharedSchema = {
     },
     trustStyleNames: {
       type: 'boolean',
-      title: 'Use the modelâ€™s own style names as Family:Type',
+      title: "Use the model's own style names as Family:Type",
       default: false,
     },
     includeInstances: {
@@ -279,7 +279,7 @@ const sharedRules = [
   },
   {
     reads: 'Walls, slabs, stairs and every element with a body',
-    proposes: 'Nothing yet â€” waits on the Revit applier growing',
+    proposes: 'Nothing yet - waits on the Revit applier growing',
   },
 ];
 
@@ -313,7 +313,7 @@ the applier learns native creation for them.
 Run it again after the model changed and it asks only for the difference. It
 can only ever ask to remove what it asked for itself; elements a person made
 in Revit are invisible to it. What it made is read back from its own applied
-requests â€” it keeps nothing of its own.
+requests - it keeps nothing of its own.
 
 ## Units and axes
 
@@ -328,14 +328,14 @@ export const ifcToRevit: Recipe<Settings> = {
   name: 'ifc-to-revit',
   title: 'IFC to Revit',
   description:
-    'Turns an IFC â€” through the frag the platform converted it into â€” into change requests for a Revit document.',
+    'Turns an IFC - through the frag the platform converted it into - into change requests for a Revit document.',
   inputs: ['ifc-model'],
   doc: `
 ## What it does
 
 It reads the .frag your IFC was PROCESSED into (the IFC document's view) and
 asks a Revit document for the elements its records describe. Point it at that
-frag: a plain IFC import carries only IFC attributes and is refused by name â€”
+frag: a plain IFC import carries only IFC attributes and is refused by name -
 the editable converter is what gives an IFC real records.
 
 ## What it can ask for today
@@ -349,7 +349,7 @@ the applier learns native creation for them.
 
 Run it again after a reconversion and it asks only for the difference. It can
 only ever ask to remove what it asked for itself. What it made is read back
-from its own applied requests â€” it keeps nothing of its own.
+from its own applied requests - it keeps nothing of its own.
 
 ## Units and axes
 

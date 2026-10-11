@@ -1,8 +1,8 @@
-﻿/**
+/**
  * A Rhino layer becomes Revit family instances: the built-in form of the one
  * conversion proven end to end (flow, 2026-07-30). Each object of the chosen
  * layer that declares a `Position` asks for an instance of the chosen Revit
- * type where it stands â€” the porch colonnade: Rhino drives WHERE, Revit owns
+ * type where it stands - the porch colonnade: Rhino drives WHERE, Revit owns
  * WHAT.
  */
 import type { Recipe, RecipeContext } from '../recipes';
@@ -111,7 +111,7 @@ accepts the request there.
 Run it again after the Rhino model changed and it asks only for the
 difference: new objects become new instances, moved objects move theirs, and
 an object that is gone asks for its instance to be removed. It can only ever
-ask to remove an instance it asked for itself â€” elements a person made in
+ask to remove an instance it asked for itself - elements a person made in
 Revit are invisible to it. What it made is read back from its own applied
 requests; it keeps nothing of its own.
 

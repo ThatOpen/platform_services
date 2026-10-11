@@ -1,4 +1,4 @@
-﻿/**
+/**
  * What every built-in recipe shares: reading the platform's own semantic
  * records out of a .frag, finding what a recipe already made, and the unit
  * and axis conversions into Revit.
@@ -8,12 +8,12 @@
  * attributes: `Element` (the item's own record) and `Carried` (records with
  * no body of their own: openings, levels). The field names are the modeling
  * engine's contract (`element-attributes.ts`: ELEMENT_FIELD, CARRIED_FIELD).
- * A .frag imported with the plain IfcImporter has NEITHER â€” only IFC
- * attributes â€” and the recipes refuse it by name rather than guess.
+ * A .frag imported with the plain IfcImporter has NEITHER - only IFC
+ * attributes - and the recipes refuse it by name rather than guess.
  *
  * UNITS AND AXES. Records are in METRES and radians; curve points are plane
- * [x, y] and placements [x, y, height]. Revit's API is FEET, Z up â€” so
- * [x, y, h] maps to Revit [xÂ·s, yÂ·s, hÂ·s] with s = feet-per-metre. Item ids
+ * [x, y] and placements [x, y, height]. Revit's API is FEET, Z up - so
+ * [x, y, h] maps to Revit [x*s, y*s, h*s] with s = feet-per-metre. Item ids
  * like `run:0` are DOCUMENT-scoped, not GUIDs: a reconcile key must carry the
  * source file's identity next to them.
  */
@@ -71,7 +71,7 @@ export function recordsOf(items: FragItem[]): OurRecord[] {
 
 /**
  * A param the converter double-encodes (`params.run`, `params.member`,
- * `params.definition`â€¦ are JSON IN TEXT inside the record's JSON).
+ * `params.definition`... are JSON IN TEXT inside the record's JSON).
  */
 export function innerJson<T>(record: OurRecord, param: string): T | null {
   const raw = record.params[param];
@@ -83,7 +83,7 @@ export function innerJson<T>(record: OurRecord, param: string): T | null {
   }
 }
 
-/** Level id (`datum:N`) â†’ its name, from the document's datum records. */
+/** Level id (`datum:N`) -> its name, from the document's datum records. */
 export function levelNames(records: OurRecord[]): Map<string, string> {
   const names = new Map<string, string>();
   for (const record of records) {
@@ -95,7 +95,7 @@ export function levelNames(records: OurRecord[]): Map<string, string> {
 }
 
 /**
- * Source id â†’ what this recipe already made for it, read back from its own
+ * Source id -> what this recipe already made for it, read back from its own
  * APPLIED suggestions: the i-th id the target answered with is what the i-th
  * change made. It keeps nothing of its own, so it behaves the same whoever
  * runs it and wherever (the pattern the first end-to-end conversion proved).
