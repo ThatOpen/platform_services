@@ -125,6 +125,13 @@ export interface FlowDocInfo {
   docId: string;
   /** The visible model file's name, when one exists yet. */
   modelName?: string;
+  /**
+   * True when the folder exists but holds neither history, model nor
+   * suggestion queue — a document somebody connected and never synced (a
+   * plugin mid-first-publish, or an abandoned start). A legitimate state,
+   * listed rather than hidden; apps decide whether to show it dimmed.
+   */
+  empty?: boolean;
 }
 
 /** What `sync` needs: the change list plus whatever the writer knows. */
@@ -245,10 +252,26 @@ export class ProjectHistory {
       const name = String(folder.name ?? '');
       const dash = name.indexOf('-');
       if (dash <= 0) continue;
+      // One listing per doc, so the caller can tell a live document from a
+      // never-synced shell without fetching anything else.
+      const files = await this.client.listFiles({
+        folderId: idOf(folder as never),
+      });
+      const names = files.map((f) =>
+        String((f as { name?: unknown }).name ?? ''),
+      );
+      const model =
+        names.find((n) => n === LEGACY_MODEL_FILE) ??
+        names.find(
+          (n) => n.endsWith('.frag') && !n.startsWith(INTERNAL_PREFIX),
+        );
+      const hasAny =
+        names.includes(HISTORY_FILE) || names.includes(OPS_FILE) || !!model;
       docs.push({
         source: name.slice(0, dash),
         docId: name.slice(dash + 1),
-        modelName: undefined,
+        modelName: model,
+        ...(hasAny ? {} : { empty: true }),
       });
     }
     return docs;

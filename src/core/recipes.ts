@@ -34,6 +34,15 @@ export interface ExistingLookup {
   of: string;
   /** Where it exists: the target document, or the declared source. Default 'target'. */
   from?: 'target' | 'source';
+  /**
+   * Narrows the candidates: attribute equals value, against the attribute
+   * names EXACTLY as the native application publishes them, no case
+   * normalization. Prefer the stable machine fields over display names —
+   * Revit's `Category` text is localized per install ("Armazón estructural"),
+   * so a column filter is `{ CategoryId: '-2001330' }`, never
+   * `{ Category: 'Columns' }`.
+   */
+  where?: Record<string, string>;
 }
 
 /** What a recipe declares about itself. Shown in catalogs, checked by apps. */
@@ -119,6 +128,20 @@ export interface RecipeRunOutcome {
 }
 
 /**
+ * What {@link Recipes.plan} returns: everything needed to queue EXACTLY what
+ * was planned, without running the recipe again — the payload already embeds
+ * this `opId`. Hand it to {@link Recipes.queue} when the person confirms.
+ */
+export interface RecipePlan {
+  opId: string;
+  projectId: string;
+  target: { source: string; docId: string };
+  /** The head the plan was built against, for the suggestion's base. */
+  baseCommitGuid?: string;
+  result: RecipeResult;
+}
+
+/**
  * The local recipe registry and runner. Reach it as `client.recipes`.
  */
 export class Recipes {
@@ -150,17 +173,48 @@ export class Recipes {
   }
 
   /**
-   * Runs a recipe WITHOUT queueing anything: the dry pass. Returns the
-   * recipe's result — title, tallies per rule, targets — so an app can show
-   * what would be proposed before anybody confirms. The payload it may have
-   * built is discarded along with its opId.
+   * Runs a recipe WITHOUT queueing anything: the dry pass. Returns a
+   * {@link RecipePlan} — the result to show (title, tallies, targets) plus
+   * everything {@link queue} needs to queue EXACTLY this, payload and opId
+   * included, with no second run. Discard it and the plan never happened.
    */
   async plan<S>(
     name: string,
     options: RecipeRunOptions<S>,
-  ): Promise<RecipeResult> {
-    const { result } = await this.#execute(name, options);
-    return result;
+  ): Promise<RecipePlan> {
+    const { base, opId, result } = await this.#execute(name, options);
+    return {
+      opId,
+      projectId: options.projectId,
+      target: options.target,
+      ...(base?.guid ? { baseCommitGuid: base.guid } : {}),
+      result,
+    };
+  }
+
+  /**
+   * Queues exactly what {@link plan} planned: same opId, same payload, no
+   * second execution. The pair plan → confirm → queue is the UI flow; `run`
+   * is the one-shot shortcut.
+   */
+  async queue(
+    plan: RecipePlan,
+    options: { author: string; userId?: string },
+  ): Promise<RecipeRunOutcome> {
+    const targetDoc = this.client
+      .history(plan.projectId)
+      .doc(plan.target.source, plan.target.docId);
+    const suggestion = await targetDoc.suggest({
+      opId: plan.opId,
+      title: plan.result.title,
+      verb: plan.result.verb,
+      author: options.author,
+      payload: plan.result.payload,
+      targets: plan.result.targets,
+      userId: options.userId,
+      baseCommitGuid: plan.baseCommitGuid,
+    });
+    return { suggestion, result: plan.result };
   }
 
   /**
