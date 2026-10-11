@@ -229,6 +229,14 @@ export type EngineServicesClientProps = {
  * const files = await client.listFiles();
  * ```
  */
+/**
+ * The platform takes a file's extension from the upload's filename, and a bare
+ * Blob is sent as "blob". Give it the item's name so `fileExtension` is set.
+ */
+function namedFile(file: File | Blob, name: string): File | Blob {
+  return file instanceof File ? file : new File([file], name, { type: file.type });
+}
+
 export class EngineServicesClient {
   private apiUrl: string;
   private accessToken: string;
@@ -557,7 +565,10 @@ export class EngineServicesClient {
    * @returns The created item and its first version.
    */
   async createFile(fileData: CreateItemProps) {
-    return await this.#createItem(fileData, ITEM_TYPE_FILE);
+    return await this.#createItem(
+      { ...fileData, file: namedFile(fileData.file, fileData.name) },
+      ITEM_TYPE_FILE,
+    );
   }
 
   /**
@@ -571,7 +582,11 @@ export class EngineServicesClient {
     fileId: string,
     fileData: UpdateItemProps,
   ): Promise<UpdateItemResponse> {
-    return await this.#updateItem(fileId, fileData);
+    const { file, name } = fileData;
+    return await this.#updateItem(
+      fileId,
+      file && name ? { ...fileData, file: namedFile(file, name) } : fileData,
+    );
   }
 
   /**
