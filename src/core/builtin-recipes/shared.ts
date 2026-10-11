@@ -86,12 +86,34 @@ export function innerJson<T>(record: OurRecord, param: string): T | null {
 /** Level id (`datum:N`) -> its name, from the document's datum records. */
 export function levelNames(records: OurRecord[]): Map<string, string> {
   const names = new Map<string, string>();
+  for (const [id, level] of levelsOf(records)) names.set(id, level.name);
+  return names;
+}
+
+/** Level id -> name and elevation (metres), from the datum records. */
+export function levelsOf(
+  records: OurRecord[],
+): Map<string, { name: string; at: number }> {
+  const levels = new Map<string, { name: string; at: number }>();
   for (const record of records) {
     if (record.kind !== 'datum' || record.params.of !== 'level') continue;
     const named = record.params.named;
-    if (typeof named === 'string') names.set(record.id, named);
+    const at = record.params.at;
+    if (typeof named === 'string' && typeof at === 'number')
+      levels.set(record.id, { name: named, at });
   }
-  return names;
+  return levels;
+}
+
+/** Styles by name (`lookRef` points here): the record, for thickness hints. */
+export function stylesOf(records: OurRecord[]): Map<string, OurRecord> {
+  const styles = new Map<string, OurRecord>();
+  for (const record of records) {
+    if (!record.kind.endsWith('Style')) continue;
+    const name = record.params.name;
+    if (typeof name === 'string') styles.set(name, record);
+  }
+  return styles;
 }
 
 /**

@@ -5,26 +5,41 @@
  * same rules - the only difference is where the file came from, and the
  * recipe saying so to the person.
  *
- * WHAT IT PROPOSES TODAY, honestly: the Revit add-in's applier creates
- * point-placed family instances and edits/removes by id - nothing else yet.
- * So columns (member records) and free-standing family instances become
- * proposals; walls, slabs, stairs and everything with a body are READ and
- * TALLIED but propose nothing, and the rules table says so. As the applier
- * grows (walls and floors by native creation are agreed), rules light up here
- * without the recipes changing shape.
+ * WHOLE BUILDINGS, not demos: levels, walls, floors, columns and
+ * free-standing instances all become proposals, in that order, in ONE
+ * operation - levels first because walls stand on them, by name. The applier
+ * materialises each natively (Wall.Create, Floor.Create, Level ensured by
+ * name) and makes missing wall/floor types from the carried `Type.Width`.
+ * What the applier cannot create yet - stairs, roofs, footings, curtain
+ * pieces, hosted doors and windows - is READ and TALLIED, and the rules
+ * table says so; those rows light up as the applier grows, without the
+ * recipes changing shape.
+ *
+ * CONVENTIONS, stated once: records are metres and radians, plane [x, y]
+ * with height as the third coordinate, levels referenced as `datum:N` and
+ * resolved to names; proposals are written in Revit's own terms - feet,
+ * degrees, types by exact name. Record ids are DOCUMENT-scoped, so every
+ * reconcile key carries the source file's id next to them.
  */
 import type { Recipe, RecipeContext } from '../recipes';
 import { OperationBuilder } from '../op-builder';
 import {
   FEET_PER_METRE,
   innerJson,
-  levelNames,
+  levelsOf,
   readPickedFrag,
   recordsOf,
+  stylesOf,
   whatItMadeBefore,
-  type OurRecord,
   type PickedFile,
 } from './shared';
+
+/** Revit's own category ids, printed from RevitAPI.dll - never guessed. */
+const CATEGORY = {
+  levels: '-2000240',
+  walls: '-2000011',
+  floors: '-2000032',
+};
 
 /** A family type of the target, as the target publishes it. */
 interface RevitType {
@@ -34,25 +49,27 @@ interface RevitType {
 }
 
 interface Settings {
-  /** The Revit type every proposed column gets. */
+  /** The Revit type proposed columns get, when style names are not trusted. */
   columnType?: RevitType;
   /**
-   * Trust the records' own style names instead: `lookRef`
-   * "Family:Type" becomes the proposal's Family and Type verbatim. Revit
+   * Trust the records' own style names: `lookRef` "Family:Type" becomes the
+   * proposal's Family and Type verbatim, for columns and instances. Revit
    * matches a type exactly and refuses the whole request when one is missing
    * - right for a model that came FROM this Revit, wrong for anything else.
+   * (Walls and floors always go by their style name: system types are named
+   * identity, and the applier makes a missing one from the carried width.)
    */
   trustStyleNames?: boolean;
   /** Also propose free-standing family instances (furniture, equipment). Needs trustStyleNames. */
   includeInstances?: boolean;
+  /** Carry the model's levels (ensured by name on the target). Default true. */
+  createLevels?: boolean;
 }
 
 /** The saved member's inner JSON (`params.member`). */
 interface MemberBody {
   of?: string;
-  lookRef?: string;
   start?: [number, number, number];
-  end?: [number, number, number];
   roll?: number;
   level?: string;
 }
@@ -66,6 +83,29 @@ interface InstanceBody {
   host?: string | null;
 }
 
+/** A run's inner JSON (`params.run`): the wall's line and bounds. */
+interface RunBody {
+  run?: { line?: { curves?: CurveJson[]; closed?: boolean } };
+  base?: number;
+  height?: number;
+  level?: string;
+}
+
+/** An extrusion's inner JSON (`params.extrusion`): the slab's profile. */
+interface ExtrusionBody {
+  profile?: {
+    outline?: { curves?: CurveJson[]; closed?: boolean };
+    holes?: { curves?: CurveJson[] }[];
+  };
+  level?: string;
+}
+
+interface CurveJson {
+  kind?: string;
+  from?: [number, number];
+  to?: [number, number];
+}
+
 const DEGREES = 180 / Math.PI;
 
 /** "Family:Type" as the styles name things; null when it does not split. */
@@ -75,6 +115,8 @@ function familyAndType(lookRef: unknown): { family: string; type: string } | nul
   if (colon <= 0 || colon === lookRef.length - 1) return null;
   return { family: lookRef.slice(0, colon), type: lookRef.slice(colon + 1) };
 }
+
+const num = (v: number) => String(v);
 
 function sharedRun(to: 'frag' | 'ifc') {
   return async (context: RecipeContext<Settings>) => {
@@ -93,18 +135,15 @@ function sharedRun(to: 'frag' | 'ifc') {
     }
 
     const { columnType, trustStyleNames, includeInstances } = context.settings;
-    if (!columnType && !trustStyleNames) {
-      throw new Error(
-        'Choose the Revit column type, or trust the model style names.',
-      );
-    }
+    const createLevels = context.settings.createLevels !== false;
     if (includeInstances && !trustStyleNames) {
       throw new Error(
         'Free-standing instances can only be proposed by their style names: turn trustStyleNames on.',
       );
     }
 
-    const levels = levelNames(records);
+    const levels = levelsOf(records);
+    const styles = stylesOf(records);
     const author = `recipe:${to}-to-revit`;
     const made = await whatItMadeBefore(context, author);
     const head = await context.targetDoc.latest();
@@ -117,109 +156,228 @@ function sharedRun(to: 'frag' | 'ifc') {
     // Records are metres; Revit is feet. Plane [x, y] + height is Revit
     // [x, y, z] directly - both are Z up in these records.
     const s = FEET_PER_METRE;
-    const sourceKey = (record: OurRecord) => `${picked.fileId}:${record.id}`;
-
-    let columns = 0;
-    let instances = 0;
-    let bodies = 0;
+    const key = (recordId: string) => `${picked.fileId}:${recordId}`;
     const seen = new Set<string>();
-    const propose = (
-      record: OurRecord,
+
+    /** Adds once per source key; an already-made thing is left alone (kept). */
+    let kept = 0;
+    const add = (
+      sourceKey: string,
       attrs: Record<string, string>,
-      position: [number, number, number],
-      rotationDeg: number,
+      placement?: { position?: [number, number, number]; rotationDeg?: number },
     ) => {
-      const key = sourceKey(record);
-      seen.add(key);
-      const existing = made.get(key);
-      if (existing) {
-        operation.set(existing, {}, { position, rotationDeg, source: key });
-      } else {
-        operation.add(attrs, { position, rotationDeg, source: key });
+      seen.add(sourceKey);
+      if (made.has(sourceKey)) {
+        kept++;
+        return false;
       }
+      operation.add(attrs, { ...placement, source: sourceKey });
+      return true;
     };
 
+    const thicknessOf = (lookRef: unknown): number | undefined => {
+      const style =
+        typeof lookRef === 'string' ? styles.get(lookRef) : undefined;
+      const thickness = style?.params.thickness;
+      return typeof thickness === 'number' && thickness > 0
+        ? thickness * s
+        : undefined;
+    };
+
+    // ---- 1. Levels: named identity, ensured on the target. ----
+    let levelCount = 0;
+    if (createLevels) {
+      for (const [datumId, level] of levels) {
+        if (
+          add(key(datumId), {
+            CategoryId: CATEGORY.levels,
+            Name: level.name,
+            Elevation: num(level.at * s),
+          })
+        )
+          levelCount++;
+        else levelCount++;
+      }
+    }
+
+    // ---- 2. Walls: one add per straight segment of each wall run. ----
+    let wallCount = 0;
+    let wallSkipped = 0;
     for (const record of records) {
-      if (record.kind === 'member' && record.params.of === 'column') {
-        const body = innerJson<MemberBody>(record, 'member');
-        const at = body?.start;
-        if (!at || at.length !== 3) continue;
-        const named = trustStyleNames ? familyAndType(record.params.lookRef) : null;
-        // A style name that does not split names nothing proposable.
-        if (trustStyleNames && !named) continue;
-        const family = named ?? {
-          family: columnType!.family,
-          type: columnType!.type,
+      if (record.kind !== 'run' || record.params.of !== 'wall') continue;
+      const body = innerJson<RunBody>(record, 'run');
+      const curves = body?.run?.line?.curves ?? [];
+      const base = typeof body?.base === 'number' ? body.base : 0;
+      const height = body?.height;
+      const level = levels.get(String(body?.level ?? record.params.level ?? ''));
+      const lookRef = record.params.lookRef;
+      if (typeof lookRef !== 'string' || typeof height !== 'number' || !level) {
+        wallSkipped++;
+        continue;
+      }
+      curves.forEach((curve, i) => {
+        if (curve.kind !== 'segment' || !curve.from || !curve.to) {
+          wallSkipped++;
+          return;
+        }
+        const z = base * s;
+        const line =
+          `${num(curve.from[0] * s)},${num(curve.from[1] * s)},${num(z)};` +
+          `${num(curve.to[0] * s)},${num(curve.to[1] * s)},${num(z)}`;
+        const attrs: Record<string, string> = {
+          CategoryId: CATEGORY.walls,
+          Type: lookRef,
+          LocationLine: line,
+          Level: level.name,
+          BaseOffset: num((base - level.at) * s),
+          Height: num(height * s),
         };
-        const level = levels.get(String(body?.level ?? ''));
-        propose(
-          record,
+        const width = thicknessOf(lookRef);
+        if (width) attrs['Type.Width'] = num(width);
+        if (add(`${key(record.id)}#${i}`, attrs)) wallCount++;
+      });
+    }
+
+    // ---- 3. Floors: slabs by their boundary loops. ----
+    let floorCount = 0;
+    let floorSkipped = 0;
+    for (const record of records) {
+      if (record.kind !== 'extrusion' || record.params.of !== 'slab') continue;
+      const body = innerJson<ExtrusionBody>(record, 'extrusion');
+      const base =
+        typeof record.params.base === 'number' ? record.params.base : 0;
+      const level = levels.get(String(body?.level ?? record.params.level ?? ''));
+      const lookRef = record.params.lookRef;
+      const loopOf = (curves?: CurveJson[]): number[] | null => {
+        if (!curves?.length) return null;
+        const flat: number[] = [];
+        for (const curve of curves) {
+          if (curve.kind !== 'segment' || !curve.from) return null;
+          flat.push(curve.from[0] * s, curve.from[1] * s, base * s);
+        }
+        return flat.length >= 9 ? flat : null;
+      };
+      const outer = loopOf(body?.profile?.outline?.curves);
+      if (typeof lookRef !== 'string' || !level || !outer) {
+        floorSkipped++;
+        continue;
+      }
+      const loops: number[][] = [outer];
+      for (const hole of body?.profile?.holes ?? []) {
+        const inner = loopOf(hole?.curves);
+        if (inner) loops.push(inner);
+      }
+      const attrs: Record<string, string> = {
+        CategoryId: CATEGORY.floors,
+        Type: lookRef,
+        Profile: JSON.stringify(loops),
+        Level: level.name,
+      };
+      const width = thicknessOf(lookRef);
+      if (width) attrs['Type.Width'] = num(width);
+      if (add(key(record.id), attrs)) floorCount++;
+    }
+
+    // ---- 4. Columns (members), by picked type or by style name. ----
+    let columnCount = 0;
+    for (const record of records) {
+      if (record.kind !== 'member' || record.params.of !== 'column') continue;
+      const body = innerJson<MemberBody>(record, 'member');
+      const at = body?.start;
+      if (!at || at.length !== 3) continue;
+      const named = trustStyleNames ? familyAndType(record.params.lookRef) : null;
+      if (trustStyleNames && !named) continue;
+      if (!named && !columnType) continue; // no way to name a type for it
+      const family = named ?? {
+        family: columnType!.family,
+        type: columnType!.type,
+      };
+      const level = levels.get(String(body?.level ?? ''));
+      if (
+        add(
+          key(record.id),
           {
-            ...(columnType && !trustStyleNames
+            ...(columnType && !named
               ? { CategoryId: columnType.categoryId }
               : {}),
             Family: family.family,
             Type: family.type,
-            ...(level ? { Level: level } : {}),
+            ...(level ? { Level: level.name } : {}),
           },
-          [at[0] * s, at[1] * s, at[2] * s],
-          (Number(body?.roll ?? 0) || 0) * DEGREES,
-        );
-        columns++;
-        continue;
-      }
-      if (
-        includeInstances &&
-        record.kind === 'familyInstance' &&
-        !record.params.host
-      ) {
-        const body = innerJson<InstanceBody>(record, 'instance');
-        const at = body?.placement?.at;
-        if (!at || at.length !== 3 || body?.host) continue;
-        const named = familyAndType(record.params.type);
-        if (!named) continue;
-        const right = body?.placement?.right;
-        const rotation = right ? Math.atan2(right[1], right[0]) * DEGREES : 0;
-        propose(
-          record,
-          { Family: named.family, Type: named.type },
-          [at[0] * s, at[1] * s, at[2] * s],
-          rotation,
-        );
-        instances++;
-        continue;
-      }
-      // Everything with a body the applier cannot create yet: counted, so the
-      // person sees what the model holds and what still waits on the applier.
-      if (
-        record.kind === 'run' ||
-        record.kind === 'extrusion' ||
-        record.kind === 'stair' ||
-        record.kind === 'footing' ||
-        record.kind === 'ramp'
-      ) {
-        bodies++;
-      }
+          {
+            position: [at[0] * s, at[1] * s, at[2] * s],
+            rotationDeg: (Number(body?.roll ?? 0) || 0) * DEGREES,
+          },
+        )
+      )
+        columnCount++;
     }
 
-    // What this recipe made before and whose record is gone now.
+    // ---- 5. Free-standing instances, opt-in, by style name. ----
+    let instanceCount = 0;
+    let hostedWaiting = 0;
+    for (const record of records) {
+      if (record.kind !== 'familyInstance') continue;
+      if (record.params.host) {
+        // A hosted door or window needs its category and family recorded by
+        // the converter before it can be asked for; counted, not guessed.
+        hostedWaiting++;
+        continue;
+      }
+      if (!includeInstances) continue;
+      const body = innerJson<InstanceBody>(record, 'instance');
+      const at = body?.placement?.at;
+      if (!at || at.length !== 3) continue;
+      const named = familyAndType(record.params.type);
+      if (!named) continue;
+      const right = body?.placement?.right;
+      const rotation = right ? Math.atan2(right[1], right[0]) * DEGREES : 0;
+      if (
+        add(
+          key(record.id),
+          { Family: named.family, Type: named.type },
+          { position: [at[0] * s, at[1] * s, at[2] * s], rotationDeg: rotation },
+        )
+      )
+        instanceCount++;
+    }
+
+    // ---- 6. What the applier cannot create yet: counted, so the person sees
+    // what the model holds and what still waits. ----
+    let bodiesWaiting = 0;
+    for (const record of records) {
+      if (
+        record.kind === 'stair' ||
+        record.kind === 'footing' ||
+        record.kind === 'ramp' ||
+        (record.kind === 'extrusion' && record.params.of !== 'slab') ||
+        (record.kind === 'run' && record.params.of !== 'wall')
+      )
+        bodiesWaiting++;
+    }
+
+    // ---- 7. What this recipe made before and whose record is gone now. ----
     let removed = 0;
-    for (const [key, madeId] of made) {
-      if (!key.startsWith(`${picked.fileId}:`) || seen.has(key)) continue;
+    for (const [sourceKey, madeId] of made) {
+      if (!sourceKey.startsWith(`${picked.fileId}:`) || seen.has(sourceKey))
+        continue;
       operation.remove(madeId);
       removed++;
     }
 
     if (operation.length === 0) {
       throw new Error(
-        `Nothing the Revit applier can do yet: "${picked.name}" has ${bodies} element(s) with a body ` +
-          '(walls, slabs, stairs...) and no column or free-standing instance. Those arrive as the applier grows.',
+        `Nothing new to ask for: "${picked.name}" holds ${kept} element(s) this recipe already made, ` +
+          `${hostedWaiting + bodiesWaiting} waiting on the applier, and nothing is left to remove.`,
       );
     }
 
     const words = [
-      columns ? `${columns} column(s)` : '',
-      instances ? `${instances} instance(s)` : '',
+      levelCount ? `${levelCount} level(s)` : '',
+      wallCount ? `${wallCount} wall(s)` : '',
+      floorCount ? `${floorCount} floor(s)` : '',
+      columnCount ? `${columnCount} column(s)` : '',
+      instanceCount ? `${instanceCount} instance(s)` : '',
       removed ? `${removed} gone` : '',
     ].filter(Boolean);
     return {
@@ -228,10 +386,13 @@ function sharedRun(to: 'frag' | 'ifc') {
       targets: operation.length,
       payload: new Blob([(await operation.build(context.opId)) as BlobPart]),
       ruleTallies: [
-        { read: columns, proposed: columns },
-        { read: instances, proposed: instances },
+        { read: levels.size, proposed: levelCount },
+        { read: wallCount + wallSkipped, proposed: wallCount },
+        { read: floorCount + floorSkipped, proposed: floorCount },
+        { read: columnCount, proposed: columnCount },
+        { read: instanceCount, proposed: instanceCount },
         { read: removed, proposed: removed },
-        { read: bodies, proposed: 0 },
+        { read: hostedWaiting + bodiesWaiting, proposed: 0 },
       ],
     };
   };
@@ -261,65 +422,77 @@ const sharedSchema = {
       title: 'Also propose free-standing instances (needs style names)',
       default: false,
     },
+    createLevels: {
+      type: 'boolean',
+      title: "Carry the model's levels (ensured by name)",
+      default: true,
+    },
   },
 };
 
 const sharedRules = [
-  {
-    reads: 'Column records (members) with no proposal yet',
-    proposes: 'A new Revit column at each, on its level',
-  },
-  {
-    reads: 'Free-standing family instances (when turned on)',
-    proposes: 'A new instance of the same-named type, placed and turned',
-  },
-  {
-    reads: 'Things this recipe made whose record is gone',
-    proposes: 'That element removed',
-  },
-  {
-    reads: 'Walls, slabs, stairs and every element with a body',
-    proposes: 'Nothing yet - waits on the Revit applier growing',
-  },
+  { reads: 'Levels (datums)', proposes: 'The same level on the target, ensured by name' },
+  { reads: 'Wall runs, one per straight segment', proposes: 'A native wall: curve, type (made from its width when missing), level, height' },
+  { reads: 'Slabs with their boundary', proposes: 'A native floor from the profile, holes included' },
+  { reads: 'Column records (members)', proposes: 'A Revit column at each, on its level' },
+  { reads: 'Free-standing family instances (when turned on)', proposes: 'A new instance of the same-named type, placed and turned' },
+  { reads: 'Things this recipe made whose record is gone', proposes: 'That element removed' },
+  { reads: 'Hosted doors/windows, stairs, roofs, footings, curtain pieces', proposes: 'Nothing yet - each waits on the applier or the converter growing' },
 ];
+
+const sharedDoc = `
+## What it does
+
+It reads the platform's records out of a .frag and asks a Revit document for
+the building they describe - levels, walls, floors, columns and (opting in)
+free-standing instances, in one operation, levels first. Nothing changes in
+Revit until the owner of that document accepts the request there, and the
+applier materialises everything NATIVELY: real walls on real levels, never
+imported meshes.
+
+## What it carries per thing
+
+Walls: the location line per straight segment, the type by its exact name
+(with its width, so a missing type is created by duplication), the level by
+name, base offset and height. Floors: the boundary loops, holes included.
+Columns and instances: point, rotation, level, type. Levels: name and
+elevation - ENSURED, so a level the target already has is simply used.
+
+## It reconciles, it does not push
+
+Run it again and it asks only for the difference: new records become new
+proposals, and a record that is gone asks for its element to be removed. What
+it already made is left alone (changing an existing wall through a proposal
+is the next step, not this one). It can only ever remove what it asked for
+itself; elements a person made in Revit are invisible to it. It keeps nothing
+of its own - what it made is read back from its own applied requests.
+
+## What still waits
+
+Hosted doors and windows (the converter does not record their category and
+family yet), stairs, roofs, footings and curtain walls (the applier does not
+create them yet). They are read and counted, and their rule row says so.
+
+## Units and axes
+
+Records are metres and radians, Z up; proposals are written in Revit's feet
+and degrees. Types are matched exactly by name; Revit refuses the whole
+request when a loadable type is missing (system types are created from their
+width instead).
+`;
 
 export const fragToRevit: Recipe<Settings> = {
   name: 'frag-to-revit',
   title: 'Platform model to Revit',
   description:
-    'Turns the platform records of a .frag into change requests for a Revit document.',
+    'Turns the platform records of a .frag - levels, walls, floors, columns, instances - into change requests for a Revit document.',
   to: 'revit',
   inputs: ['frag-model'],
   source: { kind: 'project-file', extensions: ['frag'] },
   runtime: 'browser',
   settingsSchema: sharedSchema,
   rules: sharedRules,
-  doc: `
-## What it does
-
-It reads a .frag made or edited on the platform and asks a Revit document for
-the elements its records describe. Nothing changes in Revit until the owner of
-that document accepts the request there.
-
-## What it can ask for today
-
-The Revit applier creates point-placed family instances and edits or removes
-by id. So columns and (optionally) free-standing instances become proposals;
-walls, slabs and stairs are counted and reported, and start proposing the day
-the applier learns native creation for them.
-
-## It reconciles, it does not push
-
-Run it again after the model changed and it asks only for the difference. It
-can only ever ask to remove what it asked for itself; elements a person made
-in Revit are invisible to it. What it made is read back from its own applied
-requests - it keeps nothing of its own.
-
-## Units and axes
-
-Records are metres, Z up; proposals are written in Revit's feet. Types are
-matched exactly by name; Revit refuses the whole request when one is missing.
-`,
+  doc: sharedDoc,
   run: sharedRun('frag'),
 };
 
@@ -328,33 +501,15 @@ export const ifcToRevit: Recipe<Settings> = {
   name: 'ifc-to-revit',
   title: 'IFC to Revit',
   description:
-    'Turns an IFC - through the frag the platform converted it into - into change requests for a Revit document.',
+    'Turns an IFC - through the frag the platform converted it into - into native Revit change requests: levels, walls, floors, columns, instances.',
   inputs: ['ifc-model'],
-  doc: `
-## What it does
+  doc:
+    `
+## Point it at the converted frag
 
-It reads the .frag your IFC was PROCESSED into (the IFC document's view) and
-asks a Revit document for the elements its records describe. Point it at that
-frag: a plain IFC import carries only IFC attributes and is refused by name -
-the editable converter is what gives an IFC real records.
-
-## What it can ask for today
-
-The Revit applier creates point-placed family instances and edits or removes
-by id. So columns and (optionally) free-standing instances become proposals;
-walls, slabs and stairs are counted and reported, and start proposing the day
-the applier learns native creation for them.
-
-## It reconciles, it does not push
-
-Run it again after a reconversion and it asks only for the difference. It can
-only ever ask to remove what it asked for itself. What it made is read back
-from its own applied requests - it keeps nothing of its own.
-
-## Units and axes
-
-Records are metres, Z up; proposals are written in Revit's feet. Types are
-matched exactly by name; Revit refuses the whole request when one is missing.
-`,
+It reads the .frag your IFC was PROCESSED into (the IFC document's view). A
+plain IFC import carries only IFC attributes and is refused by name - the
+editable converter is what gives an IFC real records.
+` + sharedDoc,
   run: sharedRun('ifc'),
 };
