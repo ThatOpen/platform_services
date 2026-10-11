@@ -381,10 +381,18 @@ returns null).
 
 ```ts
 const documents = client.documents(projectId);
-const descriptor = await documents.descriptor(folderId); // null on a plain folder
+const all = await documents.list();                       // every document (folderId + descriptor)
+const descriptor = await documents.descriptor(folderId);  // null on a plain folder
 const view = await documents.view(folderId, ['frag', 'ifc']); // your preference order wins
 await documents.addView(folderId, { fileId, format: 'frag' }); // a processor's last act
+const doc = await documents.fromFile(fileId);             // convert a loose file into a document
 ```
+
+`fromFile` creates the folder next to the file, moves the file in (ids survive
+moves), and writes the descriptor: the file as `native`, and as `views[0]` too
+when its format views itself (`SELF_VIEWING_FORMATS`; `selfView` overrides). A
+file with an old `derivedFileId` link (an IFC's frag) brings the derivative
+into the folder as a view, so the document is born ready to visualize.
 
 ## 5d. History and recipes: versions, change requests
 

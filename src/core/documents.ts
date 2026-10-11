@@ -48,6 +48,30 @@ export interface DocumentDescriptor {
 export const DOCUMENT_SCHEMA = 'thatopen/document@1';
 export const DOCUMENT_FILE = 'document.json';
 
+/**
+ * Formats whose native file IS its own definitive view (the PDF rule): when
+ * {@link ProjectDocuments.fromFile} converts one, the same fileId is written
+ * as `native` and as `views[0]`. Deliberately NOT here: 'ifc' — its proper 3D
+ * view is the processed frag, so a converted IFC without one shows "Process"
+ * instead of opening a worse view.
+ */
+export const SELF_VIEWING_FORMATS = [
+  'pdf',
+  'txt',
+  'md',
+  'json',
+  'csv',
+  'tsv',
+  'frag',
+];
+
+/** One listed document: the folder, and what its descriptor says. */
+export interface DocumentInfo {
+  /** The document folder's item id — the id interfaces know the document by. */
+  folderId: string;
+  descriptor: DocumentDescriptor;
+}
+
 const versionTag = () => `v-${Date.now()}`;
 
 function idOf(item: { _id?: unknown; id?: unknown }): string {
@@ -64,6 +88,84 @@ export class ProjectDocuments {
     private readonly client: EngineServicesClient,
     readonly projectId: string,
   ) {}
+
+  /**
+   * Every document of the project: the folders that carry a descriptor.
+   * Plain folders and loose files simply do not appear. One folder listing
+   * for the project plus one file listing and one descriptor download per
+   * folder, fetched in parallel — the storage offers nothing cheaper yet.
+   */
+  async list(): Promise<DocumentInfo[]> {
+    const folders = await this.client.listFolders({
+      projectId: this.projectId,
+    });
+    const found = await Promise.all(
+      folders.map(async (folder) => {
+        const folderId = idOf(folder as never);
+        const descriptor = await this.descriptor(folderId);
+        return descriptor ? { folderId, descriptor } : null;
+      }),
+    );
+    return found.filter((d): d is DocumentInfo => d !== null);
+  }
+
+  /**
+   * Converts a loose file into a document: creates the document folder next
+   * to the file, moves the file inside (moving preserves its id), and writes
+   * the descriptor with the file as `native` — and as `views[0]` too when its
+   * format views itself ({@link SELF_VIEWING_FORMATS}; override per call with
+   * `selfView`).
+   *
+   * A file that carries a processed derivative (the old `derivedFileId` link
+   * in its version metadata — an IFC's frag, a LAS's potree) brings it along:
+   * the derivative moves into the same folder and becomes a view, so the
+   * document is born ready to visualize and the link concept retires.
+   */
+  async fromFile(
+    fileId: string,
+    options?: { name?: string; selfView?: boolean },
+  ): Promise<DocumentInfo> {
+    const item = await this.client.getFile(fileId);
+    const fileName = String(item.name ?? '');
+    const format = formatOf(fileName, item.fileExtension);
+    const name =
+      options?.name ?? fileName.replace(/\.[^.]+$/, '') ?? fileName;
+
+    const folder = await this.client.createFolder(
+      name,
+      item.folderId ? String(item.folderId) : undefined,
+      this.projectId,
+    );
+    const folderId = idOf(folder as never);
+    await this.client.updateFile(fileId, { parentFolderId: folderId });
+
+    const views: DocumentView[] = [];
+    const derivedId = await this.#derivedFileId(item);
+    if (derivedId) {
+      try {
+        const derived = await this.client.getFile(derivedId);
+        await this.client.updateFile(derivedId, { parentFolderId: folderId });
+        views.push({
+          fileId: derivedId,
+          format: formatOf(String(derived.name ?? ''), derived.fileExtension),
+        });
+      } catch {
+        // A dangling link names a file that no longer exists; the document is
+        // still valid, just not visualizable until somebody processes it.
+      }
+    }
+    const selfViews = options?.selfView ?? SELF_VIEWING_FORMATS.includes(format);
+    if (selfViews) views.push({ fileId, format });
+
+    const descriptor: DocumentDescriptor = {
+      schema: DOCUMENT_SCHEMA,
+      name,
+      native: { fileId, format },
+      views,
+    };
+    await this.setDescriptor(folderId, descriptor);
+    return { folderId, descriptor };
+  }
 
   /**
    * The document's descriptor, read and validated, or null when the folder
@@ -154,6 +256,34 @@ export class ProjectDocuments {
     });
   }
 
+  /**
+   * The legacy `derivedFileId` link, read from the newest version metadata
+   * that carries one. Only `fromFile` looks at it, to migrate the link into
+   * the folder-document shape; nothing writes it any more.
+   */
+  async #derivedFileId(item: {
+    versions?: { tag: string; createdAt?: unknown }[];
+    _id?: unknown;
+    id?: unknown;
+  }): Promise<string | undefined> {
+    const versions = [...(item.versions ?? [])].sort((a, b) =>
+      String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')),
+    );
+    for (const version of versions) {
+      try {
+        const metadata = await this.client.getFileVersionMetadata(
+          idOf(item),
+          version.tag,
+        );
+        const derived = (metadata as Record<string, unknown>)?.derivedFileId;
+        if (typeof derived === 'string' && derived) return derived;
+      } catch {
+        // A version without metadata answers an error on some backends.
+      }
+    }
+    return undefined;
+  }
+
   async #descriptorFile(
     folderId: string,
   ): Promise<{ id: string } | undefined> {
@@ -163,6 +293,14 @@ export class ProjectDocuments {
     );
     return found ? { id: idOf(found as never) } : undefined;
   }
+}
+
+/** The lowercase, dot-less format a file's name declares. */
+function formatOf(fileName: string, extension?: string): string {
+  const fromExt = (extension ?? '').replace(/^\./, '').toLowerCase();
+  if (fromExt) return fromExt;
+  const dot = fileName.lastIndexOf('.');
+  return dot > 0 ? fileName.slice(dot + 1).toLowerCase() : '';
 }
 
 /** Accepts only a shape that really is a descriptor; null otherwise. */
