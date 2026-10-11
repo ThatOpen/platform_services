@@ -1,5 +1,0 @@
----
-'@thatopen/services': minor
----
-
-Whole buildings, not demos: `ifc-to-revit` and `frag-to-revit` now emit the building their records describe in ONE operation — levels first (ensured by name on the target, with their elevations), then every wall run as native wall adds (location line per straight segment, type by exact name with its `Type.Width` so a missing type is created by duplication, level, base offset, height), floors from slab profiles (boundary loops, holes included), columns, and opt-in free-standing instances. The grown Revit applier (flow `5dcf3f1`) materialises all of it natively — Wall.Create, Floor.Create, Level ensured, hosted instances via the new `flow:host` — and old appliers keep refusing wholesale through the existing all-or-nothing rollback; the protocol itself stays `revitflow/op@2`. What still waits (hosted doors/windows until the converter records their family, stairs, roofs, footings, curtain pieces) is read, tallied and said in the rules table. Verified offline against the real racbasic conversion: 225 changes — 6 levels, 47 walls, 13 floors, 2 columns, 157 instances — with the payload decoded back and every unit landing in feet.
