@@ -257,6 +257,15 @@ export class ProjectDocuments {
   }
 
   /**
+   * The document's DRAFTS: each user's working copy, kept so that closing the
+   * browser never loses work. A draft is not a version — it never enters the
+   * history and never shows in the CDE. See {@link DocumentDrafts}.
+   */
+  drafts(folderId: string): DocumentDrafts {
+    return new DocumentDrafts(this.client, () => this.#descriptorFile(folderId));
+  }
+
+  /**
    * The legacy `derivedFileId` link, read from the newest version metadata
    * that carries one. Only `fromFile` looks at it, to migrate the link into
    * the folder-document shape; nothing writes it any more.
@@ -293,6 +302,171 @@ export class ProjectDocuments {
     );
     return found ? { id: idOf(found as never) } : undefined;
   }
+}
+
+/** One user's draft of a document, as listed — no download involved. */
+export interface DraftInfo {
+  userId: string;
+  /** When the server stored it: read from the hidden file's own id, not a client clock. */
+  savedAt: Date;
+}
+
+/** One user's draft, downloaded. */
+export interface Draft<Meta = Record<string, unknown>> extends DraftInfo {
+  blob: Blob;
+  /** Whatever the app put next to the bytes: base version, app, app version… */
+  meta: Meta;
+}
+
+const DRAFT_TAG = 'draft:';
+const DRAFT_MAGIC = 'TODRAFT1';
+
+/**
+ * A document's drafts: one working copy per user, stored as a HIDDEN file under
+ * the document's `document.json`. Hidden files are what make this possible —
+ * a visible file cannot be overwritten without becoming a new version, and a
+ * draft written every few seconds must not fill the history or the CDE.
+ *
+ * Hidden files cannot be edited, so `put` uploads the new draft FIRST and then
+ * deletes that user's previous ones: a failure in between leaves two, and
+ * reads take the newest, never none. Every project member can read every draft;
+ * each app decides whose to offer.
+ */
+export class DocumentDrafts {
+  constructor(
+    private readonly client: EngineServicesClient,
+    private readonly holder: () => Promise<{ id: string } | undefined>,
+  ) {}
+
+  /** Every user's latest draft, without downloading any. Newest first. */
+  async list(): Promise<DraftInfo[]> {
+    const holder = await this.holder();
+    if (!holder) return [];
+    const latest = new Map<string, DraftInfo>();
+    for (const entry of await this.#entries(holder.id)) {
+      const known = latest.get(entry.userId);
+      if (!known || entry.savedAt > known.savedAt)
+        latest.set(entry.userId, { userId: entry.userId, savedAt: entry.savedAt });
+    }
+    return [...latest.values()].sort((a, b) => +b.savedAt - +a.savedAt);
+  }
+
+  /**
+   * One user's draft, downloaded — or, without `userId`, the newest of anyone.
+   * Null when there is none.
+   */
+  async get<Meta = Record<string, unknown>>(options?: {
+    userId?: string;
+  }): Promise<Draft<Meta> | null> {
+    const holder = await this.holder();
+    if (!holder) return null;
+    const entries = (await this.#entries(holder.id))
+      .filter((e) => !options?.userId || e.userId === options.userId)
+      .sort((a, b) => +b.savedAt - +a.savedAt);
+    const newest = entries[0];
+    if (!newest) return null;
+    const response = await this.client.downloadHiddenFile(newest.hiddenId);
+    const { meta, blob } = await unwrapDraft(await response.blob());
+    return { userId: newest.userId, savedAt: newest.savedAt, meta: meta as Meta, blob };
+  }
+
+  /**
+   * Stores this user's draft, replacing their previous one: only the latest is
+   * kept. Needs the document to have a descriptor (convert loose files first
+   * with `fromFile`).
+   */
+  async put(
+    blob: Blob,
+    options: { userId: string; meta?: Record<string, unknown> },
+  ): Promise<DraftInfo> {
+    const holder = await this.holder();
+    if (!holder) {
+      throw new Error('This folder is not a document (no document.json): drafts need one.');
+    }
+    const tag = draftTag(options.userId);
+    const previous = (await this.#entries(holder.id)).filter((e) => e.userId === options.userId);
+    const created = await this.client.createHiddenFile(
+      await wrapDraft(blob, options.meta ?? {}),
+      holder.id,
+      tag,
+    );
+    const hiddenId = (created as { hiddenFileId?: string }).hiddenFileId;
+    if (!hiddenId) throw new Error('The draft upload answered without a hiddenFileId.');
+    await this.#deleteAll(previous.map((e) => e.hiddenId));
+    return { userId: options.userId, savedAt: savedAtOf(hiddenId) };
+  }
+
+  /** Deletes every draft of this user (on an explicit save, typically). */
+  async delete(options: { userId: string }): Promise<void> {
+    const holder = await this.holder();
+    if (!holder) return;
+    const mine = (await this.#entries(holder.id)).filter((e) => e.userId === options.userId);
+    await this.#deleteAll(mine.map((e) => e.hiddenId));
+  }
+
+  async #entries(holderId: string) {
+    const hidden = await this.client.getHiddenFilesByParent(holderId);
+    return hidden
+      .filter((h) => typeof h.tag === 'string' && h.tag.startsWith(DRAFT_TAG))
+      .map((h) => {
+        const hiddenId = String(h._id);
+        return {
+          hiddenId,
+          userId: (h.tag as string).slice(DRAFT_TAG.length),
+          savedAt: savedAtOf(hiddenId),
+        };
+      });
+  }
+
+  async #deleteAll(hiddenIds: string[]) {
+    for (const id of hiddenIds) {
+      try {
+        await this.client.deleteHiddenFile(id);
+      } catch {
+        // A stale draft left behind is harmless: reads take the newest.
+      }
+    }
+  }
+}
+
+/** The tag a user's draft carries: `draft:` + their id, within the 50-char tag limit. */
+function draftTag(userId: string): string {
+  const tag = `${DRAFT_TAG}${userId}`;
+  if (!/^[A-Za-z0-9][A-Za-z0-9:._-]{0,49}$/.test(tag)) {
+    throw new Error(`A draft cannot be tagged for user "${userId}": ids must be letters, digits or :._- and short.`);
+  }
+  return tag;
+}
+
+/** A Mongo ObjectId's first 4 bytes are its creation time, in seconds. */
+function savedAtOf(objectId: string): Date {
+  const seconds = parseInt(objectId.slice(0, 8), 16);
+  return new Date(Number.isFinite(seconds) ? seconds * 1000 : 0);
+}
+
+/** `TODRAFT1` + 4-byte little-endian meta length + meta JSON + the app's bytes. */
+async function wrapDraft(blob: Blob, meta: Record<string, unknown>): Promise<Blob> {
+  const metaBytes = new TextEncoder().encode(JSON.stringify(meta));
+  const length = new Uint8Array(4);
+  new DataView(length.buffer).setUint32(0, metaBytes.length, true);
+  return new Blob([new TextEncoder().encode(DRAFT_MAGIC), length, metaBytes, blob]);
+}
+
+async function unwrapDraft(blob: Blob): Promise<{ meta: unknown; blob: Blob }> {
+  const head = new Uint8Array(await blob.slice(0, DRAFT_MAGIC.length + 4).arrayBuffer());
+  if (new TextDecoder().decode(head.slice(0, DRAFT_MAGIC.length)) !== DRAFT_MAGIC) {
+    return { meta: {}, blob };
+  }
+  const length = new DataView(head.buffer).getUint32(DRAFT_MAGIC.length, true);
+  const start = DRAFT_MAGIC.length + 4;
+  const metaText = await blob.slice(start, start + length).text();
+  let meta: unknown = {};
+  try {
+    meta = JSON.parse(metaText);
+  } catch {
+    // Unreadable meta costs the meta, never the bytes.
+  }
+  return { meta, blob: blob.slice(start + length) };
 }
 
 /** The lowercase, dot-less format a file's name declares. */
