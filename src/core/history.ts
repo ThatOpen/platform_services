@@ -289,6 +289,19 @@ function childrenOf<T extends { parentId?: unknown }>(
   return folders.filter((f) => String(f.parentId ?? '') === parentId);
 }
 
+/**
+ * The id `createHiddenFile` answered with. Refuses rather than stringifying a
+ * missing field: a written `"undefined"` is a pointer the native plugins then
+ * try to download, and they fail far from the cause.
+ */
+function hiddenIdOf(created: { hiddenFileId?: unknown }): string {
+  const id = created?.hiddenFileId;
+  if (typeof id !== 'string' || !id) {
+    throw new Error('The hidden-file upload answered without a hiddenFileId.');
+  }
+  return id;
+}
+
 /** Normalizes the `_id`/`id` split the item endpoints disagree on. */
 function idOf(item: { _id?: unknown; id?: unknown }): string {
   return String(item._id ?? item.id ?? '');
@@ -711,10 +724,7 @@ export class FlowDoc {
         input.delta,
         modelFile.id,
       );
-      version.deltaId = String(
-        (hidden as { _id?: unknown; id?: unknown })._id ??
-          (hidden as { id?: unknown }).id,
-      );
+      version.deltaId = hiddenIdOf(hidden);
     }
 
     // Re-read right before writing: the smallest window this storage allows.
@@ -782,10 +792,7 @@ export class FlowDoc {
         input.payload,
         holder.id,
       );
-      suggestion.fragId = String(
-        (hidden as { _id?: unknown; id?: unknown })._id ??
-          (hidden as { id?: unknown }).id,
-      );
+      suggestion.fragId = hiddenIdOf(hidden);
     }
 
     const fresh = (await this.#readOps()) ?? index;
