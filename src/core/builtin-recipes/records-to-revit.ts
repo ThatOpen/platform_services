@@ -159,6 +159,14 @@ function sharedRun(to: 'frag' | 'ifc') {
       context.input as PickedFile | undefined,
     );
     const records = recordsOf(contents.items);
+    // WHICH FRAME THE COORDINATES ARE IN. An IFC exported from Revit in shared coordinates says
+    // so in its header («CoordinateBase: Shared Coordinates», localised). Those positions are the
+    // project's SHARED ones, not the target's internal ones: every change is marked so, and the
+    // applier converts through the target's own shared location. A target that shares
+    // coordinates with the source then gets each element where the source had it.
+    const sharedFrame = /CoordinateBase:\s*(Coordenadas compartidas|Shared Coordinates|Shared)/i.test(
+      JSON.stringify(contents.metadata ?? {}),
+    );
     if (records.length === 0) {
       throw new Error(
         to === 'ifc'
@@ -205,7 +213,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         kept++;
         return false;
       }
-      operation.add(attrs, { ...placement, source: sourceKey });
+      operation.add(sharedFrame ? { ...attrs, Frame: 'shared' } : attrs, { ...placement, source: sourceKey });
       return true;
     };
 
