@@ -362,9 +362,133 @@ function sharedRun(to: 'frag' | 'ifc') {
         attrs.TopLevel = top.name;
         attrs.TopOffset = num((level.at + base + height - top.at) * s);
       }
+      // AN ELEVATION THAT IS NOT A RECTANGLE (Revit's Edit Profile, or a top cut by a roof the
+      // converter already folded in): the outline, [along, up] from the line's start and the
+      // base, laid in the wall's vertical plane. Its first and last stations go where the ends
+      // went, so an end extended to a meeting carries the outline with it.
+      const profile = (body as { profile?: [number, number][] }).profile;
+      if (Array.isArray(profile) && profile.length >= 3 && sg.i === 0 && !segs.some((o) => o !== sg && o.record === record)) {
+        const L = Math.hypot(sg.to[0] - sg.from[0], sg.to[1] - sg.from[1]);
+        const dir = [(sg.to[0] - sg.from[0]) / L, (sg.to[1] - sg.from[1]) / L];
+        const flat: number[] = [];
+        for (const [a, up] of profile) {
+          const p: [number, number] =
+            Math.abs(a) < 1e-6 ? f
+            : Math.abs(a - L) < 1e-6 ? e
+            : [sg.from[0] + a * dir[0], sg.from[1] + a * dir[1]];
+          flat.push(p[0] * s, p[1] * s, (level.at + base + up) * s);
+        }
+        attrs.Profile = JSON.stringify([flat]);
+        delete attrs.TopLevel;
+        delete attrs.TopOffset;
+      }
+      // Its top attached to a roof (Revit's Attach Top), when that roof is proposed too.
+      const attachedTo = record.params.topAttachedTo;
+      if (typeof attachedTo === 'string' && !attrs.Profile) attrs.AttachTop = key(attachedTo);
       const width = thicknessOf(lookRef);
       if (width) attrs['Type.Width'] = num(width);
       if (add(`${key(record.id)}#${sg.i}`, attrs)) wallCount++;
+    }
+
+    // ---- 2b. Curtain walls: Revit's own system, its grid line by line. ----
+    // A run of the converter spans the curtain wall INSIDE its border bars: half a bar short at
+    // each end, at the bottom and at the top (measured on racbasic: every wall 0.04 m short and
+    // 0.04 m low, its lines 0.02 m early, against Revit's own). Revit's wall spans the bars'
+    // middles, so the run grows by half a bar each way and its lines move with its start.
+    // Lines the record leaves out are its type's rule (`asTheType` in the converter): every
+    // spacing from where the justification puts the first, ends left out.
+    const ruled = (length: number, spacing: number, justify: unknown): number[] => {
+      if (!(spacing > 0) || spacing >= length) return [];
+      const leftover = length - Math.floor(length / spacing + 1e-9) * spacing;
+      const first = justify === 'beginning' ? 0 : justify === 'end' ? leftover : justify === 'centreLine' ? (length / 2) % spacing : leftover / 2;
+      const out: number[] = [];
+      for (let at = first; at <= length + 1e-4; at += spacing) if (at > 1e-4 && at < length - 1e-4) out.push(at);
+      return out;
+    };
+    let curtainCount = 0;
+    for (const record of records) {
+      if (record.kind !== 'run' || record.params.of !== 'curtainWall') continue;
+      const body = innerJson<RunBody & { lines?: { along?: number[]; up?: number[] }; omitted?: string[] }>(record, 'run');
+      const seg = body?.run?.line?.curves?.[0];
+      const level = levels.get(String(body?.level ?? record.params.level ?? ''));
+      const lookRef = record.params.lookRef;
+      const style = typeof lookRef === 'string' ? styles.get(lookRef)?.params : undefined;
+      if (!seg?.from || !seg.to || typeof body?.height !== 'number' || !level || !style) continue;
+      const n = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0);
+      const halfUp = n(style.uprightWidth) / 2, halfAcross = n(style.horizontalWidth) / 2;
+      const L = Math.hypot(seg.to[0] - seg.from[0], seg.to[1] - seg.from[1]);
+      const d = [(seg.to[0] - seg.from[0]) / L, (seg.to[1] - seg.from[1]) / L];
+      const f = [seg.from[0] - d[0] * halfUp, seg.from[1] - d[1] * halfUp];
+      const e = [seg.to[0] + d[0] * halfUp, seg.to[1] + d[1] * halfUp];
+      const base = (typeof body.base === 'number' ? body.base : 0) - halfAcross;
+      const height = body.height + 2 * halfAcross;
+      const z = (level.at + base) * s;
+      const along = body.lines?.along ?? ruled(L, n(style.alongSpacing), style.alongJustify);
+      const up = body.lines?.up ?? ruled(body.height, n(style.upSpacing), style.upJustify);
+      // «horizontal@<up mm>:<along mm>»: the segment of that line starting there is not there.
+      const omit = (body.omitted ?? []).flatMap((one) => {
+        const m = /^(horizontal|vertical)@(-?[\d.]+):(-?[\d.]+)$/.exec(one);
+        if (!m) return [];
+        const horizontal = m[1] === 'horizontal';
+        const at = Number(m[2]) / 1000 + (horizontal ? halfAcross : halfUp);
+        const from = Number(m[3]) / 1000 + (horizontal ? halfUp : halfAcross);
+        return [{ horizontal, at: at * s, from: from * s }];
+      });
+      // «panel@<along mm>,<up mm>»: that cell is no glass (a door stands in it).
+      const empty = (body.omitted ?? []).flatMap((one) => {
+        const m = /^panel@(-?[\d.]+),(-?[\d.]+)$/.exec(one);
+        return m ? [{ along: (Number(m[1]) / 1000 + halfUp) * s, up: (Number(m[2]) / 1000 + halfAcross) * s }] : [];
+      });
+      const attrs: Record<string, string> = {
+        CategoryId: CATEGORY.walls,
+        Type: nativeOf(record)?.type ?? String(lookRef),
+        LocationLine: `${num(f[0] * s)},${num(f[1] * s)},${num(z)};${num(e[0] * s)},${num(e[1] * s)},${num(z)}`,
+        Level: level.name,
+        BaseOffset: num(base * s),
+        Height: num(height * s),
+        Curtain: JSON.stringify({
+          along: along.map((a) => (a + halfUp) * s),
+          up: up.map((u) => (u + halfAcross) * s),
+          omit,
+          empty,
+          mullion: { width: n(style.uprightWidth) * s, depth: n(style.depth) * s },
+          // The glass off the bars' middle: the converter counts it toward the wall's inside,
+          // Revit's panel offset toward its outside (measured: racbasic's glass 0.032 m off,
+          // on the other side, with the sign as it was).
+          panel: { thickness: n(style.panelDepth) * s, offset: -n(style.panelOffset) * s },
+        }),
+      };
+      // ITS OUTLINE, where it is not its rectangle (a gable under a roof): the record's, inside
+      // the bars like the rest of it, grown by half a bar out from every edge, laid in the
+      // wall's plane from the grown start and base.
+      const outline = (body as { profile?: [number, number][] }).profile;
+      if (Array.isArray(outline) && outline.length >= 3) {
+        const area = outline.reduce((sum, p, i) => { const q = outline[(i + 1) % outline.length]; return sum + p[0] * q[1] - q[0] * p[1]; }, 0);
+        const out = area > 0 ? 1 : -1; // outward normal of edge (dx, dy) is out * (dy, -dx)
+        const k = outline.length;
+        const grown = outline.map((p, i) => {
+          const prev = outline[(i - 1 + k) % k], next = outline[(i + 1) % k];
+          const edgeLine = (a: [number, number], b: [number, number]) => {
+            const dx = b[0] - a[0], dy = b[1] - a[1], len = Math.hypot(dx, dy) || 1;
+            const nx = (out * dy) / len, ny = (-out * dx) / len;
+            // Half a bar: an upright's on an upright edge, a horizontal's otherwise.
+            const half = Math.abs(nx) > Math.abs(ny) ? halfUp : halfAcross;
+            return { p: [a[0] + nx * half, a[1] + ny * half], d: [dx, dy] };
+          };
+          const l1 = edgeLine(prev, p), l2 = edgeLine(p, next);
+          const den = l1.d[0] * l2.d[1] - l1.d[1] * l2.d[0];
+          if (Math.abs(den) < 1e-12) return [l2.p[0], l2.p[1]];
+          const t = ((l2.p[0] - l1.p[0]) * l2.d[1] - (l2.p[1] - l1.p[1]) * l2.d[0]) / den;
+          return [l1.p[0] + t * l1.d[0], l1.p[1] + t * l1.d[1]];
+        });
+        const flat: number[] = [];
+        for (const [a, up] of grown) {
+          // [along, up] from the record's start and base: the start is half an upright before it.
+          flat.push((seg.from[0] + d[0] * a) * s, (seg.from[1] + d[1] * a) * s, (level.at + base + halfAcross + up) * s);
+        }
+        attrs.Profile = JSON.stringify([flat]);
+      }
+      if (add(key(record.id), attrs)) curtainCount++;
     }
 
     // ---- 3. Floors: slabs by their boundary loops. ----
@@ -418,6 +542,35 @@ function sharedRun(to: 'frag' | 'ifc') {
         const slopes = (body as { slopes?: (number | null)[] } | null)?.slopes;
         if (kind === 'roof' && Array.isArray(slopes) && slopes.some((x) => typeof x === 'number'))
           attrs.Slopes = JSON.stringify(slopes.map((x) => (typeof x === 'number' ? x : null)));
+        // A GABLE - four edges, two opposite ones sloping - is Revit's ROOF BY EXTRUSION: its
+        // ridge profile drawn across, pushed along the eaves. A footprint roof cannot be it: its
+        // one base is the bottom at every eave, and the record's base is the TOP at the eaves
+        // (measured on racbasic: footprint 0.29 m high, the roof's thickness up its slope), so
+        // two slopes put the bottoms at two heights.
+        const edges = body?.profile?.outline?.curves ?? [];
+        const sloped = Array.isArray(slopes) ? slopes.map((x) => typeof x === 'number') : [];
+        const i = sloped.indexOf(true);
+        if (kind === 'roof' && edges.length === 4 && sloped.filter(Boolean).length === 2 && i >= 0 && i < 2 && sloped[i + 2]) {
+          const [ei, ej] = [edges[i], edges[i + 2]];
+          const A = ei.from!, B = ei.to!;
+          const L = Math.hypot(B[0] - A[0], B[1] - A[1]);
+          const u = [(B[0] - A[0]) / L, (B[1] - A[1]) / L];
+          // Inward, toward the opposite eave, and how far it is.
+          let n = [-u[1], u[0]];
+          const toJ = (ej.from![0] - A[0]) * n[0] + (ej.from![1] - A[1]) * n[1];
+          if (toJ < 0) n = [-n[0], -n[1]];
+          const W = Math.abs(toJ);
+          const [si, sj] = [slopes![i] as number, slopes![i + 2] as number];
+          const x = (sj * W) / (si + sj);
+          const top = level.at + base;
+          const point = (d: number, z: number) => [(A[0] + n[0] * d) * s, (A[1] + n[1] * d) * s, z * s];
+          attrs.Extrusion = JSON.stringify({
+            profile: [point(0, top), point(x, top + si * x), point(W, top)],
+            along: [u[0], u[1]],
+            length: L * s,
+          });
+          delete attrs.Slopes;
+        }
       } else if (width) {
         // A slab's `base` is its BOTTOM face, relative to its level; Revit places a floor by its
         // TOP face (height offset from level), and ignores the profile's z.
