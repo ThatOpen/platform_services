@@ -39,7 +39,41 @@ const CATEGORY = {
   levels: '-2000240',
   walls: '-2000011',
   floors: '-2000032',
+  roofs: '-2000035',
+  ceilings: '-2000038',
+  structuralFoundations: '-2001300',
 };
+
+/**
+ * The native family and type a record's element had where it was authored, when the file says:
+ * an IFC exported from Revit names every element "Family:Type:ElementId". A model that came FROM
+ * Revit goes back with its own type names; anything else keeps the record's style name.
+ */
+function nativeOf(record: { item: { attrs: Record<string, string> } }): { family: string; type: string } | null {
+  const name = record.item.attrs.Name;
+  if (typeof name !== 'string') return null;
+  const first = name.indexOf(':');
+  const last = name.lastIndexOf(':');
+  if (first <= 0 || last <= first) return null;
+  const type = name.slice(first + 1, last).trim();
+  return type ? { family: name.slice(0, first).trim(), type } : null;
+}
+
+/**
+ * What a slab record is in Revit, by the family it came from: a floor, a roof made by its
+ * footprint, a foundation slab, or something this recipe does not make as a slab (a pad, a stair's
+ * landing). Without a native name it is a floor, as before.
+ */
+function slabKind(record: { item: { attrs: Record<string, string> } }): 'floor' | 'roof' | 'foundation' | 'other' {
+  const native = nativeOf(record);
+  const predefined = record.item.attrs.PredefinedType;
+  if (!native) return 'floor';
+  if (/escalera|stair|landing|descansillo/i.test(native.family) || predefined === 'LANDING') return 'other';
+  if (/plataforma|^pad\b|building pad/i.test(native.family)) return 'other';
+  if (/cubierta|roof/i.test(native.family) || predefined === 'ROOF') return 'roof';
+  if (/cimentaci|foundation/i.test(native.family) || predefined === 'BASESLAB') return 'foundation';
+  return 'floor';
+}
 
 /** A family type of the target, as the target publishes it. */
 interface RevitType {
@@ -228,12 +262,18 @@ function sharedRun(to: 'frag' | 'ifc') {
           `${num(curve.to[0] * s)},${num(curve.to[1] * s)},${num(z)}`;
         const attrs: Record<string, string> = {
           CategoryId: CATEGORY.walls,
-          Type: lookRef,
+          Type: nativeOf(record)?.type ?? lookRef,
           LocationLine: line,
           Level: level.name,
           BaseOffset: num(base * s),
           Height: num(height * s),
         };
+        // Its top tied to a level, as it was authored: the height then follows the level.
+        const top = levels.get(String(record.params.topLevel ?? ''));
+        if (top) {
+          attrs.TopLevel = top.name;
+          attrs.TopOffset = num((level.at + base + height - top.at) * s);
+        }
         const width = thicknessOf(lookRef);
         if (width) attrs['Type.Width'] = num(width);
         if (add(`${key(record.id)}#${i}`, attrs)) wallCount++;
@@ -244,7 +284,10 @@ function sharedRun(to: 'frag' | 'ifc') {
     let floorCount = 0;
     let floorSkipped = 0;
     for (const record of records) {
-      if (record.kind !== 'extrusion' || record.params.of !== 'slab') continue;
+      const of = record.params.of;
+      if (record.kind !== 'extrusion' || (of !== 'slab' && of !== 'roof' && of !== 'covering')) continue;
+      const kind = of === 'covering' ? 'ceiling' : of === 'roof' ? 'roof' : slabKind(record);
+      if (kind === 'other') continue;
       const body = innerJson<ExtrusionBody>(record, 'extrusion');
       const base =
         typeof record.params.base === 'number' ? record.params.base : 0;
@@ -270,16 +313,29 @@ function sharedRun(to: 'frag' | 'ifc') {
         if (inner) loops.push(inner);
       }
       const attrs: Record<string, string> = {
-        CategoryId: CATEGORY.floors,
-        Type: lookRef,
+        CategoryId:
+          kind === 'roof' ? CATEGORY.roofs
+          : kind === 'ceiling' ? CATEGORY.ceilings
+          : kind === 'foundation' ? CATEGORY.structuralFoundations
+          : CATEGORY.floors,
+        Type: nativeOf(record)?.type ?? lookRef,
         Profile: JSON.stringify(loops),
         Level: level.name,
       };
       const width = thicknessOf(lookRef);
       if (width) attrs['Type.Width'] = num(width);
-      // A slab's `base` is its BOTTOM face, relative to its level; Revit places a floor by its
-      // TOP face (height offset from level), and ignores the profile's z.
-      if (width) attrs.HeightOffset = num(base * s + width);
+      if (kind === 'roof' || kind === 'ceiling') {
+        // A footprint roof and a ceiling are placed by their BOTTOM face: the record's base as
+        // it stands. A roof also carries which edges slope, and by how much (rise over run).
+        attrs.BaseOffset = num(base * s);
+        const slopes = (body as { slopes?: (number | null)[] } | null)?.slopes;
+        if (kind === 'roof' && Array.isArray(slopes) && slopes.some((x) => typeof x === 'number'))
+          attrs.Slopes = JSON.stringify(slopes.map((x) => (typeof x === 'number' ? x : null)));
+      } else if (width) {
+        // A slab's `base` is its BOTTOM face, relative to its level; Revit places a floor by its
+        // TOP face (height offset from level), and ignores the profile's z.
+        attrs.HeightOffset = num(base * s + width);
+      }
       if (add(key(record.id), attrs)) floorCount++;
     }
 
