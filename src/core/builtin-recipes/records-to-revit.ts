@@ -247,14 +247,18 @@ function sharedRun(to: 'frag' | 'ifc') {
       if (toJ < 0) n = [-n[0], -n[1]];
       const W = Math.abs(toJ);
       const [si, sj] = [slopes![i] as number, slopes![i + 2] as number];
-      const ridge = (sj * W) / (si + sj);
       const top = level.at + (typeof record.params.base === 'number' ? record.params.base : 0);
+      // Each eave as high as its own: `eaves[k]` raises edge k above the base (racbasic: one
+      // 6.1 mm up, which left the roof and the six walls on it 6 mm off).
+      const raised = (body as { eaves?: number[] } | null)?.eaves ?? [];
+      const [ti, tj] = [top + (Number(raised[i]) || 0), top + (Number(raised[i + 2]) || 0)];
+      const ridge = (tj - ti + sj * W) / (si + sj);
       /** The roof's top over a plan point: up from each eave, the lower of the two. */
       const zAt = (x: number, y: number) => {
         const d = (x - A[0]) * n[0] + (y - A[1]) * n[1];
-        return top + Math.min(si * d, sj * (W - d));
+        return Math.min(ti + si * d, tj + sj * (W - d));
       };
-      return { A, u, n, L, W, si, sj, ridge, top, zAt };
+      return { A, u, n, L, W, si, sj, ridge, top, ti, tj, zAt };
     };
     const roofRecords = new Map(records.filter((r) => r.kind === 'extrusion' && r.params.of === 'roof').map((r) => [r.id, r]));
 
@@ -356,8 +360,12 @@ function sharedRun(to: 'frag' | 'ifc') {
         if (!best || bd > REACH) continue;
         const x = cross(a, best);
         if (!x) continue;
-        // Only a move ALONG the wall, and only as far as a thickness: never a different wall.
-        if (Math.hypot(x[0] - p[0], x[1] - p[1]) > REACH) continue;
+        // Only a move ALONG the wall, and only as far as the walls' thickness, in or out: never
+        // a different wall (racbasic's 1.2 m partition 506386, 0.12 thick: a crossing 0.6 m in
+        // and one 0.59 m past its end, both from walls it does not meet; its retaining walls,
+        // 0.3 thick, do need theirs, up to 0.56 m, and some inward - measured both ways).
+        const reach = Math.min(REACH, 2 * Math.max(a.width, best.width) + 0.02);
+        if (Math.hypot(x[0] - p[0], x[1] - p[1]) > reach) continue;
         // And the crossing is ON the wall it meets (within its thickness), not on its line far beyond.
         if (distToSeg(x, best) > best.width + 0.01) continue;
         out[end] = x;
@@ -630,6 +638,38 @@ function sharedRun(to: 'frag' | 'ifc') {
       } else {
         spec.path = [p([body.start[0], body.start[1]]), p([body.end[0], body.end[1]])];
       }
+      // ITS LANDINGS: the slabs the file names after this stair ("…:725045 Landing 1" for
+      // "…:725045 Run 1"). The converter has each as its cross-section on a vertical plane pushed
+      // its depth (its type's thickness): in plan, the section's span across by that depth, on the
+      // side the run is; its top is the section's top.
+      const stairName = String(record.item.attrs.Name ?? '');
+      const stem = stairName.replace(/ Run \d+$/, '');
+      const landings: Record<string, unknown>[] = [];
+      for (const slab of records) {
+        if (slab.kind !== 'extrusion' || stem === stairName) continue;
+        if (!new RegExp(`^${stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} Landing \\d+$`).test(String(slab.item.attrs.Name ?? ''))) continue;
+        const sb = innerJson<ExtrusionBody & { on?: { origin?: number[]; u?: number[]; v?: number[] } }>(slab, 'extrusion');
+        const on = sb?.on;
+        const pts = (sb?.profile?.outline?.curves ?? []).flatMap((c) => (c.from ? [c.from] : []));
+        const depth = thicknessOf(slab.params.lookRef);
+        const slabLevel = levels.get(String(sb?.level ?? slab.params.level ?? ''));
+        if (!on?.origin || !on.u || !on.v || Math.abs(on.v[2] ?? 0) < 0.99 || !pts.length || !depth || !slabLevel) continue;
+        const [a0, a1] = [Math.min(...pts.map((q) => q[0])), Math.max(...pts.map((q) => q[0]))];
+        const [v0, v1] = [Math.min(...pts.map((q) => q[1])), Math.max(...pts.map((q) => q[1]))];
+        const O = on.origin, u = on.u;
+        let nrm = [u[1], -u[0]];
+        const mid = [(body.start[0] + body.end[0]) / 2, (body.start[1] + body.end[1]) / 2];
+        const across = (mid[0] - O[0]) * nrm[0] + (mid[1] - O[1]) * nrm[1];
+        if (across < 0) nrm = [-nrm[0], -nrm[1]];
+        const D = depth / s;
+        const corner = (a: number, b: number) => [(O[0] + u[0] * a + nrm[0] * b) * s, (O[1] + u[1] * a + nrm[1] * b) * s];
+        landings.push({
+          outline: [corner(a0, 0), corner(a1, 0), corner(a1, D), corner(a0, D)],
+          top: (slabLevel.at + n(slab.params.base) + O[2] + v1) * s,
+          thickness: (v1 - v0) * s,
+        });
+      }
+      if (landings.length) spec.landings = landings;
       const attrs: Record<string, string> = {
         CategoryId: CATEGORY.stairs,
         Type: nativeOf(record)?.type ?? String(lookRef),
@@ -667,8 +707,14 @@ function sharedRun(to: 'frag' | 'ifc') {
         continue;
       }
       const loops: number[][] = [outer];
+      // A gable's holes lie ON its face, each corner at the slope's height there: Revit cuts a
+      // roof's hole square to the face from where the loop is, and a loop left at the level
+      // slid sideways up the slope and across the ridge ("overlapping lines").
+      const holeGable = kind === 'roof' ? gableOf(record) : null;
       for (const hole of body?.profile?.holes ?? []) {
         const inner = loopOf(hole?.curves);
+        if (inner && holeGable)
+          for (let k = 0; k + 2 < inner.length; k += 3) inner[k + 2] = holeGable.zAt(inner[k] / s, inner[k + 1] / s) * s;
         if (inner) loops.push(inner);
       }
       const attrs: Record<string, string> = {
@@ -705,10 +751,10 @@ function sharedRun(to: 'frag' | 'ifc') {
         // two slopes put the bottoms at two heights.
         const gable = kind === 'roof' ? gableOf(record) : null;
         if (gable) {
-          const { A, n, u, W, ridge, si, top, L } = gable;
+          const { A, n, u, W, ridge, si, ti, tj, L } = gable;
           const point = (d: number, z: number) => [(A[0] + n[0] * d) * s, (A[1] + n[1] * d) * s, z * s];
           attrs.Extrusion = JSON.stringify({
-            profile: [point(0, top), point(ridge, top + si * ridge), point(W, top)],
+            profile: [point(0, ti), point(ridge, ti + si * ridge), point(W, tj)],
             along: [u[0], u[1]],
             length: L * s,
           });
