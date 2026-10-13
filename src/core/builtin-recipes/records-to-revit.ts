@@ -220,7 +220,9 @@ function sharedRun(to: 'frag' | 'ifc') {
           wallSkipped++;
           return;
         }
-        const z = base * s;
+        // A run's `base` is RELATIVE to its level (run:0 of racbasic: Level 2 at 3.0 m,
+        // base -0.3, built 2.7..9.2), so it is Revit's base offset as it stands.
+        const z = (level.at + base) * s;
         const line =
           `${num(curve.from[0] * s)},${num(curve.from[1] * s)},${num(z)};` +
           `${num(curve.to[0] * s)},${num(curve.to[1] * s)},${num(z)}`;
@@ -229,7 +231,7 @@ function sharedRun(to: 'frag' | 'ifc') {
           Type: lookRef,
           LocationLine: line,
           Level: level.name,
-          BaseOffset: num((base - level.at) * s),
+          BaseOffset: num(base * s),
           Height: num(height * s),
         };
         const width = thicknessOf(lookRef);
@@ -275,6 +277,9 @@ function sharedRun(to: 'frag' | 'ifc') {
       };
       const width = thicknessOf(lookRef);
       if (width) attrs['Type.Width'] = num(width);
+      // A slab's `base` is its BOTTOM face, relative to its level; Revit places a floor by its
+      // TOP face (height offset from level), and ignores the profile's z.
+      if (width) attrs.HeightOffset = num(base * s + width);
       if (add(key(record.id), attrs)) floorCount++;
     }
 
