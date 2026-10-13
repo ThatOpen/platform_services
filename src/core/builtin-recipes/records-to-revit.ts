@@ -42,6 +42,7 @@ const CATEGORY = {
   roofs: '-2000035',
   ceilings: '-2000038',
   structuralFoundations: '-2001300',
+  stairs: '-2000120',
 };
 
 /**
@@ -226,6 +227,37 @@ function sharedRun(to: 'frag' | 'ifc') {
         : undefined;
     };
 
+    // A GABLE ROOF, read once: four edges, two opposite ones sloping. Its top is the record's
+    // base at both eaves (its `base` is the TOP at the eaves) and rises from each to the ridge.
+    // The roof and every wall whose top is on it ask the same thing of it.
+    const gableOf = (record: (typeof records)[number]) => {
+      const body = innerJson<ExtrusionBody & { slopes?: (number | null)[] }>(record, 'extrusion');
+      const level = levels.get(String(body?.level ?? record.params.level ?? ''));
+      const slopes = body?.slopes;
+      const edges = body?.profile?.outline?.curves ?? [];
+      const sloped = Array.isArray(slopes) ? slopes.map((x) => typeof x === 'number') : [];
+      const i = sloped.indexOf(true);
+      if (record.params.of !== 'roof' || !level || edges.length !== 4 || sloped.filter(Boolean).length !== 2 || i < 0 || i > 1 || !sloped[i + 2]) return null;
+      const [ei, ej] = [edges[i], edges[i + 2]];
+      const A = ei.from!, B = ei.to!;
+      const L = Math.hypot(B[0] - A[0], B[1] - A[1]);
+      const u = [(B[0] - A[0]) / L, (B[1] - A[1]) / L];
+      let n = [-u[1], u[0]];
+      const toJ = (ej.from![0] - A[0]) * n[0] + (ej.from![1] - A[1]) * n[1];
+      if (toJ < 0) n = [-n[0], -n[1]];
+      const W = Math.abs(toJ);
+      const [si, sj] = [slopes![i] as number, slopes![i + 2] as number];
+      const ridge = (sj * W) / (si + sj);
+      const top = level.at + (typeof record.params.base === 'number' ? record.params.base : 0);
+      /** The roof's top over a plan point: up from each eave, the lower of the two. */
+      const zAt = (x: number, y: number) => {
+        const d = (x - A[0]) * n[0] + (y - A[1]) * n[1];
+        return top + Math.min(si * d, sj * (W - d));
+      };
+      return { A, u, n, L, W, si, sj, ridge, top, zAt };
+    };
+    const roofRecords = new Map(records.filter((r) => r.kind === 'extrusion' && r.params.of === 'roof').map((r) => [r.id, r]));
+
     // ---- 1. Levels: named identity, ensured on the target. ----
     let levelCount = 0;
     if (createLevels) {
@@ -384,6 +416,29 @@ function sharedRun(to: 'frag' | 'ifc') {
       }
       // Its top attached to a roof (Revit's Attach Top), when that roof is proposed too.
       const attachedTo = record.params.topAttachedTo;
+      // ON A ROOF'S TOP FACE (a gable end): Revit attaches a wall to a roof's underside only, and
+      // the original is that wall with its profile edited to the gable. So is this one: its
+      // outline is the roof's top over its line - each eave, the ridge where the line crosses it.
+      const onTop = record.params.topAttachedAt === 'top' || (body as { topAttachedAt?: string }).topAttachedAt === 'top';
+      const gable = typeof attachedTo === 'string' && onTop && !attrs.Profile && roofRecords.has(attachedTo) ? gableOf(roofRecords.get(attachedTo)!) : null;
+      if (gable) {
+        const L = Math.hypot(e[0] - f[0], e[1] - f[1]);
+        const at = (t: number) => [f[0] + ((e[0] - f[0]) * t) / L, f[1] + ((e[1] - f[1]) * t) / L];
+        // Stations: both ends, and where the line crosses the ridge.
+        const da = (f[0] - gable.A[0]) * gable.n[0] + (f[1] - gable.A[1]) * gable.n[1];
+        const db = (e[0] - gable.A[0]) * gable.n[0] + (e[1] - gable.A[1]) * gable.n[1];
+        const stations = [0, L];
+        if ((da - gable.ridge) * (db - gable.ridge) < 0) stations.splice(1, 0, ((gable.ridge - da) / (db - da)) * L);
+        const bottom = level.at + base;
+        const flat: number[] = [];
+        const corner = (t: number, z: number) => { const p = at(t); flat.push(p[0] * s, p[1] * s, z * s); };
+        corner(0, bottom);
+        corner(L, bottom);
+        for (const t of [...stations].reverse()) { const p = at(t); corner(t, gable.zAt(p[0], p[1])); }
+        attrs.Profile = JSON.stringify([flat]);
+        delete attrs.TopLevel;
+        delete attrs.TopOffset;
+      }
       if (typeof attachedTo === 'string' && !attrs.Profile) attrs.AttachTop = key(attachedTo);
       const width = thicknessOf(lookRef);
       if (width) attrs['Type.Width'] = num(width);
@@ -491,6 +546,99 @@ function sharedRun(to: 'frag' | 'ifc') {
       if (add(key(record.id), attrs)) curtainCount++;
     }
 
+    // ---- 2c. Stairs: Revit's own, one run each - straight, or sketched where the record has
+    // its sketch (winders). Its family is the one its name starts with (assembled, precast,
+    // cast in place), its risers as many as its rise needs at its type's riser at most.
+    let stairCount = 0;
+    for (const record of records) {
+      if (record.kind !== 'stair' || record.params.of !== 'stair') continue;
+      const body = innerJson<{
+        start?: [number, number, number]; end?: [number, number, number]; rise?: number; level?: string;
+        sketch?: { boundary?: [number, number][]; risers?: [[number, number], [number, number]][] };
+      }>(record, 'stair');
+      const lookRef = record.params.lookRef;
+      const style = typeof lookRef === 'string' ? styles.get(lookRef)?.params : undefined;
+      const level = levels.get(String(body?.level ?? record.params.level ?? ''));
+      if (!body?.start || !body.end || !(Number(body.rise) > 0) || !level || !style) continue;
+      const n = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0);
+      const rise = Number(body.rise);
+      const risers = Math.max(1, Math.ceil(rise / n(style.maxRiser) - 1e-6));
+      const tread = n(style.tread);
+      const p = (q: [number, number]) => [q[0] * s, q[1] * s];
+      const spec: Record<string, unknown> = {
+        family: String(lookRef).split(':')[0],
+        base: (level.at + n(record.params.base)) * s,
+        height: rise * s,
+        risers,
+        tread: tread * s,
+        width: n(style.width) * s,
+        // Its type's sizes, as the style has them: Revit keeps the risers under the type's
+        // maximum (racbasic: a 180 mm template type gave a 3.0 m stair a riser more, 3.22 m).
+        sizes: {
+          maxRiser: Math.ceil((rise / risers) * 1000 - 1e-6) / 1000 * s,
+          minTread: tread * s,
+          waist: n(style.waist) * s,
+          treadThickness: n(style.treadThickness) * s,
+          riserThickness: n(style.riserThickness) * s,
+          notchExtension: n(style.notchExtension) * s,
+          notchThickness: n(style.notchThickness) * s,
+        },
+      };
+      const sketch = body.sketch;
+      if (sketch?.boundary && sketch.boundary.length >= 4 && sketch.risers && sketch.risers.length >= 2) {
+        // The outline: its first edge is the first riser; the edge opposite, one tread past the
+        // last riser, is the run's end; the edges between are its two sides.
+        const b = sketch.boundary;
+        const last = sketch.risers[sketch.risers.length - 1];
+        const mid = (q: [number, number][]) => [(q[0][0] + q[1][0]) / 2, (q[0][1] + q[1][1]) / 2];
+        const lm = mid(last);
+        let endEdge = 1, best = Infinity;
+        for (let k = 1; k < b.length; k++) {
+          const m = mid([b[k], b[(k + 1) % b.length]]);
+          const d = Math.abs(Math.hypot(m[0] - lm[0], m[1] - lm[1]) - tread);
+          if (d < best) { best = d; endEdge = k; }
+        }
+        const chain = (from: number, to: number) => {
+          const out: number[][][] = [];
+          for (let k = from; k !== to; k = (k + 1) % b.length) out.push([p(b[k]), p(b[(k + 1) % b.length])]);
+          return out;
+        };
+        const sides = [...chain(1, endEdge), ...chain((endEdge + 1) % b.length, 0)];
+        // Revit counts every riser line as a riser: the end edge is not one (the run ends on a
+        // tread), so it goes as the walk line's end only (measured: with it, 17 risers, 3.19 m).
+        const riserLines = sketch.risers.map(([a, c]) => [p(a), p(c)]);
+        const endLine = [p(b[endEdge]), p(b[(endEdge + 1) % b.length])];
+        // The walk line: through every riser's middle, first to last - Revit refuses one that goes
+        // on past the last riser ("the path must connect the start and end riser lines").
+        void endLine;
+        const walk = riserLines.map(([a, c]) => [(a[0] + c[0]) / 2, (a[1] + c[1]) / 2]);
+        spec.sketch = { boundary: sides, risers: riserLines, path: walk };
+        // Its going is what the riser lines say, the shortest between two in a row that are
+        // parallel; the style's (racbasic: 0.375 against Revit's 0.25) is the winders' too.
+        let going = Infinity;
+        for (let k = 0; k + 1 < sketch.risers.length; k++) {
+          const [a1, a2] = sketch.risers[k], [b1, b2] = sketch.risers[k + 1];
+          const d1 = [a2[0] - a1[0], a2[1] - a1[1]], d2 = [b2[0] - b1[0], b2[1] - b1[1]];
+          const l1 = Math.hypot(d1[0], d1[1]), l2 = Math.hypot(d2[0], d2[1]);
+          if (Math.abs((d1[0] * d2[1] - d1[1] * d2[0]) / (l1 * l2)) > 1e-3) continue;
+          going = Math.min(going, Math.abs(((b1[0] - a1[0]) * d1[1] - (b1[1] - a1[1]) * d1[0]) / l1));
+        }
+        if (Number.isFinite(going)) {
+          spec.tread = going * s;
+          (spec.sizes as Record<string, number>).minTread = going * s;
+        }
+      } else {
+        spec.path = [p([body.start[0], body.start[1]]), p([body.end[0], body.end[1]])];
+      }
+      const attrs: Record<string, string> = {
+        CategoryId: CATEGORY.stairs,
+        Type: nativeOf(record)?.type ?? String(lookRef),
+        Level: level.name,
+        Stairs: JSON.stringify(spec),
+      };
+      if (add(key(record.id), attrs)) stairCount++;
+    }
+
     // ---- 3. Floors: slabs by their boundary loops. ----
     let floorCount = 0;
     let floorSkipped = 0;
@@ -539,6 +687,14 @@ function sharedRun(to: 'frag' | 'ifc') {
         // A footprint roof and a ceiling are placed by their BOTTOM face: the record's base as
         // it stands. A roof also carries which edges slope, and by how much (rise over run).
         attrs.BaseOffset = num(base * s);
+        // A CEILING HANGS from the level above its own by its `drop` (the converter's covering):
+        // its bottom is that level less the drop and its thickness (racbasic: 2.70 - 0.50 - 0.05
+        // = 2.15, which a base of 0 put on the floor).
+        const drop = Number(record.params.drop ?? (body as { said?: { drop?: string } } | null)?.said?.drop);
+        if (kind === 'ceiling' && Number.isFinite(drop) && width) {
+          const above = [...levels.values()].filter((one) => one.at > level.at + 1e-6).sort((a, b) => a.at - b.at)[0];
+          if (above) attrs.BaseOffset = num((above.at - drop - width / s - level.at) * s);
+        }
         const slopes = (body as { slopes?: (number | null)[] } | null)?.slopes;
         if (kind === 'roof' && Array.isArray(slopes) && slopes.some((x) => typeof x === 'number'))
           attrs.Slopes = JSON.stringify(slopes.map((x) => (typeof x === 'number' ? x : null)));
@@ -547,25 +703,12 @@ function sharedRun(to: 'frag' | 'ifc') {
         // one base is the bottom at every eave, and the record's base is the TOP at the eaves
         // (measured on racbasic: footprint 0.29 m high, the roof's thickness up its slope), so
         // two slopes put the bottoms at two heights.
-        const edges = body?.profile?.outline?.curves ?? [];
-        const sloped = Array.isArray(slopes) ? slopes.map((x) => typeof x === 'number') : [];
-        const i = sloped.indexOf(true);
-        if (kind === 'roof' && edges.length === 4 && sloped.filter(Boolean).length === 2 && i >= 0 && i < 2 && sloped[i + 2]) {
-          const [ei, ej] = [edges[i], edges[i + 2]];
-          const A = ei.from!, B = ei.to!;
-          const L = Math.hypot(B[0] - A[0], B[1] - A[1]);
-          const u = [(B[0] - A[0]) / L, (B[1] - A[1]) / L];
-          // Inward, toward the opposite eave, and how far it is.
-          let n = [-u[1], u[0]];
-          const toJ = (ej.from![0] - A[0]) * n[0] + (ej.from![1] - A[1]) * n[1];
-          if (toJ < 0) n = [-n[0], -n[1]];
-          const W = Math.abs(toJ);
-          const [si, sj] = [slopes![i] as number, slopes![i + 2] as number];
-          const x = (sj * W) / (si + sj);
-          const top = level.at + base;
+        const gable = kind === 'roof' ? gableOf(record) : null;
+        if (gable) {
+          const { A, n, u, W, ridge, si, top, L } = gable;
           const point = (d: number, z: number) => [(A[0] + n[0] * d) * s, (A[1] + n[1] * d) * s, z * s];
           attrs.Extrusion = JSON.stringify({
-            profile: [point(0, top), point(x, top + si * x), point(W, top)],
+            profile: [point(0, top), point(ridge, top + si * ridge), point(W, top)],
             along: [u[0], u[1]],
             length: L * s,
           });
