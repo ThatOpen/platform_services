@@ -394,8 +394,16 @@ function sharedRun(to: 'frag' | 'ifc') {
         Height: num(height * s),
       };
       // Which ends Revit may join: only those that meet another wall where it was authored.
-      const joins = [f !== sg.from ? 'start' : '', e !== sg.to ? 'end' : ''].filter(Boolean);
+      // Every end the record says meets another wall may join it, moved or not: Revit's cleanup
+      // there is part of the wall (racbasic's foundation wall reaches 0.101 m past its line).
+      const joins = [f !== sg.from || sg.joinStart ? 'start' : '', e !== sg.to || sg.joinEnd ? 'end' : ''].filter(Boolean);
       if (joins.length) attrs.JoinEnds = joins.join(',');
+      // How each joined end meets: a mitre where the record wants one (Revit's Wall Joins).
+      const mitres = joins.filter((end) => record.params[end === 'start' ? 'wantedAtStart' : 'wantedAtEnd'] === 'mitre');
+      if (mitres.length) attrs.Mitre = mitres.join(',');
+      // (Which wall goes on through a corner is NOT said here: reordering Revit's
+      // ElementsAtJoin by the record's cut-back ends left 628523 as it was and broke two
+      // more, measured 13-10. Revit's join order still waits for a way to set it.)
       // Its top tied to a level, as it was authored: the height then follows the level.
       const top = levels.get(String(record.params.topLevel ?? ''));
       if (top) {
@@ -411,13 +419,23 @@ function sharedRun(to: 'frag' | 'ifc') {
         const L = Math.hypot(sg.to[0] - sg.from[0], sg.to[1] - sg.from[1]);
         const dir = [(sg.to[0] - sg.from[0]) / L, (sg.to[1] - sg.from[1]) / L];
         const flat: number[] = [];
-        for (const [a, up] of profile) {
-          const p: [number, number] =
-            Math.abs(a) < 1e-6 ? f
-            : Math.abs(a - L) < 1e-6 ? e
-            : [sg.from[0] + a * dir[0], sg.from[1] + a * dir[1]];
-          flat.push(p[0] * s, p[1] * s, (level.at + base + up) * s);
-        }
+        // Where the ends went, along the line: an end vertex keeps following its edge that is
+        // not upright (a sloped top goes on sloping), or Revit, trimming back to the joint,
+        // leaves the slope's end off (racbasic's CL_W1 493612: 3 cm at each end).
+        const ext0 = -((f[0] - sg.from[0]) * dir[0] + (f[1] - sg.from[1]) * dir[1]);
+        const ext1 = (e[0] - sg.to[0]) * dir[0] + (e[1] - sg.to[1]) * dir[1];
+        profile.forEach(([a, up], k) => {
+          const atStart = Math.abs(a) < 1e-6, atEnd = Math.abs(a - L) < 1e-6;
+          let along = a, height = up;
+          if (atStart || atEnd) {
+            along = atStart ? -ext0 : L + ext1;
+            const sloped = [profile[(k - 1 + profile.length) % profile.length], profile[(k + 1) % profile.length]]
+              .find(([b]) => Math.abs(b - a) > 1e-6);
+            if (sloped) height = up + ((sloped[1] - up) / (sloped[0] - a)) * (along - a);
+          }
+          const p = [sg.from[0] + along * dir[0], sg.from[1] + along * dir[1]];
+          flat.push(p[0] * s, p[1] * s, (level.at + base + height) * s);
+        });
         attrs.Profile = JSON.stringify([flat]);
         delete attrs.TopLevel;
         delete attrs.TopOffset;
