@@ -237,47 +237,120 @@ function sharedRun(to: 'frag' | 'ifc') {
     // ---- 2. Walls: one add per straight segment of each wall run. ----
     let wallCount = 0;
     let wallSkipped = 0;
+    interface Seg {
+      record: (typeof records)[number];
+      i: number;
+      from: [number, number];
+      to: [number, number];
+      width: number;
+      joinStart: boolean;
+      joinEnd: boolean;
+    }
+    const segs: Seg[] = [];
     for (const record of records) {
       if (record.kind !== 'run' || record.params.of !== 'wall') continue;
       const body = innerJson<RunBody>(record, 'run');
       const curves = body?.run?.line?.curves ?? [];
-      const base = typeof body?.base === 'number' ? body.base : 0;
-      const height = body?.height;
-      const level = levels.get(String(body?.level ?? record.params.level ?? ''));
       const lookRef = record.params.lookRef;
-      if (typeof lookRef !== 'string' || typeof height !== 'number' || !level) {
+      const level = levels.get(String(body?.level ?? record.params.level ?? ''));
+      if (typeof lookRef !== 'string' || typeof body?.height !== 'number' || !level) {
         wallSkipped++;
         continue;
       }
-      curves.forEach((curve, i) => {
-        if (curve.kind !== 'segment' || !curve.from || !curve.to) {
-          wallSkipped++;
-          return;
+      const width = (thicknessOf(lookRef) ?? 0) / s;
+      const segments = curves.filter((curve) => curve.kind === 'segment' && curve.from && curve.to);
+      wallSkipped += curves.length - segments.length;
+      segments.forEach((curve, i) =>
+        segs.push({
+          record, i, width,
+          from: [...curve.from!] as [number, number],
+          to: [...curve.to!] as [number, number],
+          // A run's own ends meet only at its first and last segment; inside, the run continues.
+          joinStart: i === 0 && String(record.params.meetsAtStart) === 'true',
+          joinEnd: i === segments.length - 1 && String(record.params.meetsAtEnd) === 'true',
+        }),
+      );
+    }
+
+    // WHERE A WALL MEETS ANOTHER IT ENDS ON THE OTHER'S LINE, as Revit draws it: the records
+    // carry each wall's line cut back to the faces it meets, and say which ends meet (`meetsAt`).
+    // Such an end goes back to where its line crosses the line of the wall it meets, and Revit,
+    // allowed to join it there, cleans the corner as the original did.
+    const cross = (a: Seg, b: Seg): [number, number] | null => {
+      const d1 = [a.to[0] - a.from[0], a.to[1] - a.from[1]], d2 = [b.to[0] - b.from[0], b.to[1] - b.from[1]];
+      const den = d1[0] * d2[1] - d1[1] * d2[0];
+      if (Math.abs(den) < 1e-9 * Math.hypot(...d1) * Math.hypot(...d2) * 1e3) return null; // parallel
+      const u = ((b.from[0] - a.from[0]) * d2[1] - (b.from[1] - a.from[1]) * d2[0]) / den;
+      return [a.from[0] + u * d1[0], a.from[1] + u * d1[1]];
+    };
+    const distToSeg = (p: [number, number], q: Seg) => {
+      const dx = q.to[0] - q.from[0], dy = q.to[1] - q.from[1];
+      const L2 = dx * dx + dy * dy || 1;
+      const u = Math.max(0, Math.min(1, ((p[0] - q.from[0]) * dx + (p[1] - q.from[1]) * dy) / L2));
+      return Math.hypot(p[0] - (q.from[0] + u * dx), p[1] - (q.from[1] + u * dy));
+    };
+    const sameLevel = (a: Seg, b: Seg) => {
+      const la = innerJson<RunBody>(a.record, 'run'), lb = innerJson<RunBody>(b.record, 'run');
+      const za = [la!.base!, la!.base! + la!.height!], zb = [lb!.base!, lb!.base! + lb!.height!];
+      const ea = levels.get(String(la?.level ?? a.record.params.level))!.at, eb = levels.get(String(lb?.level ?? b.record.params.level))!.at;
+      return Math.min(ea + za[1], eb + zb[1]) > Math.max(ea + za[0], eb + zb[0]); // they overlap in height
+    };
+    const extended = new Map<Seg, { from: [number, number]; to: [number, number] }>();
+    for (const a of segs) {
+      const ends: ['from' | 'to', boolean][] = [['from', a.joinStart], ['to', a.joinEnd]];
+      const out = { from: a.from, to: a.to };
+      for (const [end, joins] of ends) {
+        if (!joins) continue;
+        const p = a[end];
+        let best: Seg | null = null, bd = Infinity;
+        for (const b of segs) {
+          if (b === a || !sameLevel(a, b)) continue;
+          const d = distToSeg(p, b);
+          if (d < bd) { bd = d; best = b; }
         }
-        // A run's `base` is RELATIVE to its level (run:0 of racbasic: Level 2 at 3.0 m,
-        // base -0.3, built 2.7..9.2), so it is Revit's base offset as it stands.
-        const z = (level.at + base) * s;
-        const line =
-          `${num(curve.from[0] * s)},${num(curve.from[1] * s)},${num(z)};` +
-          `${num(curve.to[0] * s)},${num(curve.to[1] * s)},${num(z)}`;
-        const attrs: Record<string, string> = {
-          CategoryId: CATEGORY.walls,
-          Type: nativeOf(record)?.type ?? lookRef,
-          LocationLine: line,
-          Level: level.name,
-          BaseOffset: num(base * s),
-          Height: num(height * s),
-        };
-        // Its top tied to a level, as it was authored: the height then follows the level.
-        const top = levels.get(String(record.params.topLevel ?? ''));
-        if (top) {
-          attrs.TopLevel = top.name;
-          attrs.TopOffset = num((level.at + base + height - top.at) * s);
-        }
-        const width = thicknessOf(lookRef);
-        if (width) attrs['Type.Width'] = num(width);
-        if (add(`${key(record.id)}#${i}`, attrs)) wallCount++;
-      });
+        // The neighbour it meets is within a wall's thickness of the cut-back end.
+        if (!best || bd > Math.max(a.width, best.width) + 0.01) continue;
+        const x = cross(a, best);
+        if (!x) continue;
+        // Only a move ALONG the wall, and only as far as a thickness: never a different wall.
+        if (Math.hypot(x[0] - p[0], x[1] - p[1]) > Math.max(a.width, best.width) + 0.01) continue;
+        out[end] = x;
+      }
+      extended.set(a, out);
+    }
+
+    for (const sg of segs) {
+      const { record } = sg;
+      const body = innerJson<RunBody>(record, 'run')!;
+      const base = typeof body.base === 'number' ? body.base : 0;
+      const height = body.height!;
+      const level = levels.get(String(body.level ?? record.params.level ?? ''))!;
+      const lookRef = record.params.lookRef as string;
+      const { from: f, to: e } = extended.get(sg)!;
+      // A run's `base` is RELATIVE to its level (run:0 of racbasic: Level 2 at 3.0 m,
+      // base -0.3, built 2.7..9.2), so it is Revit's base offset as it stands.
+      const z = (level.at + base) * s;
+      const line = `${num(f[0] * s)},${num(f[1] * s)},${num(z)};` + `${num(e[0] * s)},${num(e[1] * s)},${num(z)}`;
+      const attrs: Record<string, string> = {
+        CategoryId: CATEGORY.walls,
+        Type: nativeOf(record)?.type ?? lookRef,
+        LocationLine: line,
+        Level: level.name,
+        BaseOffset: num(base * s),
+        Height: num(height * s),
+      };
+      // Which ends Revit may join: only those that meet another wall where it was authored.
+      const joins = [f !== sg.from ? 'start' : '', e !== sg.to ? 'end' : ''].filter(Boolean);
+      if (joins.length) attrs.JoinEnds = joins.join(',');
+      // Its top tied to a level, as it was authored: the height then follows the level.
+      const top = levels.get(String(record.params.topLevel ?? ''));
+      if (top) {
+        attrs.TopLevel = top.name;
+        attrs.TopOffset = num((level.at + base + height - top.at) * s);
+      }
+      const width = thicknessOf(lookRef);
+      if (width) attrs['Type.Width'] = num(width);
+      if (add(`${key(record.id)}#${sg.i}`, attrs)) wallCount++;
     }
 
     // ---- 3. Floors: slabs by their boundary loops. ----
