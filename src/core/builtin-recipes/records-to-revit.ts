@@ -295,6 +295,10 @@ function sharedRun(to: 'frag' | 'ifc') {
       const ea = levels.get(String(la?.level ?? a.record.params.level))!.at, eb = levels.get(String(lb?.level ?? b.record.params.level))!.at;
       return Math.min(ea + za[1], eb + zb[1]) > Math.max(ea + za[0], eb + zb[0]); // they overlap in height
     };
+    // How far a cut-back end may be from the wall it meets, and travel to reach its line: a
+    // metre. A thick wall met at an angle, or one that runs through, leaves the cut further back
+    // than a thickness (racbasic's retaining walls: 0.56 m).
+    const REACH = 1.0;
     const extended = new Map<Seg, { from: [number, number]; to: [number, number] }>();
     for (const a of segs) {
       const ends: ['from' | 'to', boolean][] = [['from', a.joinStart], ['to', a.joinEnd]];
@@ -309,11 +313,13 @@ function sharedRun(to: 'frag' | 'ifc') {
           if (d < bd) { bd = d; best = b; }
         }
         // The neighbour it meets is within a wall's thickness of the cut-back end.
-        if (!best || bd > Math.max(a.width, best.width) + 0.01) continue;
+        if (!best || bd > REACH) continue;
         const x = cross(a, best);
         if (!x) continue;
         // Only a move ALONG the wall, and only as far as a thickness: never a different wall.
-        if (Math.hypot(x[0] - p[0], x[1] - p[1]) > Math.max(a.width, best.width) + 0.01) continue;
+        if (Math.hypot(x[0] - p[0], x[1] - p[1]) > REACH) continue;
+        // And the crossing is ON the wall it meets (within its thickness), not on its line far beyond.
+        if (distToSeg(x, best) > best.width + 0.01) continue;
         out[end] = x;
       }
       extended.set(a, out);
