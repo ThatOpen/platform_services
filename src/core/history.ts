@@ -322,15 +322,12 @@ export class ProjectHistory {
   async docs(): Promise<FlowDocInfo[]> {
     const root = await this.#root();
     if (!root) return [];
-    const folders = await this.client.listFolders({
-      parentFolderId: root,
-      projectId: this.projectId,
-    });
+    // Filtered as well as queried (in childFolders): the backend ignores an
+    // unknown `parentFolderId` filter and answers with EVERY folder of the
+    // project, which made any project folder with a dash look like a doc.
+    const folders = await this.childFolders(root, true);
     const docs: FlowDocInfo[] = [];
-    // Filtered here as well as in the query: the backend ignores an unknown
-    // `parentFolderId` filter and answers with EVERY folder of the project,
-    // which made any project folder with a dash in its name look like a doc.
-    for (const folder of childrenOf(folders, root)) {
+    for (const folder of folders) {
       const name = String(folder.name ?? '');
       const dash = name.indexOf('-');
       if (dash <= 0) continue;
@@ -360,9 +357,49 @@ export class ProjectHistory {
     return docs;
   }
 
-  /** One document's history. `source` and `docId` as {@link docs} lists them. */
+  /**
+   * One document's history. `source` and `docId` as {@link docs} lists them.
+   * The same object for the same document, so what it has found once (its
+   * folder) it does not ask for again.
+   */
   doc(source: string, docId: string): FlowDoc {
-    return new FlowDoc(this.client, this, source, docId);
+    const key = `${source}-${docId}`;
+    let doc = this.#docs.get(key);
+    if (!doc) {
+      doc = new FlowDoc(this.client, this, source, docId);
+      this.#docs.set(key, doc);
+    }
+    return doc;
+  }
+
+  #docs = new Map<string, FlowDoc>();
+  #children?: Promise<Awaited<ReturnType<EngineServicesClient['listFolders']>>>;
+  #childrenAt = 0;
+
+  /**
+   * @internal The documents' folders (the root's children), listed ONCE and
+   * shared by every document. Each document listing them for itself was ~150
+   * requests on one Coordinator load with ~30 documents, and the platform
+   * answers 429 past 100 a minute: the app then showed no Revit document and
+   * a queued request never arrived (13-10). Listed again after 30 s, when a
+   * folder is made, or when asked `fresh`.
+   */
+  async childFolders(rootId: string, fresh = false) {
+    if (fresh || !this.#children || Date.now() - this.#childrenAt > 30_000) {
+      this.#childrenAt = Date.now();
+      this.#children = this.client
+        .listFolders({ parentFolderId: rootId, projectId: this.projectId })
+        .then((folders) => childrenOf(folders, rootId));
+      this.#children.catch(() => {
+        this.#children = undefined;
+      });
+    }
+    return this.#children;
+  }
+
+  /** @internal A folder was made: the next {@link childFolders} lists again. */
+  forgetFolders(): void {
+    this.#children = undefined;
   }
 
   /** @internal The `bimterop` folder id, resolved once. */
@@ -848,15 +885,13 @@ export class FlowDoc {
         `Project ${this.project.projectId} has no connected documents yet.`,
       );
     }
-    const folders = await this.client.listFolders({
-      parentFolderId: rootId,
-      projectId: this.project.projectId,
-    });
-    // Same defensive filter as docs(): the backend may answer with every
-    // folder of the project, and a same-named folder elsewhere must not win.
-    const found = childrenOf(folders, rootId).find(
-      (f) => String(f.name ?? '') === this.#folderName,
-    );
+    // The project's shared listing (see childFolders), listed again once when
+    // this document is not in it: it may have been made since.
+    const named = (folders: { name?: unknown }[]) =>
+      folders.find((f) => String(f.name ?? '') === this.#folderName);
+    const found =
+      named(await this.project.childFolders(rootId)) ??
+      named(await this.project.childFolders(rootId, true));
     if (found) {
       this.#folderId = idOf(found as never);
       return this.#folderId;
@@ -871,17 +906,36 @@ export class FlowDoc {
       rootId,
       this.project.projectId,
     );
+    this.project.forgetFolders();
     this.#folderId = idOf(made as never);
     return this.#folderId;
   }
 
+  #filesListed?: Promise<StoredFile[]>;
+  #filesAt = 0;
+
+  /**
+   * Its files, listed once for the reads that come together: a document's
+   * versions, requests and ops each asked for the listing, three requests per
+   * document on every Coordinator load (13-10). Kept a few seconds, and
+   * forgotten when this document makes a file.
+   */
   async #files(): Promise<StoredFile[]> {
-    const folderId = await this.#folder(false);
-    const items = await this.client.listFiles({ folderId });
-    return items.map((item) => ({
-      id: idOf(item as never),
-      name: String((item as { name?: unknown }).name ?? ''),
-    }));
+    if (!this.#filesListed || Date.now() - this.#filesAt > 5_000) {
+      this.#filesAt = Date.now();
+      this.#filesListed = (async () => {
+        const folderId = await this.#folder(false);
+        const items = await this.client.listFiles({ folderId });
+        return items.map((item) => ({
+          id: idOf(item as never),
+          name: String((item as { name?: unknown }).name ?? ''),
+        }));
+      })();
+      this.#filesListed.catch(() => {
+        this.#filesListed = undefined;
+      });
+    }
+    return this.#filesListed;
   }
 
   async #file(name: string): Promise<StoredFile | undefined> {
@@ -958,6 +1012,7 @@ export class FlowDoc {
       parentFolderId: folderId,
       projectId: this.project.projectId,
     });
+    this.#filesListed = undefined;
     const item = (created as { item?: { _id?: unknown; id?: unknown } }).item;
     return { id: idOf((item ?? created) as never), name };
   }
@@ -979,6 +1034,7 @@ export class FlowDoc {
       parentFolderId: folderId,
       projectId: this.project.projectId,
     });
+    this.#filesListed = undefined;
     const item = (created as { item?: { _id?: unknown; id?: unknown } }).item;
     return { id: idOf((item ?? created) as never), name };
   }
