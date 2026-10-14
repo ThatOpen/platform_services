@@ -13,6 +13,8 @@ export interface ExecutionMessage {
   _id: string;
   executionId: string;
   content: string;
+  /** Set to "error" for executionReporter.error lines, as the platform does. */
+  level?: 'error';
   createdAt: string;
 }
 
@@ -155,15 +157,18 @@ export class ExecutionManager {
         state.updatedAt = now;
 
         switch (msg.type) {
-          case 'MESSAGE': {
+          case 'MESSAGE':
+          case 'ERROR': {
+            const isError = msg.type === 'ERROR';
             const msgEntity: ExecutionMessage = {
               _id: randomUUID(),
               executionId,
               content: msg.message,
+              ...(isError && { level: 'error' as const }),
               createdAt: now,
             };
             state.messages.push(msgEntity);
-            console.log(`[${executionId.slice(0, 8)}] [message] ${msg.message}`);
+            console.log(`[${executionId.slice(0, 8)}] [${isError ? 'error' : 'message'}] ${msg.message}`);
             this.emit(executionId, {
               messageUpdate: {
                 ...msgEntity,
