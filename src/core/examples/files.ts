@@ -39,6 +39,7 @@ async function main() {
   // projectId is required — the backend rejects uploads without one.
   const fileName = `__example-test__-${Date.now()}.json`;
   const blob = new Blob([JSON.stringify({ test: true })], { type: 'application/json' });
+  // A bare Blob is uploaded under `name`, so the item takes its fileExtension from it.
   const created = await client.createFile({ file: blob, name: fileName, versionTag: 'v1', projectId: PROJECT_ID });
   console.log(`\nCreated file: [${created.item._id}] ${created.item.name}`);
 
