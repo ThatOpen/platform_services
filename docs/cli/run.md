@@ -8,6 +8,8 @@ Builds and executes a cloud component locally, replicating what the platform's c
 
 Execution output (`MESSAGE`, `PROGRESS`, `SUCCESS`, `FAIL`) is streamed to the terminal with elapsed time.
 
+The component runs under Node's permission model, as in the cloud: it can read its project folder and `node_modules`, but cannot write files, start child processes or worker threads, and it gets none of your shell's environment variables. On a Node version without the permission model, a warning is printed and these restrictions do not apply.
+
 **Usage:**
 ```bash
 thatopen run [flags]
