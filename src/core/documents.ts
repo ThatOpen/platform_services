@@ -96,13 +96,20 @@ export class ProjectDocuments {
    * folder, fetched in parallel — the storage offers nothing cheaper yet.
    */
   async list(): Promise<DocumentInfo[]> {
-    const folders = await this.client.listFolders({
-      projectId: this.projectId,
-    });
+    // ONE listing of the project's files finds every descriptor, and each
+    // says its folder. Listing each folder's files instead was one request
+    // per folder, and the panels of one Coordinator load asked several
+    // times: past the platform's 100 a minute with ~30 documents (429s, 13-10).
+    const files = await this.client.listFiles({ projectId: this.projectId });
+    const descriptors = files.filter(
+      (item) => String((item as { name?: unknown }).name ?? '') === DOCUMENT_FILE,
+    );
     const found = await Promise.all(
-      folders.map(async (folder) => {
-        const folderId = idOf(folder as never);
-        const descriptor = await this.descriptor(folderId);
+      descriptors.map(async (item) => {
+        const where = item as { folderId?: unknown; parentFolderId?: unknown };
+        const folderId = String(where.folderId ?? where.parentFolderId ?? '');
+        if (!folderId) return null;
+        const descriptor = await this.#readDescriptor(idOf(item as never));
         return descriptor ? { folderId, descriptor } : null;
       }),
     );
@@ -174,7 +181,11 @@ export class ProjectDocuments {
   async descriptor(folderId: string): Promise<DocumentDescriptor | null> {
     const file = await this.#descriptorFile(folderId);
     if (!file) return null;
-    const response = await this.client.downloadFile(file.id);
+    return this.#readDescriptor(file.id);
+  }
+
+  async #readDescriptor(fileId: string): Promise<DocumentDescriptor | null> {
+    const response = await this.client.downloadFile(fileId);
     const text = await response.text();
     if (!text.trim()) return null;
     let parsed: unknown;
