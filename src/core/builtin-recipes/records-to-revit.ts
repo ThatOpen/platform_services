@@ -171,9 +171,8 @@ function sharedRun(to: 'frag' | 'ifc') {
     if (records.length === 0) {
       throw new Error(
         to === 'ifc'
-          ? `"${picked.name}" carries no platform records: it was imported without the editable converter. ` +
-            'Process the IFC with the editable converter first; a plain import only has IFC attributes, and guessing geometry is not this recipe.'
-          : `"${picked.name}" carries no platform records, so there is nothing semantic to convert.`,
+          ? `Nothing in "${picked.name}" could be read as a building element (walls, floors, levels...).`
+          :`"${picked.name}" carries no platform records, so there is nothing semantic to convert.`,
       );
     }
 
@@ -1009,15 +1008,16 @@ export const ifcToRevit: Recipe<Settings> = {
   name: 'ifc-to-revit',
   title: 'IFC to Revit',
   description:
-    'Turns an IFC - through the frag the platform converted it into - into native Revit change requests: levels, walls, floors, columns, instances.',
+    'Turns an IFC, as you uploaded it, into native Revit change requests: levels, walls, floors, roofs, stairs, curtain walls, columns, instances.',
   inputs: ['ifc-model'],
+  source: { kind: 'project-file', extensions: ['ifc'] },
   doc:
     `
-## Point it at the converted frag
+## Point it at the IFC
 
-It reads the .frag your IFC was PROCESSED into (the IFC document's view). A
-plain IFC import carries only IFC attributes and is refused by name - the
-editable converter is what gives an IFC real records.
+It reads the IFC file itself. Its first step converts it, in this app, into
+the platform's records - what each element is, not only its shape - and the
+proposals are written from those. Nothing has to be prepared before.
 ` + sharedDoc,
   run: sharedRun('ifc'),
 };

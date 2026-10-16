@@ -165,14 +165,27 @@ export interface PickedFile {
   name: string;
 }
 
-/** Downloads and reads the picked .frag, with the errors a person can act on. */
+/**
+ * Downloads and reads the picked file, with the errors a person can act on. A
+ * .frag is read as it is; any other format (a raw IFC) goes first through the
+ * importer the app provided for it (`client.recipes.provideImporter`), so the
+ * person points the recipe at the file they uploaded and nothing else.
+ */
 export async function readPickedFrag(
   context: RecipeContext<unknown>,
   picked: PickedFile | undefined,
 ) {
   if (!picked?.fileId) throw new Error('Choose the model file to read.');
-  const bytes = new Uint8Array(
+  let bytes = new Uint8Array(
     await (await context.client.downloadFile(picked.fileId)).arrayBuffer(),
   );
+  const extension = /\.([^.]+)$/.exec(picked.name)?.[1]?.toLowerCase() ?? 'frag';
+  if (extension !== 'frag') {
+    const importer = context.client.recipes.importerFor(extension);
+    if (!importer) {
+      throw new Error(`This app cannot read .${extension} files: it provides no importer for them.`);
+    }
+    bytes = await importer(bytes, picked.name);
+  }
   return { picked, contents: await readFrag(bytes) };
 }

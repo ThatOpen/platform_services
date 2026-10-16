@@ -142,12 +142,34 @@ export interface RecipePlan {
 }
 
 /**
+ * Turns a file of another format into a .frag that carries the platform's
+ * records (`Element` / `Carried` on each item), the one form recipes read.
+ */
+export type RecordsImporter = (bytes: Uint8Array, name: string) => Promise<Uint8Array>;
+
+/**
  * The local recipe registry and runner. Reach it as `client.recipes`.
  */
 export class Recipes {
   readonly #registry = new Map<string, Recipe<never>>();
+  readonly #importers = new Map<string, RecordsImporter>();
 
   constructor(private readonly client: EngineServicesClient) {}
+
+  /**
+   * Says how this app turns files of one extension ('ifc') into records, so a
+   * recipe can be pointed at the raw file and convert it as its first step.
+   * The converter lives in the engine, which the SDK does not carry: the app
+   * that has it provides it, as it resolves `x-existing` lookups.
+   */
+  provideImporter(extension: string, importer: RecordsImporter): void {
+    this.#importers.set(extension.toLowerCase(), importer);
+  }
+
+  /** The importer provided for an extension, or undefined. */
+  importerFor(extension: string): RecordsImporter | undefined {
+    return this.#importers.get(extension.toLowerCase());
+  }
 
   /** Registers a recipe. One per name; a second with the same name throws. */
   register<S>(recipe: Recipe<S>): void {
