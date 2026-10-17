@@ -180,12 +180,64 @@ export async function readPickedFrag(
     await (await context.client.downloadFile(picked.fileId)).arrayBuffer(),
   );
   const extension = /\.([^.]+)$/.exec(picked.name)?.[1]?.toLowerCase() ?? 'frag';
+  let site: SiteLocation | null = null;
   if (extension !== 'frag') {
     const importer = context.client.recipes.importerFor(extension);
     if (!importer) {
       throw new Error(`This app cannot read .${extension} files: it provides no importer for them.`);
     }
+    if (extension === 'ifc') site = siteLocationOf(bytes);
     bytes = await importer(bytes, picked.name);
   }
-  return { picked, contents: await readFrag(bytes) };
+  return { picked, contents: await readFrag(bytes), site };
+}
+
+/**
+ * Where an IFC's site stands in the coordinates it was written in: its origin
+ * (metres) and the angle of its X axis (degrees, counter-clockwise). An IFC
+ * Revit writes in shared coordinates places its site exactly at the source
+ * model's shared location (racbasic: -19.82 m, -18.81 m, 37°), so a Revit
+ * document that shares no coordinates yet can be given the same location and
+ * receive the building square to its own axes.
+ */
+export interface SiteLocation {
+  east: number;
+  north: number;
+  elevation: number;
+  angleDeg: number;
+}
+
+/** Read from the IFC's text, with no IFC library: IFCSITE → its placement → its axis placement, in the file's length unit. */
+export function siteLocationOf(bytes: Uint8Array): SiteLocation | null {
+  const text = new TextDecoder('latin1').decode(bytes);
+  const entity = (id: string) => new RegExp(`^${id}=\\s*([A-Z0-9_]+)\\((.*)\\);\\s*$`, 'm').exec(text);
+  const refs = (args: string) => [...args.matchAll(/#\d+|\$/g)].map((m) => m[0]);
+  const numbers = (args: string) => [...args.matchAll(/-?\d+(?:\.\d*)?(?:E[-+]?\d+)?/gi)].map((m) => Number(m[0]));
+  const site = /^(#\d+)=\s*IFCSITE\((.*)\);\s*$/m.exec(text);
+  if (!site) return null;
+  // IFCSITE(GlobalId, OwnerHistory, Name, Description, ObjectType, ObjectPlacement, ...): the sixth.
+  const placementRef = site[2].split(',')[5]?.trim();
+  if (!placementRef?.startsWith('#')) return null;
+  const local = entity(placementRef);
+  if (local?.[1] !== 'IFCLOCALPLACEMENT') return null;
+  const [relativeTo, axisRef] = refs(local[2]);
+  // Placed relative to something else: its numbers alone are not where it stands.
+  if (relativeTo !== '$' || !axisRef) return null;
+  const axis = entity(axisRef);
+  if (axis?.[1] !== 'IFCAXIS2PLACEMENT3D') return null;
+  const [pointRef, , xRef] = refs(axis[2]);
+  const point = pointRef && pointRef !== '$' ? entity(pointRef) : null;
+  if (!point) return null;
+  const [x = 0, y = 0, z = 0] = numbers(point[2]);
+  let angleDeg = 0;
+  const xDir = xRef && xRef !== '$' ? entity(xRef) : null;
+  if (xDir) {
+    const [dx = 1, dy = 0] = numbers(xDir[2]);
+    angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
+  }
+  // The file's length unit: an SI length with a prefix (MILLI, CENTI) or plain metres; feet by a conversion.
+  const si = /IFCSIUNIT\([^)]*\.LENGTHUNIT\.\s*,\s*(\.([A-Z]+)\.|\$)\s*,\s*\.METRE\./i.exec(text);
+  const prefixes: Record<string, number> = { MILLI: 0.001, CENTI: 0.01, DECI: 0.1, KILO: 1000 };
+  const toMetres = si ? (si[2] ? (prefixes[si[2].toUpperCase()] ?? 1) : 1) : /IFCCONVERSIONBASEDUNIT\([^)]*\.LENGTHUNIT\.[^)]*'FOOT'/i.test(text) ? 0.3048 : 1;
+  return { east: x * toMetres, north: y * toMetres, elevation: z * toMetres, angleDeg };
 }

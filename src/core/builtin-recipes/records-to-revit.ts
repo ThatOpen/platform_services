@@ -155,7 +155,7 @@ const num = (v: number) => String(v);
 
 function sharedRun(to: 'frag' | 'ifc') {
   return async (context: RecipeContext<Settings>) => {
-    const { picked, contents } = await readPickedFrag(
+    const { picked, contents, site } = await readPickedFrag(
       context,
       context.input as PickedFile | undefined,
     );
@@ -168,6 +168,17 @@ function sharedRun(to: 'frag' | 'ifc') {
     const sharedFrame = /CoordinateBase:\s*(Coordenadas compartidas|Shared Coordinates|Shared)/i.test(
       JSON.stringify(contents.metadata ?? {}),
     );
+    // AND WHICH SHARED LOCATION THAT IS: the IFC's site stands at it. Sent with every change, so a
+    // target that shares no coordinates yet (a new document, its location the default one) is given
+    // it by the applier before anything is built, and the building lands square to its axes. Without
+    // it a new document got racbasic turned 37° and Revit rolled the request back (17-10).
+    // `SharedAt` = "east,north,elevation" in feet and the angle in degrees.
+    const sharedAt =
+      sharedFrame && site
+        ? [site.east * FEET_PER_METRE, site.north * FEET_PER_METRE, site.elevation * FEET_PER_METRE, site.angleDeg]
+            .map((n) => n.toFixed(6))
+            .join(',')
+        : undefined;
     if (records.length === 0) {
       throw new Error(
         to === 'ifc'
@@ -213,7 +224,10 @@ function sharedRun(to: 'frag' | 'ifc') {
         kept++;
         return false;
       }
-      operation.add(sharedFrame ? { ...attrs, Frame: 'shared' } : attrs, { ...placement, source: sourceKey });
+      operation.add(
+        sharedFrame ? { ...attrs, Frame: 'shared', ...(sharedAt ? { SharedAt: sharedAt } : {}) } : attrs,
+        { ...placement, source: sourceKey },
+      );
       return true;
     };
 
