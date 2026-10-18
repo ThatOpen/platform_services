@@ -285,8 +285,37 @@ export class ProjectDocuments {
     versions?: { tag: string; createdAt?: unknown }[];
     _id?: unknown;
     id?: unknown;
+    name?: unknown;
+    folderId?: unknown;
   }): Promise<string | undefined> {
-    const versions = [...(item.versions ?? [])].sort((a, b) =>
+    // DEV's getFile answers with no versions at all (Platform measured it, 17-10: every IFC uploaded
+    // there became a document with no view). The project's listing carries them: read them there.
+    let known = item.versions ?? [];
+    let listed: Record<string, unknown>[] | undefined;
+    if (known.length === 0) {
+      listed = (await this.client.listFiles({ projectId: this.projectId }).catch(() => [])) as Record<string, unknown>[];
+      const self = listed.find((one) => idOf(one as never) === idOf(item as never));
+      known = (self?.versions as typeof known | undefined) ?? [];
+    }
+    const found = await this.#derivedFromVersions(item, known);
+    if (found) return found;
+    // No link at all: the processor writes the derivative beside it, with the same name. A frag of
+    // that name, newer than nothing else claiming it, is the IFC's.
+    const base = String(item.name ?? '').replace(/\.[^.]+$/, '').toLowerCase();
+    if (!base) return undefined;
+    listed ??= (await this.client.listFiles({ projectId: this.projectId }).catch(() => [])) as Record<string, unknown>[];
+    const twin = listed.find((one) => {
+      const name = String(one.name ?? '').toLowerCase();
+      return name === `${base}.frag` && !one.archived && idOf(one as never) !== idOf(item as never);
+    });
+    return twin ? idOf(twin as never) : undefined;
+  }
+
+  async #derivedFromVersions(
+    item: { _id?: unknown; id?: unknown },
+    known: { tag: string; createdAt?: unknown }[],
+  ): Promise<string | undefined> {
+    const versions = [...known].sort((a, b) =>
       String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')),
     );
     for (const version of versions) {
