@@ -125,6 +125,8 @@ export function stylesOf(records: OurRecord[]): Map<string, OurRecord> {
 export async function whatItMadeBefore(
   context: RecipeContext<never> | RecipeContext<unknown>,
   author: string,
+  /** Filled, when given, with each source's last fingerprint (`flow:print`): what it was made from. */
+  prints?: Map<string, string>,
 ): Promise<Map<string, string>> {
   const made = new Map<string, string>();
   const applied = (await context.targetDoc.suggestions())
@@ -148,8 +150,14 @@ export async function whatItMadeBefore(
       for (let i = 0; i < changes.length && i < ids.length; i++) {
         const source = changes[i].attrs['flow:source'];
         if (!source) continue;
-        if (changes[i].attrs['flow:op'] === 'remove') made.delete(source);
-        else made.set(source, ids[i]);
+        if (changes[i].attrs['flow:op'] === 'remove') {
+          made.delete(source);
+          prints?.delete(source);
+        } else {
+          made.set(source, ids[i]);
+          const print = changes[i].attrs['flow:print'];
+          if (print) prints?.set(source, print);
+        }
       }
     } catch {
       // A payload that cannot be read costs its pairings and nothing else:
@@ -159,10 +167,40 @@ export async function whatItMadeBefore(
   return made;
 }
 
+/**
+ * A recipe that has nothing to ask for: everything it would propose is in the target already, as
+ * the source has it. Not a failure: a run says «up to date» for it.
+ */
+export class NothingToPropose extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NothingToPropose';
+  }
+}
+
+/** A short, stable fingerprint of what a change asks for (FNV-1a over its JSON, keys sorted). */
+export function printOf(value: unknown): string {
+  const sorted = (v: unknown): unknown =>
+    Array.isArray(v)
+      ? v.map(sorted)
+      : v && typeof v === 'object'
+        ? Object.fromEntries(Object.keys(v as object).sort().map((k) => [k, sorted((v as Record<string, unknown>)[k])]))
+        : v;
+  const text = JSON.stringify(sorted(value));
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 /** The project file the person picked as a recipe's source. */
 export interface PickedFile {
   fileId: string;
   name: string;
+  /** The storage version to read (its versionTag); the latest when absent. */
+  version?: string;
 }
 
 /**

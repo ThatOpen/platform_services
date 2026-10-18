@@ -27,6 +27,8 @@ import {
   FEET_PER_METRE,
   innerJson,
   levelsOf,
+  NothingToPropose,
+  printOf,
   readPickedFrag,
   recordsOf,
   stylesOf,
@@ -198,7 +200,8 @@ function sharedRun(to: 'frag' | 'ifc') {
     const levels = levelsOf(records);
     const styles = stylesOf(records);
     const author = `recipe:${to}-to-revit`;
-    const made = await whatItMadeBefore(context, author);
+    const prints = new Map<string, string>();
+    const made = await whatItMadeBefore(context, author, prints);
     const head = await context.targetDoc.latest();
     const operation = new OperationBuilder({
       project: context.projectId,
@@ -209,25 +212,55 @@ function sharedRun(to: 'frag' | 'ifc') {
     // Records are metres; Revit is feet. Plane [x, y] + height is Revit
     // [x, y, z] directly - both are Z up in these records.
     const s = FEET_PER_METRE;
-    const key = (recordId: string) => `${picked.fileId}:${recordId}`;
+    // 🔴 A SOURCE KEY SURVIVES A NEW VERSION OF THE FILE (Antonio, 18-10: a changed IFC is
+    // propagated, not imported again). The converter numbers its records in reading order (run:8),
+    // which a new version reshuffles; the element's own id (an IFC GlobalId, the item's guid) does
+    // not. So a record is keyed by its item's guid, its kind and its place among that item's records
+    // of that kind; by its number only when its item has no guid.
+    const stableKeys = new Map<string, string>();
+    {
+      const seenInItem = new Map<string, number>();
+      for (const record of records) {
+        const guid = record.item.guid;
+        if (!guid) continue;
+        const slot = `${guid}:${record.kind}`;
+        const n = seenInItem.get(slot) ?? 0;
+        seenInItem.set(slot, n + 1);
+        stableKeys.set(record.id, `${picked.fileId}:${slot}${n ? `:${n}` : ''}`);
+      }
+    }
+    const key = (recordId: string) => stableKeys.get(recordId) ?? `${picked.fileId}:${recordId}`;
     const seen = new Set<string>();
 
-    /** Adds once per source key; an already-made thing is left alone (kept). */
+    /**
+     * Adds once per source key. One already made is KEPT when the source asks for the same thing it
+     * was made from (its fingerprint, `flow:print`), and REPLACED when the source changed: removed
+     * and made again from the new version (the applier's `set` moves and writes fields, it does not
+     * rebuild a wall's shape). Made before fingerprints existed: kept.
+     */
     let kept = 0;
+    let changed = 0;
     const add = (
       sourceKey: string,
       attrs: Record<string, string>,
       placement?: { position?: [number, number, number]; rotationDeg?: number },
     ) => {
       seen.add(sourceKey);
-      if (made.has(sourceKey)) {
-        kept++;
+      const framed = sharedFrame ? { ...attrs, Frame: 'shared', ...(sharedAt ? { SharedAt: sharedAt } : {}) } : attrs;
+      const print = printOf({ attrs: framed, placement: placement ?? {} });
+      const madeId = made.get(sourceKey);
+      if (madeId) {
+        const before = prints.get(sourceKey);
+        if (!before || before === print) {
+          kept++;
+          return false;
+        }
+        operation.remove(madeId);
+        operation.add({ ...framed, 'flow:print': print }, { ...placement, source: sourceKey });
+        changed++;
         return false;
       }
-      operation.add(
-        sharedFrame ? { ...attrs, Frame: 'shared', ...(sharedAt ? { SharedAt: sharedAt } : {}) } : attrs,
-        { ...placement, source: sourceKey },
-      );
+      operation.add({ ...framed, 'flow:print': print }, { ...placement, source: sourceKey });
       return true;
     };
 
@@ -904,7 +937,7 @@ function sharedRun(to: 'frag' | 'ifc') {
     }
 
     if (operation.length === 0) {
-      throw new Error(
+      throw new NothingToPropose(
         `Nothing new to ask for: "${picked.name}" holds ${kept} element(s) this recipe already made, ` +
           `${hostedWaiting + bodiesWaiting} waiting on the applier, and nothing is left to remove.`,
       );
@@ -922,6 +955,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       stairCount ? `${stairCount} stair(s)` : '',
       columnCount ? `${columnCount} column(s)` : '',
       instanceCount ? `${instanceCount} instance(s)` : '',
+      changed ? `${changed} changed` : '',
       removed ? `${removed} gone` : '',
     ].filter(Boolean);
     return {

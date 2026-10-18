@@ -16,7 +16,7 @@
  * items) is the agreed phase 2 and will sit on top of the same manifest.
  */
 import type { EngineServicesClient } from './client';
-import { mintGuid, type FlowDoc, type FlowSuggestion } from './history';
+import { mintGuid, type FlowDoc, type FlowOrigin, type FlowSuggestion } from './history';
 
 /**
  * How a settings property says "this names something that EXISTS". Put it on
@@ -237,7 +237,7 @@ export class Recipes {
    */
   async queue(
     plan: RecipePlan,
-    options: { author: string; userId?: string },
+    options: { author: string; userId?: string; origin?: FlowOrigin },
   ): Promise<RecipeRunOutcome> {
     const targetDoc = this.client
       .history(plan.projectId)
@@ -251,6 +251,7 @@ export class Recipes {
       targets: plan.result.targets,
       userId: options.userId,
       baseCommitGuid: plan.baseCommitGuid,
+      ...(options.origin ? { origin: options.origin } : {}),
     });
     return { suggestion, result: plan.result };
   }
@@ -279,6 +280,7 @@ export class Recipes {
       targets: result.targets,
       userId: options.userId,
       baseCommitGuid: base?.guid,
+      ...(options.origin ? { origin: options.origin } : {}),
     });
 
     return { suggestion, result };
@@ -321,4 +323,6 @@ export interface RecipeRunOptions<S = Record<string, unknown>> {
   settings?: S;
   author: string;
   userId?: string;
+  /** Where the suggestion comes from (the recipe and the exact source it read), for the history. */
+  origin?: FlowOrigin;
 }

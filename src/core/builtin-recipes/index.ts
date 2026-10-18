@@ -15,6 +15,7 @@ import { rhinoToRevit } from './rhino-to-revit';
 
 export { fragToRevit, ifcToRevit } from './records-to-revit';
 export { rhinoToRevit } from './rhino-to-revit';
+export { NothingToPropose } from './shared';
 
 /** The built-in recipes, in catalog order. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- a heterogeneous catalog erases its settings types
