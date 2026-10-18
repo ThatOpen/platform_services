@@ -21,7 +21,7 @@
  * degrees, types by exact name. Record ids are DOCUMENT-scoped, so every
  * reconcile key carries the source file's id next to them.
  */
-import type { Recipe, RecipeContext } from '../recipes';
+import type { Recipe, RecipeContext, RecipeStep } from '../recipes';
 import { OperationBuilder } from '../op-builder';
 import {
   FEET_PER_METRE,
@@ -1042,6 +1042,30 @@ request when a loadable type is missing (system types are created from their
 width instead).
 `;
 
+/** The steps a person follows, from nothing to the model in Revit and back here. */
+const revitSteps = (source: string): RecipeStep[] => [
+  {
+    kind: 'app',
+    says: 'Open Revit with the That Open plugin.',
+    more: 'Revit 2027. If the plugin is not installed, get it, install it with Revit closed, and open Revit again.',
+  },
+  {
+    kind: 'connect',
+    says: 'Create a Revit project (or open one) and add it to this project.',
+    more: 'A new project from any template will do. The button asks Revit to add the open model; Revit asks you first.',
+  },
+  { kind: 'target', says: 'Choose that Revit document.' },
+  { kind: 'source', says: source },
+  { kind: 'plan', says: 'Plan: see what it will ask Revit for.', more: 'Nothing is written.' },
+  { kind: 'queue', says: 'Send the request to Revit.' },
+  {
+    kind: 'apply',
+    says: 'Apply it in Revit.',
+    more: 'With the button, or in Revit: That Open > Proposals > Apply. What Revit cannot build is left out and said.',
+  },
+  { kind: 'see', says: 'See it here.', more: 'Revit syncs it, and the document shows its new version.' },
+];
+
 export const fragToRevit: Recipe<Settings> = {
   name: 'frag-to-revit',
   title: 'Platform model to Revit',
@@ -1053,6 +1077,7 @@ export const fragToRevit: Recipe<Settings> = {
   runtime: 'browser',
   settingsSchema: sharedSchema,
   rules: sharedRules,
+  steps: revitSteps('Choose the platform model (.frag) to bring in.'),
   doc: sharedDoc,
   run: sharedRun('frag'),
 };
@@ -1065,6 +1090,7 @@ export const ifcToRevit: Recipe<Settings> = {
     'Turns an IFC, as you uploaded it, into native Revit change requests: levels, walls, floors, roofs, stairs, curtain walls, columns, instances.',
   inputs: ['ifc-model'],
   source: { kind: 'project-file', extensions: ['ifc'] },
+  steps: revitSteps('Choose the IFC to bring in.'),
   doc:
     `
 ## Point it at the IFC

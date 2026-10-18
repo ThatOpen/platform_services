@@ -45,8 +45,24 @@ export interface ExistingLookup {
   where?: Record<string, string>;
 }
 
+/**
+ * One step of a recipe as a person follows it (Antonio, 17-10: «en la propia receta indicaciones,
+ * como una receta literal … si alguien abre el coordinator sin tener ni idea y usa una receta, va a
+ * tiro hecho»). The app gives each kind its control: a check of the native application, a button that
+ * adds its open model to the project, the lists, Plan, Queue, applying it there, seeing it here.
+ */
+export interface RecipeStep {
+  kind: 'app' | 'connect' | 'target' | 'source' | 'plan' | 'queue' | 'apply' | 'see';
+  /** What to do, in a line. */
+  says: string;
+  /** Why, or how, when a line is not enough. */
+  more?: string;
+}
+
 /** What a recipe declares about itself. Shown in catalogs, checked by apps. */
 export interface RecipeManifest {
+  /** Its steps, in order, for the app to guide a person through (see {@link RecipeStep}). */
+  steps?: RecipeStep[];
   /** Machine name, unique in a catalog: 'rhino-points-to-revit-columns'. */
   name: string;
   /** The human name a card shows: 'Rhino points to Revit columns'. */
