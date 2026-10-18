@@ -5,15 +5,15 @@
  * same rules - the only difference is where the file came from, and the
  * recipe saying so to the person.
  *
- * WHOLE BUILDINGS, not demos: levels, walls, floors, columns and
- * free-standing instances all become proposals, in that order, in ONE
- * operation - levels first because walls stand on them, by name. The applier
- * materialises each natively (Wall.Create, Floor.Create, Level ensured by
- * name) and makes missing wall/floor types from the carried `Type.Width`.
- * What the applier cannot create yet - stairs, roofs, footings, curtain
- * pieces, hosted doors and windows - is READ and TALLIED, and the rules
- * table says so; those rows light up as the applier grows, without the
- * recipes changing shape.
+ * WHOLE BUILDINGS, not demos: levels, walls, curtain walls, stairs, floors,
+ * roofs, ceilings, columns and free-standing instances all become proposals,
+ * in ONE operation - levels first because everything stands on them, by name.
+ * The applier materialises each natively (Wall.Create, the curtain grid,
+ * stair runs, Floor/Roof/Ceiling.Create, Level ensured by name) and makes
+ * missing system types from the carried `Type.Width`. What it cannot create
+ * yet - hosted doors and windows, footings, ramps - is READ and TALLIED, and
+ * the rules table says so; that row empties as the applier grows, without
+ * the recipes changing shape.
  *
  * CONVENTIONS, stated once: records are metres and radians, plane [x, y]
  * with height as the third coordinate, levels referenced as `datum:N` and
@@ -276,6 +276,8 @@ function sharedRun(to: 'frag' | 'ifc') {
     const roofRecords = new Map(records.filter((r) => r.kind === 'extrusion' && r.params.of === 'roof').map((r) => [r.id, r]));
 
     // ---- 1. Levels: named identity, ensured on the target. ----
+    // Counted as PROPOSED only when asked for: one this recipe made before is kept, not proposed
+    // (the rules table shows read against proposed - Antonio, 17-10).
     let levelCount = 0;
     if (createLevels) {
       for (const [datumId, level] of levels) {
@@ -287,7 +289,6 @@ function sharedRun(to: 'frag' | 'ifc') {
           })
         )
           levelCount++;
-        else levelCount++;
       }
     }
 
@@ -500,8 +501,10 @@ function sharedRun(to: 'frag' | 'ifc') {
       return out;
     };
     let curtainCount = 0;
+    let curtainRead = 0;
     for (const record of records) {
       if (record.kind !== 'run' || record.params.of !== 'curtainWall') continue;
+      curtainRead++;
       const body = innerJson<RunBody & { lines?: { along?: number[]; up?: number[] }; omitted?: string[] }>(record, 'run');
       const seg = body?.run?.line?.curves?.[0];
       const level = levels.get(String(body?.level ?? record.params.level ?? ''));
@@ -589,8 +592,10 @@ function sharedRun(to: 'frag' | 'ifc') {
     // its sketch (winders). Its family is the one its name starts with (assembled, precast,
     // cast in place), its risers as many as its rise needs at its type's riser at most.
     let stairCount = 0;
+    let stairRead = 0;
     for (const record of records) {
       if (record.kind !== 'stair' || record.params.of !== 'stair') continue;
+      stairRead++;
       const body = innerJson<{
         start?: [number, number, number]; end?: [number, number, number]; rise?: number; level?: string;
         sketch?: { boundary?: [number, number][]; risers?: [[number, number], [number, number]][] };
@@ -710,14 +715,16 @@ function sharedRun(to: 'frag' | 'ifc') {
       if (add(key(record.id), attrs)) stairCount++;
     }
 
-    // ---- 3. Floors: slabs by their boundary loops. ----
-    let floorCount = 0;
-    let floorSkipped = 0;
+    // ---- 3. Floors, foundation slabs, roofs and ceilings: slabs by their boundary loops. ----
+    // Read and proposed per kind: each is its own row of the rules table.
+    const slabRead = { floor: 0, foundation: 0, roof: 0, ceiling: 0 };
+    const slabMade = { floor: 0, foundation: 0, roof: 0, ceiling: 0 };
     for (const record of records) {
       const of = record.params.of;
       if (record.kind !== 'extrusion' || (of !== 'slab' && of !== 'roof' && of !== 'covering')) continue;
       const kind = of === 'covering' ? 'ceiling' : of === 'roof' ? 'roof' : slabKind(record);
       if (kind === 'other') continue;
+      slabRead[kind]++;
       const body = innerJson<ExtrusionBody>(record, 'extrusion');
       const base =
         typeof record.params.base === 'number' ? record.params.base : 0;
@@ -733,10 +740,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         return flat.length >= 9 ? flat : null;
       };
       const outer = loopOf(body?.profile?.outline?.curves);
-      if (typeof lookRef !== 'string' || !level || !outer) {
-        floorSkipped++;
-        continue;
-      }
+      if (typeof lookRef !== 'string' || !level || !outer) continue;
       const loops: number[][] = [outer];
       // A gable's holes lie ON its face, each corner at the slope's height there: Revit cuts a
       // roof's hole square to the face from where the loop is, and a loop left at the level
@@ -796,13 +800,15 @@ function sharedRun(to: 'frag' | 'ifc') {
         // TOP face (height offset from level), and ignores the profile's z.
         attrs.HeightOffset = num(base * s + width);
       }
-      if (add(key(record.id), attrs)) floorCount++;
+      if (add(key(record.id), attrs)) slabMade[kind]++;
     }
 
     // ---- 4. Columns (members), by picked type or by style name. ----
     let columnCount = 0;
+    let columnRead = 0;
     for (const record of records) {
       if (record.kind !== 'member' || record.params.of !== 'column') continue;
+      columnRead++;
       const body = innerJson<MemberBody>(record, 'member');
       const at = body?.start;
       if (!at || at.length !== 3) continue;
@@ -836,6 +842,7 @@ function sharedRun(to: 'frag' | 'ifc') {
 
     // ---- 5. Free-standing instances, opt-in, by style name. ----
     let instanceCount = 0;
+    let instanceRead = 0;
     let hostedWaiting = 0;
     for (const record of records) {
       if (record.kind !== 'familyInstance') continue;
@@ -845,6 +852,8 @@ function sharedRun(to: 'frag' | 'ifc') {
         hostedWaiting++;
         continue;
       }
+      // Read whether or not they are asked for: the row shows what the model holds.
+      instanceRead++;
       if (!includeInstances) continue;
       const body = innerJson<InstanceBody>(record, 'instance');
       const at = body?.placement?.at;
@@ -865,14 +874,22 @@ function sharedRun(to: 'frag' | 'ifc') {
 
     // ---- 6. What the applier cannot create yet: counted, so the person sees
     // what the model holds and what still waits. ----
+    // Only what no step above reads. A stair's landing goes with its stair, so a slab that is
+    // neither floor, foundation, roof nor ceiling waits only when it is not a landing.
     let bodiesWaiting = 0;
+    const slabbed = new Set(['slab', 'roof', 'covering']);
     for (const record of records) {
+      const of = record.params.of;
       if (
-        record.kind === 'stair' ||
         record.kind === 'footing' ||
         record.kind === 'ramp' ||
-        (record.kind === 'extrusion' && record.params.of !== 'slab') ||
-        (record.kind === 'run' && record.params.of !== 'wall')
+        (record.kind === 'stair' && of !== 'stair') ||
+        (record.kind === 'extrusion' && !slabbed.has(String(of))) ||
+        (record.kind === 'extrusion' &&
+          of === 'slab' &&
+          slabKind(record) === 'other' &&
+          !/ Landing \d+$/.test(String(record.item.attrs.Name ?? ''))) ||
+        (record.kind === 'run' && of !== 'wall' && of !== 'curtainWall')
       )
         bodiesWaiting++;
     }
@@ -893,10 +910,16 @@ function sharedRun(to: 'frag' | 'ifc') {
       );
     }
 
+    // The plan's one line names every kind it proposes, not only the first three (Antonio, 17-10).
     const words = [
       levelCount ? `${levelCount} level(s)` : '',
       wallCount ? `${wallCount} wall(s)` : '',
-      floorCount ? `${floorCount} floor(s)` : '',
+      curtainCount ? `${curtainCount} curtain wall(s)` : '',
+      slabMade.floor ? `${slabMade.floor} floor(s)` : '',
+      slabMade.foundation ? `${slabMade.foundation} foundation slab(s)` : '',
+      slabMade.roof ? `${slabMade.roof} roof(s)` : '',
+      slabMade.ceiling ? `${slabMade.ceiling} ceiling(s)` : '',
+      stairCount ? `${stairCount} stair(s)` : '',
       columnCount ? `${columnCount} column(s)` : '',
       instanceCount ? `${instanceCount} instance(s)` : '',
       removed ? `${removed} gone` : '',
@@ -906,12 +929,18 @@ function sharedRun(to: 'frag' | 'ifc') {
       verb: operation.summary,
       targets: operation.length,
       payload: new Blob([(await operation.build(context.opId)) as BlobPart]),
+      // One per row of `sharedRules`, in its order. Read: what the model holds (what this recipe
+      // made before included); proposed: what this request asks for.
       ruleTallies: [
         { read: levels.size, proposed: levelCount },
-        { read: wallCount + wallSkipped, proposed: wallCount },
-        { read: floorCount + floorSkipped, proposed: floorCount },
-        { read: columnCount, proposed: columnCount },
-        { read: instanceCount, proposed: instanceCount },
+        { read: segs.length + wallSkipped, proposed: wallCount },
+        { read: curtainRead, proposed: curtainCount },
+        { read: slabRead.floor + slabRead.foundation, proposed: slabMade.floor + slabMade.foundation },
+        { read: slabRead.roof, proposed: slabMade.roof },
+        { read: slabRead.ceiling, proposed: slabMade.ceiling },
+        { read: stairRead, proposed: stairCount },
+        { read: columnRead, proposed: columnCount },
+        { read: instanceRead, proposed: instanceCount },
         { read: removed, proposed: removed },
         { read: hostedWaiting + bodiesWaiting, proposed: 0 },
       ],
@@ -951,22 +980,29 @@ const sharedSchema = {
   },
 };
 
+// One row per step of the run, in the order of its `ruleTallies` (Antonio, 17-10: the table
+// still said stairs, roofs and curtain walls waited, long after the applier built them).
 const sharedRules = [
   { reads: 'Levels (datums)', proposes: 'The same level on the target, ensured by name' },
-  { reads: 'Wall runs, one per straight segment', proposes: 'A native wall: curve, type (made from its width when missing), level, height' },
-  { reads: 'Slabs with their boundary', proposes: 'A native floor from the profile, holes included' },
+  { reads: 'Wall runs, one per straight segment', proposes: 'A native wall: line, type (made from its width when missing), level, height, joins; its edited profile or its top on a roof' },
+  { reads: 'Curtain wall runs', proposes: "Revit's curtain wall: its grid lines, mullions and panels" },
+  { reads: 'Slabs: floors and foundation slabs', proposes: 'A native floor or foundation slab from the profile, holes included' },
+  { reads: 'Roofs', proposes: 'A footprint roof with its sloping edges, or a roof by extrusion for a gable' },
+  { reads: 'Ceilings (coverings)', proposes: 'A native ceiling from the profile, hung at its drop' },
+  { reads: 'Stairs', proposes: 'A native stair: a straight or sketched run, with its landings' },
   { reads: 'Column records (members)', proposes: 'A Revit column at each, on its level' },
-  { reads: 'Free-standing family instances (when turned on)', proposes: 'A new instance of the same-named type, placed and turned' },
+  { reads: 'Free-standing family instances', proposes: 'When turned on: a new instance of the same-named type, placed and turned' },
   { reads: 'Things this recipe made whose record is gone', proposes: 'That element removed' },
-  { reads: 'Hosted doors/windows, stairs, roofs, footings, curtain pieces', proposes: 'Nothing yet - each waits on the applier or the converter growing' },
+  { reads: 'Hosted doors/windows, footings, ramps, other bodies', proposes: 'Nothing yet - read and counted' },
 ];
 
 const sharedDoc = `
 ## What it does
 
 It reads the platform's records out of a .frag and asks a Revit document for
-the building they describe - levels, walls, floors, columns and (opting in)
-free-standing instances, in one operation, levels first. Nothing changes in
+the building they describe - levels, walls, curtain walls, floors, roofs,
+ceilings, stairs, columns and (opting in) free-standing instances, in one
+operation, levels first. Nothing changes in
 Revit until the owner of that document accepts the request there, and the
 applier materialises everything NATIVELY: real walls on real levels, never
 imported meshes.
@@ -975,7 +1011,11 @@ imported meshes.
 
 Walls: the location line per straight segment, the type by its exact name
 (with its width, so a missing type is created by duplication), the level by
-name, base offset and height. Floors: the boundary loops, holes included.
+name, base offset, height and which ends join; an edited profile, or a top
+attached to a roof. Curtain walls: Revit's own system, its grid lines,
+mullions and panels. Floors, foundation slabs and ceilings: the boundary
+loops, holes included. Roofs: by footprint with their sloping edges, or by
+extrusion for a gable. Stairs: a straight or sketched run, with its landings.
 Columns and instances: point, rotation, level, type. Levels: name and
 elevation - ENSURED, so a level the target already has is simply used.
 
@@ -991,8 +1031,8 @@ of its own - what it made is read back from its own applied requests.
 ## What still waits
 
 Hosted doors and windows (the converter does not record their category and
-family yet), stairs, roofs, footings and curtain walls (the applier does not
-create them yet). They are read and counted, and their rule row says so.
+family yet), footings and ramps (the applier does not create them yet). They
+are read and counted, and their rule row says so.
 
 ## Units and axes
 
@@ -1006,7 +1046,7 @@ export const fragToRevit: Recipe<Settings> = {
   name: 'frag-to-revit',
   title: 'Platform model to Revit',
   description:
-    'Turns the platform records of a .frag - levels, walls, floors, columns, instances - into change requests for a Revit document.',
+    'Turns the platform records of a .frag - levels, walls, curtain walls, floors, roofs, ceilings, stairs, columns, instances - into change requests for a Revit document.',
   to: 'revit',
   inputs: ['frag-model'],
   source: { kind: 'project-file', extensions: ['frag'] },
