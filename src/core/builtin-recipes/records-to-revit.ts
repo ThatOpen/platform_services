@@ -1047,12 +1047,12 @@ const revitSteps = (source: string): RecipeStep[] => [
   {
     kind: 'app',
     says: 'Open Revit with the That Open plugin.',
-    more: 'Revit 2027. If the plugin is not installed, get it, install it with Revit closed, and open Revit again.',
+    more: 'If the plugin is not installed, get it, install it with Revit closed, and open Revit again.',
   },
   {
     kind: 'connect',
-    says: 'Create a Revit project (or open one) and add it to this project.',
-    more: 'A new project from any template will do. The button asks Revit to add the open model; Revit asks you first.',
+    says: 'Choose the Revit model: the one open in Revit, or one already in this project.',
+    more: 'The open one is added as a new document (a new project from any template will do). One of the project is opened in Revit for you.',
   },
   { kind: 'target', says: 'Choose that Revit document.' },
   { kind: 'source', says: source },
