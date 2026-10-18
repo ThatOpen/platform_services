@@ -22,6 +22,8 @@
  * limited — interfaces may offer to convert it into a document.
  */
 import type { EngineServicesClient } from './client';
+// (Used inside methods only, so the cycle with history.ts, which imports this module, is harmless.)
+import { ProjectHistory } from './history';
 
 /** One renderable representation of a document. */
 export interface DocumentView {
@@ -130,7 +132,7 @@ export class ProjectDocuments {
    */
   async fromFile(
     fileId: string,
-    options?: { name?: string; selfView?: boolean },
+    options?: { name?: string; selfView?: boolean; author?: string },
   ): Promise<DocumentInfo> {
     const item = await this.client.getFile(fileId);
     const fileName = String(item.name ?? '');
@@ -171,7 +173,33 @@ export class ProjectDocuments {
       views,
     };
     await this.setDescriptor(folderId, descriptor);
+    // 🔴 THE HISTORY IS EXPLICIT AND STARTS HERE (Antonio, 18-10): a document made from a file is
+    // born with one step, «uploaded to the platform», naming the file. Not derived later from the
+    // file's versions: what happened is written when it happens.
+    await this.recordUpload(folderId, { fileId, name: fileName, format }, options?.author ?? String(item.createdBy ?? ''));
     return { folderId, descriptor };
+  }
+
+  /**
+   * Writes the step «uploaded to the platform» in a document's history: the first step of a
+   * document made from a file ({@link fromFile} does it), and the step of each new version of the
+   * file uploaded later. `author` is who uploaded it (a name, or the platform user id).
+   */
+  async recordUpload(
+    folderId: string,
+    file: { fileId: string; name: string; format?: string; versionTag?: string },
+    author: string,
+  ): Promise<void> {
+    const doc = new ProjectHistory(this.client, this.projectId).document(folderId);
+    const first = (await doc.timeline()).length === 0;
+    await doc.sync({
+      author: author || 'unknown',
+      source: 'platform',
+      kind: 'upload',
+      message: first ? 'Uploaded to the platform' : 'New version uploaded',
+      file: { ...file, format: file.format ?? formatOf(file.name, undefined) },
+      changes: [],
+    });
   }
 
   /**

@@ -73,8 +73,46 @@ export interface FlowVersion {
   compact?: boolean;
   /** Suggestions this version applied (their opIds). */
   appliedOps?: string[];
+  /**
+   * What kind of step it was, when it was not a sync of a native application: 'upload' is a file
+   * brought to the platform (the first step of every document made from a file, Antonio 18-10:
+   * «el histórico siempre explícito: al subir un archivo y crear un documento, se crea el histórico
+   * con un primer paso que es subir el documento a la plataforma»). Absent: a sync.
+   */
+  kind?: 'upload' | 'sync' | string;
+  /** The file the step brought, on an upload: its id, name and the storage version it landed in. */
+  file?: FlowFile;
+  /** Where the step came from, when a recipe made it: see {@link FlowOrigin}. */
+  origin?: FlowOrigin;
   /** Position in the timeline, derived from the parent graph when read. Never stored. */
   ordinal?: number;
+}
+
+/** A file a version brought to the platform. */
+export interface FlowFile {
+  fileId: string;
+  name: string;
+  /** Lowercase format: 'ifc', 'rvt', 'pdf'… */
+  format?: string;
+  /** The storage version it landed in, when known. */
+  versionTag?: string;
+}
+
+/**
+ * Where a suggestion (and the version that applied it) came from: the recipe that made it and the
+ * exact source it read, so the history says which IFC, at which version, a proposal was built from.
+ * Agreed with the platform, 18-10.
+ */
+export interface FlowOrigin {
+  /** The recipe's id. */
+  recipe: string;
+  source: {
+    /** The source document's folder. */
+    folderId: string;
+    fileId: string;
+    /** The file's storage version the recipe read. */
+    version: string;
+  };
 }
 
 /** Wire shape of `revitflow_history.json`. */
@@ -117,6 +155,8 @@ export interface FlowSuggestion {
   appliedInCommit?: number | null;
   /** Native ids it touched or created, written by the plugin when it applied. */
   affectedIds?: string[];
+  /** Where it came from, when a recipe made it. */
+  origin?: FlowOrigin;
 }
 
 /** Wire shape of `revitflow_ops.json`. */
@@ -208,6 +248,12 @@ export interface SyncInput {
   userId?: string;
   /** Suggestions this version applied. */
   appliedOps?: string[];
+  /** What kind of step it is, when not a sync ('upload'). */
+  kind?: FlowVersion['kind'];
+  /** The file an upload brought. */
+  file?: FlowFile;
+  /** Where it came from, when a recipe made it. */
+  origin?: FlowOrigin;
   /**
    * The head you built on. When given and the stored head differs, `sync`
    * refuses with {@link StaleHistoryError} instead of forking silently.
@@ -239,6 +285,8 @@ export interface SuggestInput {
   userId?: string;
   /** The version it was authored against. */
   baseCommitGuid?: string;
+  /** Where it came from, when a recipe made it. */
+  origin?: FlowOrigin;
 }
 
 /** The head moved while a writer prepared its version. Re-read and retry. */
@@ -372,6 +420,21 @@ export class ProjectHistory {
     return doc;
   }
 
+  /**
+   * The history of a document of the platform's own (a folder with its `document.json`, made from
+   * an uploaded file), kept in the document's folder itself. Its source is 'platform' and its id
+   * the folder's.
+   */
+  document(folderId: string): FlowDoc {
+    const key = `platform-${folderId}`;
+    let doc = this.#docs.get(key);
+    if (!doc) {
+      doc = new FlowDoc(this.client, this, 'platform', folderId, folderId);
+      this.#docs.set(key, doc);
+    }
+    return doc;
+  }
+
   #docs = new Map<string, FlowDoc>();
   #children?: Promise<Awaited<ReturnType<EngineServicesClient['listFolders']>>>;
   #childrenAt = 0;
@@ -441,7 +504,11 @@ export class FlowDoc {
     private readonly project: ProjectHistory,
     readonly source: string,
     readonly docId: string,
-  ) {}
+    /** The folder, when it is known and not found by name under `bimterop` (a platform document). */
+    folderId?: string,
+  ) {
+    this.#folderId = folderId;
+  }
 
   // ─── Reading ───────────────────────────────────────────────────────────────
 
@@ -742,6 +809,9 @@ export class FlowDoc {
       ...(input.message ? { message: input.message } : {}),
       ...(input.userId ? { userId: input.userId } : {}),
       ...(input.appliedOps?.length ? { appliedOps: input.appliedOps } : {}),
+      ...(input.kind ? { kind: input.kind } : {}),
+      ...(input.file ? { file: input.file } : {}),
+      ...(input.origin ? { origin: input.origin } : {}),
       changes: input.changes,
       counts: tally(input.changes),
     };
@@ -818,6 +888,7 @@ export class FlowDoc {
       ...(input.baseCommitGuid
         ? { baseCommitGuid: input.baseCommitGuid }
         : {}),
+      ...(input.origin ? { origin: input.origin } : {}),
     };
 
     if (input.payload) {
