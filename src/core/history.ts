@@ -376,6 +376,9 @@ export class ProjectHistory {
     const folders = await this.childFolders(root, true);
     const docs: FlowDocInfo[] = [];
     for (const folder of folders) {
+      // An archived document is gone from the project (it can be recovered, but nobody works on it):
+      // listed, it stayed a recipe's target and Run «proposed» to it (Antonio, 18-10).
+      if ((folder as { archived?: unknown }).archived) continue;
       const name = String(folder.name ?? '');
       const dash = name.indexOf('-');
       if (dash <= 0) continue;
