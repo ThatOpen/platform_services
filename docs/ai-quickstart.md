@@ -9,6 +9,26 @@ on the [That Open Platform](https://platform.thatopen.com) from scratch, using
 
 ---
 
+> **Not building anything — here to USE an app the user has open?** If the user wants you to do
+> something in an app that is already running on the platform ("make me drawings in the app I have
+> open", "check this model", "count the doors"), you build nothing and install nothing but the MCP
+> server. Nothing below applies past these steps:
+>
+> 1. **You need the `thatopen mcp` server** (section 5e below has the config to add). If your
+>    tools do not include `send-app-command`, tell the user to add it to their MCP client and
+>    restart it. You cannot add it yourself from a chat.
+> 2. **Get the URL of the app tab**: `https://<platform>/dashboard/projects/<project>/apps/<app>`.
+>    Ask the user for it if they did not give it. Pass that URL as `project`, and the server reads
+>    the project and the app from it.
+> 3. **Send `help` first.** Each app declares its own commands. Its `help` reply lists them and
+>    says how the app wants to be used, and some apps point on to a longer `guide`. That reply is
+>    the manual: follow it, not your guesses about the app.
+> 4. Then do what was asked, one command at a time, reading every reply. `delivered: 0` means the
+>    app tab is not open (or needs a reload): ask the user, then retry.
+>
+> Phrases that mean this: *"in the app I have open"*, *"use Planner/Coordinator to…"*, *"drive
+> my app"*, *"make me a set of drawings"*.
+
 > **Not building anything — here to work in Revit?** If what the user actually wants is to share a
 > Revit model with their team, join one a colleague uploaded, or review a change some other tool
 > proposed to their model, this is the wrong guide and nothing below applies. Go to
@@ -472,7 +492,10 @@ subscription alive) and `send-app-command` (publish a command to a running
 app — `ping`, `get-loaded-models`, or whatever the app declares — and return
 its reply). The project is named per call, by id or dashboard URL, so one MCP
 session can drive whichever project the user has open; while iterating with
-`thatopen serve`, `app_id` is omitted, same rule as the raw socket.
+`thatopen serve`, `app_id` is omitted, same rule as the raw socket. A dashboard
+URL with `/apps/<id>` in it gives the `app_id` as well, so the URL of the
+user's app tab is all a call needs. To use an app rather than build one, send
+it `help` first (see the box at the top of this guide).
 
 ## 6. Publish (when ready)
 

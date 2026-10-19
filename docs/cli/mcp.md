@@ -35,6 +35,11 @@ to, as one external channel of kind `mcp`.
   whatever the app declares in `AppCommands`) to a running app and return its
   reply. Takes the project per call (id or dashboard URL); `app_id` is omitted
   while the app runs under `thatopen serve` and passed once it is published.
+  A URL with `/apps/<id>` (the user's app tab) gives the `app_id` too.
+
+**Using an app, not building one:** send `help` first. Every app answers it
+with its own commands and how it wants to be used, and that reply is the
+manual the LLM follows.
 
 **The app must be open.** `delivered: 0` means no tab of that app has the
 channel joined — the LLM is told to ask the user to open or reload the app

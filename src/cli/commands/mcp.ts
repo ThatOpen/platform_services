@@ -52,6 +52,11 @@ function projectIdFrom(input: string): string | null {
   return trimmed.match(/projects?\/([0-9a-f]{24})/i)?.[1] ?? null;
 }
 
+/** The published app's id a dashboard URL carries (`…/apps/<id>`); none for `apps/local-app`. */
+function appIdFrom(input: string): string | undefined {
+  return input.trim().match(/apps\/([0-9a-f]{24})/i)?.[1];
+}
+
 /**
  * One socket for the whole MCP session, subscribed as a bare external channel
  * (no default project): every publish names its own target, so one session can
@@ -246,11 +251,11 @@ async function startMcpServer() {
 
   server.tool(
     'send-app-command',
-    'Sends a command to a running That Open app through the platform channel and returns its reply. The app must be open in a browser tab and listening (apps scaffolded by `thatopen create` handle `ping` and `get-loaded-models` out of the box; apps declare their own commands in src/setups/channel.ts). While the user iterates with `thatopen serve`, omit app_id — the dev channel is keyed to the account; pass it once the app is published. `delivered: 0` means no tab of the app has the channel joined, usually because the app is simply not open — ask the user to open or reload the app tab.',
+    'Sends a command to a running That Open app through the platform channel and returns its reply. To USE an app the person has open (rather than build one), pass the URL of their app tab as `project` and send `help` first: the app answers with its own commands and how to use them, and that is the manual to follow. The app must be open in a browser tab and listening (apps scaffolded by `thatopen create` handle `ping` and `get-loaded-models` out of the box; apps declare their own commands in src/setups/channel.ts). While the user iterates with `thatopen serve`, omit app_id — the dev channel is keyed to the account; pass it once the app is published. `delivered: 0` means no tab of the app has the channel joined, usually because the app is simply not open — ask the user to open or reload the app tab.',
     {
       project: z
         .string()
-        .describe('The project id (24 hex characters), or the project\'s dashboard URL.'),
+        .describe('The project id (24 hex characters), or the dashboard URL of the app tab: a URL with `/apps/<id>` gives the app_id too.'),
       command: z
         .string()
         .describe('The command name the app handles, e.g. "ping" or "get-loaded-models".'),
@@ -262,7 +267,7 @@ async function startMcpServer() {
         .string()
         .regex(/^[0-9a-f]{24}$/i)
         .optional()
-        .describe('The published app\'s id. Omit while the app runs under `thatopen serve`.'),
+        .describe('The published app\'s id. Omit while the app runs under `thatopen serve`, or when `project` is a URL that carries it.'),
       wait_for_reply: z
         .boolean()
         .optional()
@@ -284,7 +289,7 @@ async function startMcpServer() {
       }
       const result = await connect().send({
         projectId,
-        appId: args.app_id,
+        appId: args.app_id ?? appIdFrom(args.project),
         type: args.command,
         payload: args.payload,
         waitForReply: args.wait_for_reply !== false,
