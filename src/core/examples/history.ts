@@ -1,16 +1,16 @@
-// description: "History and recipes — a project's connected documents (Revit, AutoCAD…), their version timelines, change requests (suggestions), and recipes: scripts that write suggestions in an app's native language."
+// description: "History and recipes — a project's connected documents (Revit, AutoCAD…), their version timelines, and recipes: scripts that bring a source into an app, in its native language, applied from inside that app."
 import { EngineServicesClient } from '../client';
 import type { Recipe } from '../recipes';
 
 // The mental model, in three sentences:
 // 1. Every connected document (a Revit model, an AutoCAD drawing) has its
 //    version history: who synced, when, what changed.
-// 2. Nobody writes in somebody else's document. Changes arrive as SUGGESTIONS
-//    (create / modify / delete native data) that the owner accepts or
-//    dismisses in the native app. That is why running any of this is safe.
-// 3. A RECIPE is a script that writes suggestions in an application's own
-//    language. Anything that wants to change a Revit document uses a Revit
-//    recipe to say it in Revit's words.
+// 2. A RECIPE is a script that brings a source (an IFC, a Rhino layer…) into
+//    an application, in that application's own words: the changes that make
+//    the document match the source.
+// 3. Recipes are applied from INSIDE the native application, by its plugin,
+//    in one go: nothing is queued anywhere. The next sync writes a version
+//    whose `origin` names the recipe and the source version it read.
 
 export async function readTheProjectHistory(
   client: EngineServicesClient,
@@ -36,9 +36,9 @@ export async function readTheProjectHistory(
     if (head?.deltaId) await doc.delta(head);
     else if (head?.full) await doc.model();
 
-    // The change requests waiting for the document's owner.
-    const pending = await doc.pendingSuggestions();
-    console.log(`${pending.length} suggestions pending`);
+    // Where a version came from, when a recipe made it.
+    if (head?.origin)
+      console.log(`made by ${head.origin.recipe} from ${head.origin.source.name ?? head.origin.source.fileId} ${head.origin.source.version}`);
   }
 }
 
@@ -50,7 +50,6 @@ const pointsToBlocks: Recipe<{ layer: string; block: string }> = {
   description: 'Places an AutoCAD block on every input point.',
   to: 'autocad',
   inputs: ['points'],
-  runtime: 'browser',
   settingsSchema: {
     type: 'object',
     properties: {
@@ -59,10 +58,10 @@ const pointsToBlocks: Recipe<{ layer: string; block: string }> = {
     },
     required: ['layer', 'block'],
   },
-  rules: [{ reads: 'input points', proposes: 'one block per point' }],
+  rules: [{ reads: 'input points', writes: 'one block per point' }],
   async run({ input, settings }) {
     const points = input as { x: number; y: number; z: number }[];
-    // Build the suggestion payload (a .frag with envelope revitflow/op@2,
+    // Build the changes (a .frag with envelope revitflow/op@2,
     // one item per change, attributes in the TARGET's own vocabulary).
     // The payload builder lives in the fragments toolkit; omitted here.
     const payload = await buildOpFrag(points, settings);
@@ -71,7 +70,7 @@ const pointsToBlocks: Recipe<{ layer: string; block: string }> = {
       verb: 'add',
       targets: points.length,
       payload,
-      ruleTallies: [{ read: points.length, proposed: points.length }],
+      ruleTallies: [{ read: points.length, written: points.length }],
     };
   },
 };
@@ -85,16 +84,17 @@ export async function runARecipe(
   // Catalogs filter by target application: "who can speak autocad?".
   client.recipes.list({ to: 'autocad' });
 
-  // Running is always safe: it only queues a suggestion on the target
-  // document. Nothing changes in AutoCAD until its owner applies it there.
-  const { suggestion } = await client.recipes.run('points-to-autocad-blocks', {
+  // Running only computes the changes; the native application's plugin is
+  // what runs it and writes them, handing back what the recipe made before
+  // (`made`) so a second run writes only the difference.
+  const result = await client.recipes.run('points-to-autocad-blocks', {
     projectId,
     target: { source: 'autocad', docId: 'site-plan' },
     input: [{ x: 0, y: 0, z: 0 }],
     settings: { layer: 'DETECTORS', block: 'SIEMENS-FDO181' },
-    author: 'recipe:points-to-autocad-blocks',
+    made: new Map(),
   });
-  console.log(`queued suggestion ${suggestion.opId}`);
+  console.log(result.title);
 }
 
 declare function buildOpFrag(

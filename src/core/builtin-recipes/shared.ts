@@ -17,8 +17,7 @@
  * like `run:0` are DOCUMENT-scoped, not GUIDs: a reconcile key must carry the
  * source file's identity next to them.
  */
-import type { RecipeContext } from '../recipes';
-import type { FlowSuggestion } from '../history';
+import type { PickedSource, RecipeContext } from '../recipes';
 import { readFrag, type FragItem } from '../frag-items';
 
 /** The modeling engine's attribute names (its `element-attributes.ts`). */
@@ -117,65 +116,21 @@ export function stylesOf(records: OurRecord[]): Map<string, OurRecord> {
 }
 
 /**
- * Source id -> what this recipe already made for it, read back from its own
- * APPLIED suggestions: the i-th id the target answered with is what the i-th
- * change made. It keeps nothing of its own, so it behaves the same whoever
- * runs it and wherever (the pattern the first end-to-end conversion proved).
+ * Source key -> the target's id of what this recipe made for it, and its
+ * fingerprints (`flow:print`, what it was made from), as the target handed
+ * them back ({@link RecipeContext.made}). The recipe keeps nothing of its own.
  */
-export async function whatItMadeBefore(
-  context: RecipeContext<never> | RecipeContext<unknown>,
-  author: string,
-  /** Filled, when given, with each source's last fingerprint (`flow:print`): what it was made from. */
+export function whatItMadeBefore(
+  context: { made: RecipeContext<unknown>['made'] },
+  /** Filled, when given, with each source's last fingerprint. */
   prints?: Map<string, string>,
-): Promise<Map<string, string>> {
+): Map<string, string> {
   const made = new Map<string, string>();
-  const applied = (await context.targetDoc.suggestions())
-    .filter(
-      (one: FlowSuggestion) =>
-        one.author === author &&
-        one.state === 'applied' &&
-        one.fragId &&
-        (one.affectedIds?.length ?? 0) > 0,
-    )
-    .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
-  for (const suggestion of applied) {
-    try {
-      const payload = await context.targetDoc.suggestionPayload(suggestion);
-      const { items } = await readFrag(
-        new Uint8Array(await payload.arrayBuffer()),
-      );
-      // The changes, in payload order; the item that groups them has no verb.
-      const changes = items.filter((item) => item.attrs['flow:op']);
-      const ids = suggestion.affectedIds ?? [];
-      for (let i = 0; i < changes.length && i < ids.length; i++) {
-        const source = changes[i].attrs['flow:source'];
-        if (!source) continue;
-        if (changes[i].attrs['flow:op'] === 'remove') {
-          made.delete(source);
-          prints?.delete(source);
-        } else {
-          made.set(source, ids[i]);
-          const print = changes[i].attrs['flow:print'];
-          if (print) prints?.set(source, print);
-        }
-      }
-    } catch {
-      // A payload that cannot be read costs its pairings and nothing else:
-      // the worst that follows is a duplicate, never a wrong model.
-    }
+  for (const [source, one] of context.made) {
+    made.set(source, one.id);
+    if (one.print) prints?.set(source, one.print);
   }
   return made;
-}
-
-/**
- * A recipe that has nothing to ask for: everything it would propose is in the target already, as
- * the source has it. Not a failure: a run says «up to date» for it.
- */
-export class NothingToPropose extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'NothingToPropose';
-  }
 }
 
 /** A short, stable fingerprint of what a change asks for (FNV-1a over its JSON, keys sorted). */
@@ -196,26 +151,28 @@ export function printOf(value: unknown): string {
 }
 
 /** The project file the person picked as a recipe's source. */
-export interface PickedFile {
-  fileId: string;
-  name: string;
-  /** The storage version to read (its versionTag); the latest when absent. */
-  version?: string;
-}
+export type PickedFile = PickedSource;
 
 /**
- * Downloads and reads the picked file, with the errors a person can act on. A
- * .frag is read as it is; any other format (a raw IFC) goes first through the
- * importer the app provided for it (`client.recipes.provideImporter`), so the
- * person points the recipe at the file they uploaded and nothing else.
+ * Downloads and reads the picked file, the version picked, with the errors a
+ * person can act on. A .frag is read as it is; any other format (a raw IFC)
+ * goes first through the importer the host provided for it
+ * (`client.recipes.provideImporter`), so the person points the recipe at the
+ * file they uploaded and nothing else.
  */
 export async function readPickedFrag(
   context: RecipeContext<unknown>,
   picked: PickedFile | undefined,
 ) {
   if (!picked?.fileId) throw new Error('Choose the model file to read.');
-  let bytes = new Uint8Array(
-    await (await context.client.downloadFile(picked.fileId)).arrayBuffer(),
+  context.progress(`Downloading ${picked.name}`);
+  let bytes: Uint8Array = new Uint8Array(
+    await (
+      await context.client.downloadFile(
+        picked.fileId,
+        picked.version ? { versionTag: picked.version } : undefined,
+      )
+    ).arrayBuffer(),
   );
   const extension = /\.([^.]+)$/.exec(picked.name)?.[1]?.toLowerCase() ?? 'frag';
   let site: SiteLocation | null = null;
@@ -225,6 +182,7 @@ export async function readPickedFrag(
       throw new Error(`This app cannot read .${extension} files: it provides no importer for them.`);
     }
     if (extension === 'ifc') site = siteLocationOf(bytes);
+    context.progress(`Reading ${picked.name}`);
     bytes = await importer(bytes, picked.name);
   }
   return { picked, contents: await readFrag(bytes), site };

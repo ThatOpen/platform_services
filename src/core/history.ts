@@ -1,17 +1,18 @@
 /**
- * The history API: documents, versions and change requests, with the flow
- * storage encapsulated.
+ * The history API: documents and their versions, with the flow storage
+ * encapsulated.
  *
  * The vocabulary is deliberately small and BIM-shaped:
  * - A DOC is a connected native document (a Revit model, an AutoCAD drawing).
- * - A VERSION is one sync of it: who, when, what changed.
- * - A SUGGESTION is a change request someone queued for the doc's owner to
- *   accept or dismiss in the native app. Nobody writes in somebody else's
- *   document.
+ * - A VERSION is one step of it: who, when, what changed. A sync of the
+ *   native application, a file uploaded to the platform, or a recipe applied
+ *   in the native application ({@link FlowOrigin} says which recipe, and
+ *   which source at which version, it came from). There are no proposals:
+ *   a recipe is applied in the native application at once (19-10).
  *
  * EVERYTHING BELOW THIS SURFACE IS PRIVATE. Today the data lives as plain
- * project files (the `bimterop` folder, `revitflow_history.json`,
- * `revitflow_ops.json`, hidden deltas) written by the flow plugins — see
+ * project files (the `bimterop` folder, `revitflow_history.json`, hidden
+ * deltas) written by the flow plugins — see
  * PROTOCOL.md in the flow repo. This module is the ONLY place in consumer
  * code allowed to know that: when the platform grows a first-class history
  * API, or the layout moves into hidden storage, this file changes and its
@@ -71,19 +72,21 @@ export interface FlowVersion {
   /** This version re-exported the whole model (the visible .frag shows it as of here). */
   full?: boolean;
   compact?: boolean;
-  /** Suggestions this version applied (their opIds). */
-  appliedOps?: string[];
   /**
-   * What kind of step it was, when it was not a sync of a native application: 'upload' is a file
-   * brought to the platform (the first step of every document made from a file, Antonio 18-10:
+   * What kind of step it was, when it was not a plain sync of a native application: 'upload' is a
+   * file brought to the platform (the first step of every document made from a file, Antonio 18-10:
    * «el histórico siempre explícito: al subir un archivo y crear un documento, se crea el histórico
-   * con un primer paso que es subir el documento a la plataforma»). Absent: a sync.
+   * con un primer paso que es subir el documento a la plataforma»); 'recipe' is a sync whose
+   * changes include a recipe applied in the native application ({@link origin} says which).
+   * Absent: a sync.
    */
-  kind?: 'upload' | 'sync' | string;
+  kind?: 'upload' | 'sync' | 'recipe' | string;
   /** The file the step brought, on an upload: its id, name and the storage version it landed in. */
   file?: FlowFile;
   /** Where the step came from, when a recipe made it: see {@link FlowOrigin}. */
   origin?: FlowOrigin;
+  /** Every recipe applied since the previous step, when more than one was (the first is `origin`). */
+  origins?: FlowOrigin[];
   /** Position in the timeline, derived from the parent graph when read. Never stored. */
   ordinal?: number;
 }
@@ -99,70 +102,30 @@ export interface FlowFile {
 }
 
 /**
- * Where a suggestion (and the version that applied it) came from: the recipe that made it and the
- * exact source it read, so the history says which IFC, at which version, a proposal was built from.
- * Agreed with the platform, 18-10.
+ * Where a version came from when a recipe made it: the recipe applied and the exact source it
+ * read, so the history says which IFC, at which version, the changes were built from. Agreed with
+ * the platform, 18-10.
  */
 export interface FlowOrigin {
-  /** The recipe's id. */
+  /** The recipe's name. */
   recipe: string;
   source: {
     /** The source document's folder. */
     folderId: string;
     fileId: string;
+    /** The source file's name, as it was then. */
+    name?: string;
     /** The file's storage version the recipe read. */
     version: string;
   };
+  /** What it wrote, in a line: «IFC to Revit: 12 wall(s), 3 floor(s)». */
+  title?: string;
 }
 
 /** Wire shape of `revitflow_history.json`. */
 interface FlowHistoryFile {
   model: string;
   commits: FlowVersion[];
-}
-
-/**
- * A change request queued for a document. Wire-compatible with
- * `revitflow_ops.json` (schema `revitflow/ops@1`).
- */
-export interface FlowSuggestion {
-  opId: string;
-  /**
-   * The application that receives and executes it: 'revit', 'autocad', or a
-   * platform app like 'designer'. A suggestion without a recipient is not a
-   * suggestion; absent only in entries written before this field existed,
-   * where the recipient is the document's own source.
-   */
-  to?: string;
-  /** Groups the suggestions one authored action produced across several docs. */
-  batchId?: string;
-  /** Hidden-file id of the payload .frag (envelope `revitflow/op@2`). */
-  fragId?: string;
-  title?: string;
-  /** add | set | remove | mixed. */
-  verb?: string;
-  author?: string;
-  userId?: string;
-  createdAt?: string;
-  /** The version this was authored against, by guid. */
-  baseCommitGuid?: string;
-  /** The storage version that version landed in, when known. Data only. */
-  baseCommit?: number;
-  /** How many elements it targets. */
-  targets?: number;
-  state?: 'pending' | 'applied' | 'discarded' | string;
-  /** The native version that materialised it, once applied (storage version number). */
-  appliedInCommit?: number | null;
-  /** Native ids it touched or created, written by the plugin when it applied. */
-  affectedIds?: string[];
-  /** Where it came from, when a recipe made it. */
-  origin?: FlowOrigin;
-}
-
-/** Wire shape of `revitflow_ops.json`. */
-interface FlowOpsFile {
-  schema?: string;
-  ops: FlowSuggestion[];
 }
 
 /** A connected document, as listed from the project. */
@@ -179,8 +142,8 @@ export interface FlowDocInfo {
   /** The visible model file's name, when one exists yet. */
   modelName?: string;
   /**
-   * True when the folder exists but holds neither history, model nor
-   * suggestion queue — a document somebody connected and never synced (a
+   * True when the folder exists but holds neither history nor model — a
+   * document somebody connected and never synced (a
    * plugin mid-first-publish, or an abandoned start). A legitimate state,
    * listed rather than hidden; apps decide whether to show it dimmed.
    */
@@ -246,47 +209,18 @@ export interface SyncInput {
   model?: Blob;
   /** Platform user id, when known. */
   userId?: string;
-  /** Suggestions this version applied. */
-  appliedOps?: string[];
-  /** What kind of step it is, when not a sync ('upload'). */
+  /** What kind of step it is, when not a plain sync ('upload', 'recipe'). */
   kind?: FlowVersion['kind'];
   /** The file an upload brought. */
   file?: FlowFile;
   /** Where it came from, when a recipe made it. */
   origin?: FlowOrigin;
+  origins?: FlowOrigin[];
   /**
    * The head you built on. When given and the stored head differs, `sync`
    * refuses with {@link StaleHistoryError} instead of forking silently.
    */
   expectedLatestGuid?: string;
-}
-
-/** What `suggest` needs. */
-export interface SuggestInput {
-  /**
-   * The application that receives and executes it. Defaults to the document's
-   * own source — the native app that owns the document.
-   */
-  to?: string;
-  /**
-   * The suggestion's id, when the caller minted it up front — a payload
-   * (envelope `revitflow/op@2`) carries the opId INSIDE, so whoever builds
-   * one needs the id before this call. Minted here when absent.
-   */
-  opId?: string;
-  title: string;
-  /** add | set | remove | mixed. */
-  verb: string;
-  author: string;
-  /** The suggestion's .frag payload (envelope `revitflow/op@2`), when it has one. */
-  payload?: Blob;
-  targets?: number;
-  batchId?: string;
-  userId?: string;
-  /** The version it was authored against. */
-  baseCommitGuid?: string;
-  /** Where it came from, when a recipe made it. */
-  origin?: FlowOrigin;
 }
 
 /** The head moved while a writer prepared its version. Re-read and retry. */
@@ -308,8 +242,6 @@ export class StaleHistoryError extends Error {
 // PROTOCOL.md §1: project → `bimterop` → `<source>-<docId>` → files.
 const ROOT_FOLDER = 'bimterop';
 const HISTORY_FILE = 'revitflow_history.json';
-const OPS_FILE = 'revitflow_ops.json';
-const OPS_SCHEMA = 'revitflow/ops@1';
 const LEGACY_MODEL_FILE = 'revitflow_model.frag';
 // Internal bookkeeping files that are NOT the model.
 const INTERNAL_PREFIX = 'revitflow_';
@@ -377,7 +309,7 @@ export class ProjectHistory {
     const docs: FlowDocInfo[] = [];
     for (const folder of folders) {
       // An archived document is gone from the project (it can be recovered, but nobody works on it):
-      // listed, it stayed a recipe's target and Run «proposed» to it (Antonio, 18-10).
+      // listed, it stayed a recipe's target (Antonio, 18-10).
       if ((folder as { archived?: unknown }).archived) continue;
       const name = String(folder.name ?? '');
       const dash = name.indexOf('-');
@@ -396,7 +328,7 @@ export class ProjectHistory {
           (n) => n.endsWith('.frag') && !n.startsWith(INTERNAL_PREFIX),
         );
       const hasAny =
-        names.includes(HISTORY_FILE) || names.includes(OPS_FILE) || !!model;
+        names.includes(HISTORY_FILE) || !!model;
       docs.push({
         source: name.slice(0, dash),
         docId: name.slice(dash + 1),
@@ -497,7 +429,7 @@ export class ProjectHistory {
 }
 
 /**
- * One connected document: its timeline, its model, and its suggestions.
+ * One connected document: its timeline and its model.
  */
 export class FlowDoc {
   #folderId?: string;
@@ -811,10 +743,10 @@ export class FlowDoc {
       timestamp: new Date().toISOString(),
       ...(input.message ? { message: input.message } : {}),
       ...(input.userId ? { userId: input.userId } : {}),
-      ...(input.appliedOps?.length ? { appliedOps: input.appliedOps } : {}),
       ...(input.kind ? { kind: input.kind } : {}),
       ...(input.file ? { file: input.file } : {}),
       ...(input.origin ? { origin: input.origin } : {}),
+      ...(input.origins?.length ? { origins: input.origins } : {}),
       changes: input.changes,
       counts: tally(input.changes),
     };
@@ -853,96 +785,6 @@ export class FlowDoc {
     history.commits.push(version);
     await this.#writeJson(folderId, HISTORY_FILE, history);
     return version;
-  }
-
-  // ─── Suggestions (change requests) ────────────────────────────────────────
-
-  /** Every suggestion in the document's queue, pending or resolved. */
-  async suggestions(): Promise<FlowSuggestion[]> {
-    const ops = await this.#readOps();
-    return ops?.ops ?? [];
-  }
-
-  /** The suggestions still waiting for the owner, oldest first. */
-  async pendingSuggestions(): Promise<FlowSuggestion[]> {
-    return (await this.suggestions()).filter((op) => op.state === 'pending');
-  }
-
-  /**
-   * Queues a change request for this document. The payload, when given, is
-   * uploaded as a hidden file under the suggestions index.
-   */
-  async suggest(input: SuggestInput): Promise<FlowSuggestion> {
-    const folderId = await this.#folder(true);
-    const index = (await this.#readOps()) ?? { schema: OPS_SCHEMA, ops: [] };
-    const indexFile = await this.#file(OPS_FILE);
-
-    const suggestion: FlowSuggestion = {
-      opId: input.opId ?? mintGuid(),
-      to: input.to ?? this.source,
-      title: input.title,
-      verb: input.verb,
-      author: input.author,
-      createdAt: new Date().toISOString(),
-      state: 'pending',
-      ...(input.targets !== undefined ? { targets: input.targets } : {}),
-      ...(input.batchId ? { batchId: input.batchId } : {}),
-      ...(input.userId ? { userId: input.userId } : {}),
-      ...(input.baseCommitGuid
-        ? { baseCommitGuid: input.baseCommitGuid }
-        : {}),
-      ...(input.origin ? { origin: input.origin } : {}),
-    };
-
-    if (input.payload) {
-      // The payload hangs from the index file, so it exists first.
-      const holder =
-        indexFile ??
-        (await this.#createJson(folderId, OPS_FILE, index));
-      const hidden = await this.client.createHiddenFile(
-        input.payload,
-        holder.id,
-      );
-      suggestion.fragId = hiddenIdOf(hidden);
-    }
-
-    const fresh = (await this.#readOps()) ?? index;
-    fresh.schema ??= OPS_SCHEMA;
-    fresh.ops.push(suggestion);
-    await this.#writeJson(folderId, OPS_FILE, fresh);
-    return suggestion;
-  }
-
-  /** A suggestion's .frag payload. */
-  async suggestionPayload(suggestion: FlowSuggestion): Promise<Blob> {
-    if (!suggestion.fragId) {
-      throw new Error(`Suggestion ${suggestion.opId} carries no payload.`);
-    }
-    const response = await this.client.downloadHiddenFile(suggestion.fragId);
-    return await response.blob();
-  }
-
-  /**
-   * Marks a suggestion applied (naming the version that materialised it) or
-   * discarded. The native plugins do this themselves when they apply; apps
-   * use it for `discarded`.
-   */
-  async resolveSuggestion(
-    opId: string,
-    outcome:
-      | { state: 'applied'; appliedInCommit?: number; affectedIds?: string[] }
-      | { state: 'discarded' },
-  ): Promise<FlowSuggestion> {
-    const folderId = await this.#folder(false);
-    if (!folderId) throw new Error('This document has no suggestion queue.');
-    const index = await this.#readOps();
-    const suggestion = index?.ops.find((op) => op.opId === opId);
-    if (!index || !suggestion) {
-      throw new Error(`No suggestion ${opId} in this document's queue.`);
-    }
-    Object.assign(suggestion, outcome);
-    await this.#writeJson(folderId, OPS_FILE, index);
-    return suggestion;
   }
 
   // ─── The layout, below the surface ────────────────────────────────────────
@@ -1046,10 +888,6 @@ export class FlowDoc {
 
   #readHistory(): Promise<FlowHistoryFile | undefined> {
     return this.#readJson<FlowHistoryFile>(HISTORY_FILE);
-  }
-
-  #readOps(): Promise<FlowOpsFile | undefined> {
-    return this.#readJson<FlowOpsFile>(OPS_FILE);
   }
 
   async #writeJson(
@@ -1177,7 +1015,7 @@ function lastByGraph(versions: FlowVersion[]): FlowVersion | undefined {
   return ordered[ordered.length - 1];
 }
 
-/** A random v4 guid, for version guids and suggestion opIds. */
+/** A random v4 guid, for version guids and recipe run ids. */
 export function mintGuid(): string {
   const anyCrypto = globalThis.crypto as { randomUUID?: () => string };
   if (anyCrypto?.randomUUID) return anyCrypto.randomUUID();

@@ -5,7 +5,7 @@
  * type where it stands - the porch colonnade: Rhino drives WHERE, Revit owns
  * WHAT.
  */
-import type { Recipe, RecipeContext } from '../recipes';
+import { UpToDate, type Recipe, type RecipeContext } from '../recipes';
 import { OperationBuilder } from '../op-builder';
 import type { FragItem } from '../frag-items';
 import {
@@ -62,11 +62,10 @@ export const rhinoToRevit: Recipe<Settings> = {
   name: NAME,
   title: 'Rhino to Revit',
   description:
-    'Turns the placed objects of a Rhino layer into change requests for Revit instances of a chosen type.',
+    'Places in Revit an instance of a chosen type at each placed object of a Rhino layer.',
   to: 'revit',
   inputs: ['rhino-model'],
   source: { kind: 'project-file', extensions: ['frag'] },
-  runtime: 'browser',
   settingsSchema: {
     type: 'object',
     properties: {
@@ -86,41 +85,39 @@ export const rhinoToRevit: Recipe<Settings> = {
   rules: [
     {
       reads: 'Objects on the chosen layer with no instance yet',
-      proposes: 'A new instance of the chosen type at each',
+      writes: 'A new instance of the chosen type at each',
     },
     {
       reads: 'Objects whose instance already exists',
-      proposes: 'That instance moved to where the object is now',
+      writes: 'That instance moved to where the object is now',
     },
     {
       reads: 'Instances whose object is gone from Rhino',
-      proposes: 'That instance removed',
+      writes: 'That instance removed',
     },
-    { reads: 'Everything on other layers', proposes: 'Nothing' },
+    { reads: 'Everything on other layers', writes: 'Nothing' },
   ],
   doc: `
 ## What it does
 
-It reads a model published from Rhino and asks a Revit document for instances
-of one type: one where each placed object of a layer stands. It never touches
-the Rhino model, and nothing changes in Revit until the owner of that document
-accepts the request there.
+It reads a model published from Rhino and places in Revit instances of one
+type: one where each placed object of a layer stands. It never touches the
+Rhino model. In Revit: That Open > Select recipe, then Apply recipe.
 
 ## It reconciles, it does not push
 
-Run it again after the Rhino model changed and it asks only for the
+Apply it again after the Rhino model changed and it writes only the
 difference: new objects become new instances, moved objects move theirs, and
-an object that is gone asks for its instance to be removed. It can only ever
-ask to remove an instance it asked for itself - elements a person made in
-Revit are invisible to it. What it made is read back from its own applied
-requests; it keeps nothing of its own.
+an object that is gone has its instance removed. It only ever removes an
+instance it made itself - elements a person made in Revit are invisible to
+it. What it made is remembered with the model's That Open data.
 
 ## What it assumes
 
 - The Rhino model declares its units. One that does not is refused, not guessed.
 - Both models are Z up. A different axis convention is refused.
 - The Revit type exists in the target. Revit matches a type exactly and
-  refuses the whole request when one is missing.
+  refuses the whole apply when one is missing.
 
 ## What it does not know
 
@@ -162,12 +159,11 @@ point's height.
     }
     const scale = metres * FEET_PER_METRE;
 
-    const made = await whatItMadeBefore(context, AUTHOR);
-    const head = await context.targetDoc.latest();
+    const made = whatItMadeBefore(context);
     const operation = new OperationBuilder({
       project: context.projectId,
-      document: context.targetDoc.docId,
-      baseCommit: head?.version ?? 0,
+      document: context.target.docId ?? '',
+      baseCommit: context.target.version ?? 0,
       author: AUTHOR,
     });
 
@@ -220,8 +216,8 @@ point's height.
 
     const total = added + moved + removed;
     if (total === 0) {
-      throw new Error(
-        `Nothing to ask for: layer "${layer}" of "${picked.name}" has no placed object, and nothing of this recipe is left to remove.`,
+      throw new UpToDate(
+        `Nothing to write: layer "${layer}" of "${picked.name}" has no placed object, and nothing of this recipe is left to remove.`,
       );
     }
 
@@ -236,10 +232,10 @@ point's height.
       targets: total,
       payload: new Blob([(await operation.build(context.opId)) as BlobPart]),
       ruleTallies: [
-        { read: added, proposed: added },
-        { read: moved, proposed: moved },
-        { read: removed, proposed: removed },
-        { read: elsewhere, proposed: 0 },
+        { read: added, written: added },
+        { read: moved, written: moved },
+        { read: removed, written: removed },
+        { read: elsewhere, written: 0 },
       ],
     };
   },

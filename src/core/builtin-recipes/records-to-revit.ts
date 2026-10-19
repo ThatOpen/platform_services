@@ -6,7 +6,7 @@
  * recipe saying so to the person.
  *
  * WHOLE BUILDINGS, not demos: levels, walls, curtain walls, stairs, floors,
- * roofs, ceilings, columns and free-standing instances all become proposals,
+ * roofs, ceilings, columns and free-standing instances are all written,
  * in ONE operation - levels first because everything stands on them, by name.
  * The applier materialises each natively (Wall.Create, the curtain grid,
  * stair runs, Floor/Roof/Ceiling.Create, Level ensured by name) and makes
@@ -17,17 +17,16 @@
  *
  * CONVENTIONS, stated once: records are metres and radians, plane [x, y]
  * with height as the third coordinate, levels referenced as `datum:N` and
- * resolved to names; proposals are written in Revit's own terms - feet,
+ * resolved to names; changes are written in Revit's own terms - feet,
  * degrees, types by exact name. Record ids are DOCUMENT-scoped, so every
  * reconcile key carries the source file's id next to them.
  */
-import type { Recipe, RecipeContext, RecipeStep } from '../recipes';
+import { UpToDate, type Recipe, type RecipeContext } from '../recipes';
 import { OperationBuilder } from '../op-builder';
 import {
   FEET_PER_METRE,
   innerJson,
   levelsOf,
-  NothingToPropose,
   printOf,
   readPickedFrag,
   recordsOf,
@@ -86,18 +85,18 @@ interface RevitType {
 }
 
 interface Settings {
-  /** The Revit type proposed columns get, when style names are not trusted. */
+  /** The Revit type columns get, when style names are not trusted. */
   columnType?: RevitType;
   /**
    * Trust the records' own style names: `lookRef` "Family:Type" becomes the
-   * proposal's Family and Type verbatim, for columns and instances. Revit
+   * change's Family and Type verbatim, for columns and instances. Revit
    * matches a type exactly and refuses the whole request when one is missing
    * - right for a model that came FROM this Revit, wrong for anything else.
    * (Walls and floors always go by their style name: system types are named
    * identity, and the applier makes a missing one from the carried width.)
    */
   trustStyleNames?: boolean;
-  /** Also propose free-standing family instances (furniture, equipment). Needs trustStyleNames. */
+  /** Also bring free-standing family instances (furniture, equipment). Needs trustStyleNames. */
   includeInstances?: boolean;
   /** Carry the model's levels (ensured by name on the target). Default true. */
   createLevels?: boolean;
@@ -193,7 +192,7 @@ function sharedRun(to: 'frag' | 'ifc') {
     const createLevels = context.settings.createLevels !== false;
     if (includeInstances && !trustStyleNames) {
       throw new Error(
-        'Free-standing instances can only be proposed by their style names: turn trustStyleNames on.',
+        'Free-standing instances can only be made by their style names: turn trustStyleNames on.',
       );
     }
 
@@ -201,12 +200,12 @@ function sharedRun(to: 'frag' | 'ifc') {
     const styles = stylesOf(records);
     const author = `recipe:${to}-to-revit`;
     const prints = new Map<string, string>();
-    const made = await whatItMadeBefore(context, author, prints);
-    const head = await context.targetDoc.latest();
+    const made = whatItMadeBefore(context, prints);
+    context.progress('Writing the changes for Revit');
     const operation = new OperationBuilder({
       project: context.projectId,
-      document: context.targetDoc.docId,
-      baseCommit: head?.version ?? 0,
+      document: context.target.docId ?? '',
+      baseCommit: context.target.version ?? 0,
       author,
     });
     // Records are metres; Revit is feet. Plane [x, y] + height is Revit
@@ -309,8 +308,8 @@ function sharedRun(to: 'frag' | 'ifc') {
     const roofRecords = new Map(records.filter((r) => r.kind === 'extrusion' && r.params.of === 'roof').map((r) => [r.id, r]));
 
     // ---- 1. Levels: named identity, ensured on the target. ----
-    // Counted as PROPOSED only when asked for: one this recipe made before is kept, not proposed
-    // (the rules table shows read against proposed - Antonio, 17-10).
+    // Counted as WRITTEN only when asked for: one this recipe made before is kept, not written
+    // (the rules table shows read against written - Antonio, 17-10).
     let levelCount = 0;
     if (createLevels) {
       for (const [datumId, level] of levels) {
@@ -487,7 +486,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         delete attrs.TopLevel;
         delete attrs.TopOffset;
       }
-      // Its top attached to a roof (Revit's Attach Top), when that roof is proposed too.
+      // Its top attached to a roof (Revit's Attach Top), when that roof is made too.
       const attachedTo = record.params.topAttachedTo;
       // ON A ROOF'S TOP FACE (a gable end): Revit attaches a wall to a roof's underside only, and
       // the original is that wall with its profile edited to the gable. So is this one: its
@@ -749,7 +748,7 @@ function sharedRun(to: 'frag' | 'ifc') {
     }
 
     // ---- 3. Floors, foundation slabs, roofs and ceilings: slabs by their boundary loops. ----
-    // Read and proposed per kind: each is its own row of the rules table.
+    // Read and written per kind: each is its own row of the rules table.
     const slabRead = { floor: 0, foundation: 0, roof: 0, ceiling: 0 };
     const slabMade = { floor: 0, foundation: 0, roof: 0, ceiling: 0 };
     for (const record of records) {
@@ -937,13 +936,13 @@ function sharedRun(to: 'frag' | 'ifc') {
     }
 
     if (operation.length === 0) {
-      throw new NothingToPropose(
-        `Nothing new to ask for: "${picked.name}" holds ${kept} element(s) this recipe already made, ` +
+      throw new UpToDate(
+        `Up to date: "${picked.name}" holds ${kept} element(s) this recipe already made, ` +
           `${hostedWaiting + bodiesWaiting} waiting on the applier, and nothing is left to remove.`,
       );
     }
 
-    // The plan's one line names every kind it proposes, not only the first three (Antonio, 17-10).
+    // The run's one line names every kind it writes, not only the first three (Antonio, 17-10).
     const words = [
       levelCount ? `${levelCount} level(s)` : '',
       wallCount ? `${wallCount} wall(s)` : '',
@@ -964,19 +963,19 @@ function sharedRun(to: 'frag' | 'ifc') {
       targets: operation.length,
       payload: new Blob([(await operation.build(context.opId)) as BlobPart]),
       // One per row of `sharedRules`, in its order. Read: what the model holds (what this recipe
-      // made before included); proposed: what this request asks for.
+      // made before included); written: what this run writes.
       ruleTallies: [
-        { read: levels.size, proposed: levelCount },
-        { read: segs.length + wallSkipped, proposed: wallCount },
-        { read: curtainRead, proposed: curtainCount },
-        { read: slabRead.floor + slabRead.foundation, proposed: slabMade.floor + slabMade.foundation },
-        { read: slabRead.roof, proposed: slabMade.roof },
-        { read: slabRead.ceiling, proposed: slabMade.ceiling },
-        { read: stairRead, proposed: stairCount },
-        { read: columnRead, proposed: columnCount },
-        { read: instanceRead, proposed: instanceCount },
-        { read: removed, proposed: removed },
-        { read: hostedWaiting + bodiesWaiting, proposed: 0 },
+        { read: levels.size, written: levelCount },
+        { read: segs.length + wallSkipped, written: wallCount },
+        { read: curtainRead, written: curtainCount },
+        { read: slabRead.floor + slabRead.foundation, written: slabMade.floor + slabMade.foundation },
+        { read: slabRead.roof, written: slabMade.roof },
+        { read: slabRead.ceiling, written: slabMade.ceiling },
+        { read: stairRead, written: stairCount },
+        { read: columnRead, written: columnCount },
+        { read: instanceRead, written: instanceCount },
+        { read: removed, written: removed },
+        { read: hostedWaiting + bodiesWaiting, written: 0 },
       ],
     };
   };
@@ -1003,7 +1002,7 @@ const sharedSchema = {
     },
     includeInstances: {
       type: 'boolean',
-      title: 'Also propose free-standing instances (needs style names)',
+      title: 'Also bring free-standing instances (needs style names)',
       default: false,
     },
     createLevels: {
@@ -1017,29 +1016,35 @@ const sharedSchema = {
 // One row per step of the run, in the order of its `ruleTallies` (Antonio, 17-10: the table
 // still said stairs, roofs and curtain walls waited, long after the applier built them).
 const sharedRules = [
-  { reads: 'Levels (datums)', proposes: 'The same level on the target, ensured by name' },
-  { reads: 'Wall runs, one per straight segment', proposes: 'A native wall: line, type (made from its width when missing), level, height, joins; its edited profile or its top on a roof' },
-  { reads: 'Curtain wall runs', proposes: "Revit's curtain wall: its grid lines, mullions and panels" },
-  { reads: 'Slabs: floors and foundation slabs', proposes: 'A native floor or foundation slab from the profile, holes included' },
-  { reads: 'Roofs', proposes: 'A footprint roof with its sloping edges, or a roof by extrusion for a gable' },
-  { reads: 'Ceilings (coverings)', proposes: 'A native ceiling from the profile, hung at its drop' },
-  { reads: 'Stairs', proposes: 'A native stair: a straight or sketched run, with its landings' },
-  { reads: 'Column records (members)', proposes: 'A Revit column at each, on its level' },
-  { reads: 'Free-standing family instances', proposes: 'When turned on: a new instance of the same-named type, placed and turned' },
-  { reads: 'Things this recipe made whose record is gone', proposes: 'That element removed' },
-  { reads: 'Hosted doors/windows, footings, ramps, other bodies', proposes: 'Nothing yet - read and counted' },
+  { reads: 'Levels (datums)', writes: 'The same level in Revit, ensured by name' },
+  { reads: 'Wall runs, one per straight segment', writes: 'A native wall: line, type (made from its width when missing), level, height, joins; its edited profile or its top on a roof' },
+  { reads: 'Curtain wall runs', writes: "Revit's curtain wall: its grid lines, mullions and panels" },
+  { reads: 'Slabs: floors and foundation slabs', writes: 'A native floor or foundation slab from the profile, holes included' },
+  { reads: 'Roofs', writes: 'A footprint roof with its sloping edges, or a roof by extrusion for a gable' },
+  { reads: 'Ceilings (coverings)', writes: 'A native ceiling from the profile, hung at its drop' },
+  { reads: 'Stairs', writes: 'A native stair: a straight or sketched run, with its landings' },
+  { reads: 'Column records (members)', writes: 'A Revit column at each, on its level' },
+  { reads: 'Free-standing family instances', writes: 'When turned on: a new instance of the same-named type, placed and turned' },
+  { reads: 'Things this recipe made whose record is gone', writes: 'That element removed' },
+  { reads: 'Hosted doors/windows, footings, ramps, other bodies', writes: 'Nothing yet - read and counted' },
 ];
 
 const sharedDoc = `
+## How to use it
+
+In Revit, with the That Open plugin: **That Open > Select recipe**, pick this
+one and its source, then **Apply recipe**. It runs there and then: the model
+is read, and Revit gets the building in one transaction (Ctrl+Z undoes all of
+it). Apply it again whenever the source changes: only the difference is
+written. Publish to That Open as usual, and the document's history shows the
+step, with the recipe and the version of the source it read.
+
 ## What it does
 
-It reads the platform's records out of a .frag and asks a Revit document for
-the building they describe - levels, walls, curtain walls, floors, roofs,
-ceilings, stairs, columns and (opting in) free-standing instances, in one
-operation, levels first. Nothing changes in
-Revit until the owner of that document accepts the request there, and the
-applier materialises everything NATIVELY: real walls on real levels, never
-imported meshes.
+It reads the platform's records and builds in Revit the building they
+describe - levels, walls, curtain walls, floors, roofs, ceilings, stairs,
+columns and (opting in) free-standing instances, levels first. Everything is
+made NATIVELY: real walls on real levels, never imported meshes.
 
 ## What it carries per thing
 
@@ -1051,16 +1056,15 @@ mullions and panels. Floors, foundation slabs and ceilings: the boundary
 loops, holes included. Roofs: by footprint with their sloping edges, or by
 extrusion for a gable. Stairs: a straight or sketched run, with its landings.
 Columns and instances: point, rotation, level, type. Levels: name and
-elevation - ENSURED, so a level the target already has is simply used.
+elevation - ENSURED, so a level the model already has is simply used.
 
 ## It reconciles, it does not push
 
-Run it again and it asks only for the difference: new records become new
-proposals, and a record that is gone asks for its element to be removed. What
-it already made is left alone (changing an existing wall through a proposal
-is the next step, not this one). It can only ever remove what it asked for
-itself; elements a person made in Revit are invisible to it. It keeps nothing
-of its own - what it made is read back from its own applied requests.
+Apply it again and it writes only the difference: new records are made, a
+changed one is made again from its new version, and one that is gone has its
+element removed. It only ever touches what it made itself; elements a person
+made in Revit are invisible to it. What it made is remembered with the
+model's That Open data.
 
 ## What still waits
 
@@ -1070,48 +1074,21 @@ are read and counted, and their rule row says so.
 
 ## Units and axes
 
-Records are metres and radians, Z up; proposals are written in Revit's feet
-and degrees. Types are matched exactly by name; Revit refuses the whole
-request when a loadable type is missing (system types are created from their
-width instead).
+Records are metres and radians, Z up; Revit gets feet and degrees. Types are
+matched exactly by name; Revit refuses the whole apply when a loadable type is
+missing (system types are created from their width instead).
 `;
-
-/** The steps a person follows, from nothing to the model in Revit and back here. */
-const revitSteps = (source: string): RecipeStep[] => [
-  {
-    kind: 'app',
-    says: 'Open Revit with the That Open plugin.',
-    more: 'If the plugin is not installed, get it, install it with Revit closed, and open Revit again.',
-  },
-  {
-    kind: 'connect',
-    says: 'Choose the Revit model: the one open in Revit, or one already in this project.',
-    more: 'The open one is added as a new document (a new project from any template will do). One of the project is opened in Revit for you.',
-  },
-  { kind: 'target', says: 'Choose that Revit document.' },
-  { kind: 'source', says: source },
-  { kind: 'plan', says: 'Plan: see what it will ask Revit for.', more: 'Nothing is written.' },
-  { kind: 'queue', says: 'Send the request to Revit.' },
-  {
-    kind: 'apply',
-    says: 'Apply it in Revit.',
-    more: 'With the button, or in Revit: That Open > Proposals > Apply. What Revit cannot build is left out and said.',
-  },
-  { kind: 'see', says: 'See it here.', more: 'Revit syncs it, and the document shows its new version.' },
-];
 
 export const fragToRevit: Recipe<Settings> = {
   name: 'frag-to-revit',
   title: 'Platform model to Revit',
   description:
-    'Turns the platform records of a .frag - levels, walls, curtain walls, floors, roofs, ceilings, stairs, columns, instances - into change requests for a Revit document.',
+    'Builds in Revit the platform records of a .frag: levels, walls, curtain walls, floors, roofs, ceilings, stairs, columns, instances.',
   to: 'revit',
   inputs: ['frag-model'],
   source: { kind: 'project-file', extensions: ['frag'] },
-  runtime: 'browser',
   settingsSchema: sharedSchema,
   rules: sharedRules,
-  steps: revitSteps('Choose the platform model (.frag) to bring in.'),
   doc: sharedDoc,
   run: sharedRun('frag'),
 };
@@ -1121,17 +1098,16 @@ export const ifcToRevit: Recipe<Settings> = {
   name: 'ifc-to-revit',
   title: 'IFC to Revit',
   description:
-    'Turns an IFC, as you uploaded it, into native Revit change requests: levels, walls, floors, roofs, stairs, curtain walls, columns, instances.',
+    'Builds an IFC of the project in Revit as native elements: levels, walls, floors, roofs, stairs, curtain walls, columns, instances.',
   inputs: ['ifc-model'],
   source: { kind: 'project-file', extensions: ['ifc'] },
-  steps: revitSteps('Choose the IFC to bring in.'),
   doc:
     `
 ## Point it at the IFC
 
-It reads the IFC file itself. Its first step converts it, in this app, into
-the platform's records - what each element is, not only its shape - and the
-proposals are written from those. Nothing has to be prepared before.
+It reads the IFC file itself, the version uploaded last. Its first step
+converts it into the platform's records - what each element is, not only its
+shape - and Revit gets those. Nothing has to be prepared before.
 ` + sharedDoc,
   run: sharedRun('ifc'),
 };

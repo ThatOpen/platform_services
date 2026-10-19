@@ -1,22 +1,27 @@
 /**
- * Recipes: scripts that write change requests (suggestions) in a native
- * application's own language.
+ * Recipes: scripts that bring something into a native application, written in
+ * that application's own language.
  *
- * A recipe's whole contract is one sentence: it reads some input — another
- * document's version, platform elements, points, a spreadsheet, anything —
- * and queues a SUGGESTION for a target document, expressed in that
- * application's native vocabulary (families, types, levels, blocks, layers).
- * Nothing applies until the document's owner accepts it in the native app,
- * which is why trying a recipe is always safe.
+ * A recipe's whole contract is one sentence: it reads some input — a project
+ * file (an IFC), platform elements, points, a spreadsheet, anything — and
+ * returns the CHANGES that make a document of the native application match
+ * it, in that application's vocabulary (families, types, levels, blocks,
+ * layers).
  *
- * A recipe is defined by its contract, not by where it runs: `runtime`
- * declares the default ('browser' runs where the caller is; 'cloud' is for
- * recipes that must run with nobody in front). This module is the local
- * registry and runner; the platform-level catalog (recipes as published
- * items) is the agreed phase 2 and will sit on top of the same manifest.
+ * 🔴 APP-CENTRIC (Antonio and Jesús, 19-10). A recipe is chosen and applied
+ * from INSIDE the native application, in one go: the plugin runs it and writes
+ * its changes there at once, in one transaction. Nothing is queued anywhere:
+ * there are no proposals. What happened is written in the document's history
+ * when the person publishes, with the recipe and the exact source it read as
+ * the step's origin. On the platform a recipe is only its description.
+ *
+ * A recipe keeps nothing of its own: what it made before in a document is
+ * remembered by the native application's plugin, next to the document's other
+ * That Open data, and handed back on every run ({@link RecipeContext.made}),
+ * so a second run writes only the difference.
  */
 import type { EngineServicesClient } from './client';
-import { mintGuid, type FlowDoc, type FlowOrigin, type FlowSuggestion } from './history';
+import { mintGuid } from './history';
 
 /**
  * How a settings property says "this names something that EXISTS". Put it on
@@ -24,10 +29,9 @@ import { mintGuid, type FlowDoc, type FlowOrigin, type FlowSuggestion } from './
  * the app resolves the candidates and renders a list — people pick, they
  * never type the name of a thing that exists.
  *
- * Resolving the candidates is the APP's job today (reading `doc.model()` of
- * the target, or the declared source file, takes the fragments toolkit, which
- * the SDK does not carry). The kinds are stable so nothing changes for
- * recipes when a shared reader lands in that toolkit.
+ * Resolving the candidates is the APP's job (the native application knows its
+ * own types and levels). The kinds are stable so nothing changes for recipes
+ * when a shared reader lands.
  */
 export interface ExistingLookup {
   /** What kind of existing thing: 'document' | 'family-type' | 'level' | 'layer' | 'workset'… */
@@ -45,27 +49,11 @@ export interface ExistingLookup {
   where?: Record<string, string>;
 }
 
-/**
- * One step of a recipe as a person follows it (Antonio, 17-10: «en la propia receta indicaciones,
- * como una receta literal … si alguien abre el coordinator sin tener ni idea y usa una receta, va a
- * tiro hecho»). The app gives each kind its control: a check of the native application, a button that
- * adds its open model to the project, the lists, Plan, Queue, applying it there, seeing it here.
- */
-export interface RecipeStep {
-  kind: 'app' | 'connect' | 'target' | 'source' | 'plan' | 'queue' | 'apply' | 'see';
-  /** What to do, in a line. */
-  says: string;
-  /** Why, or how, when a line is not enough. */
-  more?: string;
-}
-
 /** What a recipe declares about itself. Shown in catalogs, checked by apps. */
 export interface RecipeManifest {
-  /** Its steps, in order, for the app to guide a person through (see {@link RecipeStep}). */
-  steps?: RecipeStep[];
   /** Machine name, unique in a catalog: 'rhino-points-to-revit-columns'. */
   name: string;
-  /** The human name a card shows: 'Rhino points to Revit columns'. */
+  /** The human name a list shows: 'Rhino points to Revit columns'. */
   title?: string;
   /** The one sentence a non-programmer reads: what it converts into what. */
   description: string;
@@ -76,85 +64,109 @@ export interface RecipeManifest {
   /** The input kinds it understands: 'rhino-model', 'platform-elements', 'points', 'csv'… */
   inputs: string[];
   /**
-   * What the app should offer as the input picker, when the input is a thing
-   * of the project rather than inline data: another connected document, or a
-   * project file (then `extensions` narrows the listing). The picked value is
-   * what arrives as `input`, and what `x-existing: { from: 'source' }`
-   * lookups read.
+   * What the native application offers as the input picker, when the input is
+   * a thing of the project rather than inline data: another connected
+   * document, or a project file (then `extensions` narrows the listing).
+   * {@link Recipes.choices} lists the candidates; the picked one arrives as
+   * `input` ({@link PickedSource}).
    */
   source?:
     | { kind: 'document'; source?: string }
     | { kind: 'project-file'; extensions?: string[] };
-  /** Where it runs by default. Browser unless it must run unattended. */
-  runtime?: 'browser' | 'cloud';
   /**
    * JSON Schema for `settings`. Apps generate the settings form from it, so
-   * anything that names an EXISTING thing (a target document, a family, a
-   * level) carries `x-existing` ({@link ExistingLookup}) and renders as a
-   * list the app fills — people pick, they never type names of things that
-   * exist. Free text is only for what a person invents.
+   * anything that names an EXISTING thing (a family, a level) carries
+   * `x-existing` ({@link ExistingLookup}) and renders as a list the app fills —
+   * people pick, they never type names of things that exist. Free text is only
+   * for what a person invents.
    */
   settingsSchema?: Record<string, unknown>;
   /**
-   * The self-documentation an app renders: a "reads → proposes" table whose
-   * rows are RULES (not objects), so a dry run can fill it with real tallies.
+   * The self-documentation an app renders: a "reads → writes" table whose rows
+   * are RULES (not objects), so every run can fill it with real tallies.
    */
-  rules?: { reads: string; proposes: string }[];
+  rules?: { reads: string; writes: string }[];
+}
+
+/** One thing this recipe made in the target before, as the target remembers it. */
+export interface RecipeMade {
+  /** The target's id of what was made (Revit's UniqueId). */
+  id: string;
+  /** The fingerprint of what it was made from (`flow:print`): unchanged source, nothing to do. */
+  print?: string;
 }
 
 /** Everything a recipe's `run` gets to work with. */
 export interface RecipeContext<Settings = Record<string, unknown>> {
   client: EngineServicesClient;
   projectId: string;
-  /** The document the suggestion is for. Read its timeline/model if needed. */
-  targetDoc: FlowDoc;
+  /** The document the changes are for: its native application, its id and the version it is on, when the platform knows it. */
+  target: { source: string; docId?: string; version?: number };
   /**
-   * The suggestion's id, minted BEFORE the run: the payload envelope
-   * (`revitflow/op@2`) carries the opId inside, so the builder needs it.
-   * When the run is only a plan, nothing is queued and the id is discarded.
+   * What this recipe made in the target before: source key → what it made.
+   * The native application keeps it with the document and hands it back,
+   * filtered to what still exists there. Empty on a first run.
+   */
+  made: ReadonlyMap<string, RecipeMade>;
+  /**
+   * The id of this run, minted before it: the changes' envelope
+   * (`revitflow/op@2`) carries it inside.
    */
   opId: string;
-  /** The declared input, already fetched by the caller (bytes, ids, rows…). */
+  /** The declared input: the picked source ({@link PickedSource}), ids, rows… */
   input: unknown;
   settings: Settings;
+  /** Says how far it is, for the native application's progress bar: a line, and a fraction 0..1 when known. */
+  progress: (says: string, fraction?: number) => void;
 }
 
-/** What a recipe's `run` returns: the suggestion, ready to queue. */
+/** What a recipe's `run` returns: the changes, ready to be written in the target. */
 export interface RecipeResult {
   title: string;
   /** add | set | remove | mixed. */
   verb: string;
-  /** The .frag payload (envelope `revitflow/op@2`), when the recipe builds one. */
+  /** The changes, as a .frag (envelope `revitflow/op@2`), when the recipe builds one. */
   payload?: Blob;
+  /** How many changes it carries. */
   targets?: number;
   /** Per-rule tallies matching `manifest.rules`, filled by the run. */
-  ruleTallies?: { read: number; proposed: number }[];
+  ruleTallies?: { read: number; written: number }[];
 }
 
-/** A recipe: its manifest plus the function that writes the suggestion. */
+/** A recipe: its manifest plus the function that writes the changes. */
 export interface Recipe<Settings = Record<string, unknown>>
   extends RecipeManifest {
   run(context: RecipeContext<Settings>): Promise<RecipeResult>;
 }
 
-/** What {@link Recipes.run} returns: the queued suggestion plus the tallies. */
-export interface RecipeRunOutcome {
-  suggestion: FlowSuggestion;
-  result: RecipeResult;
+/** The project file or document a person picked as a recipe's source. */
+export interface PickedSource {
+  fileId: string;
+  /** The file's name, extension included: what says its format. */
+  name: string;
+  /** The document it is the native file of, when it is one: the folder the history is written to. */
+  folderId?: string;
+  /** The storage version to read (its versionTag); the latest when absent. */
+  version?: string;
+}
+
+/** One candidate for a recipe's source, as {@link Recipes.choices} lists it. */
+export interface RecipeChoice extends PickedSource {
+  /** What the picker shows: the document's name. */
+  label: string;
+  version: string;
 }
 
 /**
- * What {@link Recipes.plan} returns: everything needed to queue EXACTLY what
- * was planned, without running the recipe again — the payload already embeds
- * this `opId`. Hand it to {@link Recipes.queue} when the person confirms.
+ * A recipe that has nothing to write: everything it would ask for is in the
+ * target already, as the source has it. Not a failure: the native
+ * application says «up to date».
  */
-export interface RecipePlan {
-  opId: string;
-  projectId: string;
-  target: { source: string; docId: string };
-  /** The head the plan was built against, for the suggestion's base. */
-  baseCommitGuid?: string;
-  result: RecipeResult;
+export class UpToDate extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UpToDate';
+  }
 }
 
 /**
@@ -173,10 +185,10 @@ export class Recipes {
   constructor(private readonly client: EngineServicesClient) {}
 
   /**
-   * Says how this app turns files of one extension ('ifc') into records, so a
+   * Says how this host turns files of one extension ('ifc') into records, so a
    * recipe can be pointed at the raw file and convert it as its first step.
-   * The converter lives in the engine, which the SDK does not carry: the app
-   * that has it provides it, as it resolves `x-existing` lookups.
+   * The converter lives in the engine, which the SDK does not carry: the host
+   * that has it provides it.
    */
   provideImporter(extension: string, importer: RecordsImporter): void {
     this.#importers.set(extension.toLowerCase(), importer);
@@ -211,82 +223,47 @@ export class Recipes {
   }
 
   /**
-   * Runs a recipe WITHOUT queueing anything: the dry pass. Returns a
-   * {@link RecipePlan} — the result to show (title, tallies, targets) plus
-   * everything {@link queue} needs to queue EXACTLY this, payload and opId
-   * included, with no second run. Discard it and the plan never happened.
+   * The candidates for a recipe's source in a project, for the picker: the
+   * documents whose native file has one of the declared extensions, each with
+   * the version it is on now. A recipe with no declared source has none.
    */
-  async plan<S>(
-    name: string,
-    options: RecipeRunOptions<S>,
-  ): Promise<RecipePlan> {
-    const { base, opId, result } = await this.#execute(name, options);
-    return {
-      opId,
-      projectId: options.projectId,
-      target: options.target,
-      ...(base?.guid ? { baseCommitGuid: base.guid } : {}),
-      result,
-    };
-  }
-
-  /**
-   * Queues exactly what {@link plan} planned: same opId, same payload, no
-   * second execution. The pair plan → confirm → queue is the UI flow; `run`
-   * is the one-shot shortcut.
-   */
-  async queue(
-    plan: RecipePlan,
-    options: { author: string; userId?: string; origin?: FlowOrigin },
-  ): Promise<RecipeRunOutcome> {
-    const targetDoc = this.client
-      .history(plan.projectId)
-      .doc(plan.target.source, plan.target.docId);
-    const suggestion = await targetDoc.suggest({
-      opId: plan.opId,
-      title: plan.result.title,
-      verb: plan.result.verb,
-      author: options.author,
-      payload: plan.result.payload,
-      targets: plan.result.targets,
-      userId: options.userId,
-      baseCommitGuid: plan.baseCommitGuid,
-      ...(options.origin ? { origin: options.origin } : {}),
-    });
-    return { suggestion, result: plan.result };
-  }
-
-  /**
-   * Runs a recipe and queues its suggestion on the target document. Safe to
-   * call freely: nothing touches the native application until its owner
-   * accepts the suggestion there. Use {@link plan} first when the app wants
-   * to show the tallies before queueing.
-   */
-  async run<S>(
-    name: string,
-    options: RecipeRunOptions<S>,
-  ): Promise<RecipeRunOutcome> {
-    const { targetDoc, base, opId, result } = await this.#execute(
-      name,
-      options,
+  async choices(name: string, projectId: string): Promise<RecipeChoice[]> {
+    const recipe = this.#registry.get(name);
+    if (!recipe) throw new Error(`No recipe named "${name}" is registered.`);
+    const source = recipe.source;
+    if (source?.kind !== 'project-file') return [];
+    const extensions = (source.extensions ?? []).map((e) => e.toLowerCase());
+    const documents = await this.client.documents(projectId).list();
+    const picked = documents.filter(
+      (one) =>
+        one.descriptor.native &&
+        (extensions.length === 0 ||
+          extensions.includes(one.descriptor.native.format.toLowerCase())),
     );
-
-    const suggestion = await targetDoc.suggest({
-      opId,
-      title: result.title,
-      verb: result.verb,
-      author: options.author,
-      payload: result.payload,
-      targets: result.targets,
-      userId: options.userId,
-      baseCommitGuid: base?.guid,
-      ...(options.origin ? { origin: options.origin } : {}),
-    });
-
-    return { suggestion, result };
+    const versions = await latestVersions(
+      this.client,
+      picked.map((one) => one.descriptor.native!.fileId),
+    );
+    return picked
+      .map((one) => {
+        const native = one.descriptor.native!;
+        return {
+          label: one.descriptor.name,
+          fileId: native.fileId,
+          name: `${one.descriptor.name}.${native.format}`,
+          folderId: one.folderId,
+          version: versions.get(native.fileId) ?? 'v1',
+        };
+      })
+      .sort((a, b) => a.label.localeCompare(b.label));
   }
 
-  async #execute<S>(name: string, options: RecipeRunOptions<S>) {
+  /**
+   * Runs a recipe: the changes that make the target match its source, given
+   * what it made there before. Throws {@link UpToDate} when there is nothing
+   * to write. The caller (the native application's plugin) writes them.
+   */
+  async run<S>(name: string, options: RecipeRunOptions<S>): Promise<RecipeResult> {
     const recipe = this.#registry.get(name) as Recipe<S> | undefined;
     if (!recipe) throw new Error(`No recipe named "${name}" is registered.`);
     if (recipe.to !== options.target.source) {
@@ -294,35 +271,59 @@ export class Recipes {
         `Recipe "${name}" writes ${recipe.to}, but the target document belongs to ${options.target.source}.`,
       );
     }
-
-    const targetDoc = this.client
-      .history(options.projectId)
-      .doc(options.target.source, options.target.docId);
-    const base = await targetDoc.latest();
-
-    // Minted BEFORE the run: the payload envelope carries the opId inside.
-    const opId = mintGuid();
-    const result = await recipe.run({
+    return await recipe.run({
       client: this.client,
       projectId: options.projectId,
-      targetDoc,
-      opId,
+      target: options.target,
+      made: options.made ?? new Map(),
+      opId: options.opId ?? mintGuid(),
       input: options.input,
       settings: (options.settings ?? {}) as S,
+      progress: options.progress ?? (() => {}),
     });
-    return { recipe, targetDoc, base, opId, result };
   }
 }
 
-/** The options {@link Recipes.plan} and {@link Recipes.run} share. */
+/** The options of {@link Recipes.run}. */
 export interface RecipeRunOptions<S = Record<string, unknown>> {
   projectId: string;
-  /** The target document, as `client.history(projectId).docs()` lists it. */
-  target: { source: string; docId: string };
+  /** The target document: its native application, and its id and version when the platform knows it. */
+  target: { source: string; docId?: string; version?: number };
   input?: unknown;
   settings?: S;
-  author: string;
-  userId?: string;
-  /** Where the suggestion comes from (the recipe and the exact source it read), for the history. */
-  origin?: FlowOrigin;
+  /** What this recipe made in the target before (see {@link RecipeContext.made}). */
+  made?: ReadonlyMap<string, RecipeMade>;
+  /** The run's id, when the caller wants to name it; minted otherwise. */
+  opId?: string;
+  progress?: (says: string, fraction?: number) => void;
+}
+
+/** Each file's latest storage version tag (newest by date, then by number). */
+export async function latestVersions(
+  client: EngineServicesClient,
+  fileIds: string[],
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (fileIds.length === 0) return out;
+  const tagNum = (t: unknown) => Number(/(\d+)/.exec(String(t ?? ''))?.[1] ?? -1);
+  const newest = (versions: { tag?: unknown; versionTag?: unknown; createdAt?: unknown }[]) => {
+    const sorted = versions.slice().sort((a, b) => {
+      const ta = a?.createdAt ? new Date(String(a.createdAt)).getTime() : NaN;
+      const tb = b?.createdAt ? new Date(String(b.createdAt)).getTime() : NaN;
+      if (!Number.isNaN(ta) && !Number.isNaN(tb) && ta !== tb) return tb - ta;
+      return tagNum(b?.tag ?? b?.versionTag) - tagNum(a?.tag ?? a?.versionTag);
+    });
+    const top = sorted[0];
+    return top ? String(top.tag ?? top.versionTag ?? 'v1') : 'v1';
+  };
+  await Promise.all(
+    fileIds.map(async (fileId) => {
+      try {
+        out.set(fileId, newest((await client.listVersions(fileId)) as never));
+      } catch {
+        out.set(fileId, 'v1');
+      }
+    }),
+  );
+  return out;
 }
