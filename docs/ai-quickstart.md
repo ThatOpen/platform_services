@@ -42,10 +42,10 @@ on the [That Open Platform](https://platform.thatopen.com) from scratch, using
 >
 > *"Someone sent me a change to approve"* has no guide: nothing is sent into anybody's model any
 > more, and there is nothing to approve. What exists is the person in Revit applying a recipe
-> themselves (That Open > Select recipe, Apply recipe) — Step 6 of that same guide.
+> themselves (That Open > Select recipe, Update) — Step 6 of that same guide.
 
 > **Making another application talk to this one?** If the user wants their own tool — Rhino, Blender,
-> a script, an in-house app — to publish its data so recipes can read it, to apply recipes in its
+> a script, an in-house app — to publish its data so recipes can read it, to updates in its
 > own models, or to show a model it did not author, that is a third thing again:
 > **[Writing a flow plugin](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/flow-plugin-guide.md)** is the
 > byte contract, and **[the architecture notes](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/flow-architecture.md)** say why it is shaped that
@@ -57,7 +57,7 @@ on the [That Open Platform](https://platform.thatopen.com) from scratch, using
 > **Making a recipe?** If the user wants to bring something of their project into Revit — *"put a
 > column at every point of this layer"*, *"build this IFC's walls in Revit"*, *"send my geometry to
 > Revit"*, *"a recipe that…"* — that is a recipe, not an app: **[Writing a recipe](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/recipes-guide.md)**.
-> It is applied from inside Revit (That Open > Select recipe, Apply recipe) and saved in their project.
+> It is applied from inside Revit (That Open > Select recipe, Update) and saved in their project.
 
 ---
 
@@ -432,7 +432,7 @@ and — when a recipe made it — which recipe and which source. Nobody writes i
 somebody else's document: the person working in the native application brings
 things in themselves. A RECIPE brings something of the project (an IFC, a Rhino
 layer, a .frag) into a native application; it is chosen and applied from inside
-that application (in Revit: That Open > Select recipe, Apply recipe), and its
+that application (in Revit: That Open > Select recipe, Update), and its
 changes land there at once, in one undoable step.
 
 ```ts
@@ -456,8 +456,8 @@ bridge between this section and 5c.
 `client.recipes.run(name, { projectId, target, input, settings, made, opId,
 recipeVersion?, progress })` answers `{ title, verb, payload, targets,
 ruleTallies }`, or throws `UpToDate` when there is nothing to write. It is what
-the native plugin calls on Apply recipe; the plugin then writes `payload`
-itself. An app does not apply recipes: it can run one to SEE what it would
+the native plugin calls on Update; the plugin then writes `payload`
+itself. An app does not updates: it can run one to SEE what it would
 write — `describeChanges(payload)` lists the changes — and nothing is stored.
 
 To READ a .frag's data without rendering anything, `readFrag(bytes)` answers

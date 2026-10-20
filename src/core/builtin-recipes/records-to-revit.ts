@@ -1033,7 +1033,7 @@ const sharedDoc = `
 ## How to use it
 
 In Revit, with the That Open plugin: **That Open > Select recipe**, pick this
-one and its source, then **Apply recipe**. It runs there and then: the model
+one and its source, then **Update**. It runs there and then: the model
 is read, and Revit gets the building in one transaction (Ctrl+Z undoes all of
 it). Apply it again whenever the source changes: only the difference is
 written. Publish to That Open as usual, and the document's history shows the

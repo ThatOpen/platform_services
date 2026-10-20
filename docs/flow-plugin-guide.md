@@ -331,7 +331,7 @@ C#.) The whole job, for the common case:
    (section 3).
 
 That is all. No lock beyond what your application already takes for an edit, no queue, nobody else
-to wait for. In Revit, steps 2 to 4 are **That Open > Apply recipe**.
+to wait for. In Revit, steps 2 to 4 are **That Open > Update**.
 
 ---
 

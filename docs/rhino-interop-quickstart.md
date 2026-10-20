@@ -17,12 +17,12 @@ people get wrong:
    mentions Revit nowhere.
 2. In Revit, the person whose model it is chooses the **`rhino-to-revit` recipe**: **That Open >
    Select recipe**, source: that Rhino model; settings: the Rhino layer and the Revit type.
-3. **That Open > Apply recipe.** The recipe — the platform's code, in neither plug-in — reads the
+3. **That Open > Update.** The recipe — the platform's code, in neither plug-in — reads the
    `.frag` and says what it means in Revit's vocabulary; the Revit add-in writes it in **one**
    transaction. Ctrl+Z undoes it whole.
 4. They **sync**, and it becomes a commit like any other, marked as the recipe's, naming the Rhino
    model and the version it read.
-5. Rhino changes, publishes again, and **Apply recipe again** writes only the difference: new
+5. Rhino changes, publishes again, and **Update again** writes only the difference: new
    objects become new instances, moved ones move theirs, deleted ones have theirs removed.
 
 > **Known gap, today.** Revit's Select recipe can only offer settings that are booleans or Revit
@@ -345,7 +345,7 @@ In Revit, with the model open:
 1. **That Open > Select recipe.** Recipe: **Rhino to Revit**. Source: the Rhino model published in
    step 4, from the list of the project's documents. Settings: the **Rhino layer** (`flow:columns`)
    and the **Revit type** every point becomes.
-2. **That Open > Apply recipe.** The recipe runs inside the add-in and the instances are written at
+2. **That Open > Update.** The recipe runs inside the add-in and the instances are written at
    once, in **one** Revit transaction: Ctrl+Z undoes it whole.
 
 **This is the known gap from the top of this guide.** Select recipe can only offer settings that are

@@ -6,7 +6,7 @@ Revit walls", "make a Revit room for every space of this spreadsheet". This guid
 need to write one, test it without Revit, and save it in their project. Follow it in order.
 
 > The user applies recipes from inside the application. In Revit: **That Open > Select recipe**
-> (pick the recipe, its source and its settings) and **That Open > Apply recipe** (it runs and the
+> (pick the recipe, its source and its settings) and **That Open > Update** (it runs and the
 > changes land in ONE transaction; Ctrl+Z undoes it whole; applying again writes only what changed).
 > When they publish, the model's history says which recipe, which version of it, and which version
 > of the source made each change. You write the recipe; the plugin does all of that.
@@ -240,4 +240,4 @@ Other calls: `client.recipes.catalog(projectId, { to: 'revit' })` (built-ins and
 - [ ] Settings only booleans and `x-existing` family types.
 - [ ] Stable `source` keys, fingerprints, removes only what it made, `UpToDate` when nothing changed.
 - [ ] Tested with `describeChanges`: the right count, feet, the model's names.
-- [ ] Saved with `client.recipes.project.save`, and the user told: Select recipe, then Apply recipe.
+- [ ] Saved with `client.recipes.project.save`, and the user told: Select recipe, then Update.

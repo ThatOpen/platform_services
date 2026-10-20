@@ -102,7 +102,7 @@ export const rhinoToRevit: Recipe<Settings> = {
 
 It reads a model published from Rhino and places in Revit instances of one
 type: one where each placed object of a layer stands. It never touches the
-Rhino model. In Revit: That Open > Select recipe, then Apply recipe.
+Rhino model. In Revit: That Open > Select recipe, then Update.
 
 ## It reconciles, it does not push
 

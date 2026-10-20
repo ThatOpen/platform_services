@@ -278,7 +278,7 @@ Tell the user the two commands on the **That Open** ribbon:
    then its **source** from the list of the project's documents it can read, then its settings.
    "More…" shows what the recipe does and what it leaves out. The choice is remembered with the
    model, so this is done once.
-2. **That Open > Apply recipe.** The recipe runs inside the add-in and its changes are written at
+2. **That Open > Update.** The recipe runs inside the add-in and its changes are written at
    once, in **one** Revit transaction. **Ctrl+Z undoes it whole**; closing without saving, or going
    back in the history, reverts it like any other edit.
 
@@ -304,7 +304,7 @@ If the user wants a recipe that does not exist yet — *"a column at every point
 *"a room for every space of this spreadsheet"* — that is
 **[Writing a recipe](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/recipes-guide.md)**:
 written with you, tested without Revit, saved in the project, and then listed in Select recipe.
-If they want their own application to take part — be a source, or apply recipes itself —
+If they want their own application to take part — be a source, or updates itself —
 **[Writing a flow plugin](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/flow-plugin-guide.md)** is the byte
 contract, and **[the architecture notes](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/flow-architecture.md)** say why it is shaped that way.
 
@@ -419,9 +419,9 @@ Three things that will otherwise mislead you:
   half needs no network at all — use it to see what the user themselves holds.
 - **A teammate can still edit "my" workset** → ownership has not reached them yet. You must sync
   after taking it, and they must sync afterwards.
-- **Apply recipe is refused on a workset nobody seems to own** → it is probably the **active**
+- **Update is refused on a workset nobody seems to own** → it is probably the **active**
   workset, where the recipe's new elements land. See Step 6.
-- **Apply recipe says "Nothing imported"** → the source has not changed since the last apply.
+- **Update says "Nothing imported"** → the source has not changed since the last apply.
   Expected. Publish or upload a new version of the source first.
 - **Everything hangs and nothing new is in the log** → a Revit dialog is waiting for a click.
 
