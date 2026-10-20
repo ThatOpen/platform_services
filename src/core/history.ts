@@ -109,6 +109,8 @@ export interface FlowFile {
 export interface FlowOrigin {
   /** The recipe's name. */
   recipe: string;
+  /** The version of a project's own recipe that made it ('v3'); absent for a built-in. */
+  recipeVersion?: string;
   source: {
     /** The source document's folder. */
     folderId: string;

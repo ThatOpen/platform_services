@@ -19,9 +19,16 @@
  * remembered by the native application's plugin, next to the document's other
  * That Open data, and handed back on every run ({@link RecipeContext.made}),
  * so a second run writes only the difference.
+ *
+ * TWO KINDS, ONE CATALOG (Antonio, 20-10). The BUILT-IN recipes ship with this
+ * library and are always there. A project's OWN recipes are made by its people
+ * with AI, often starting from a built-in, and saved and versioned in the
+ * project ({@link ProjectRecipes}, project-recipes.ts). `catalog` lists both;
+ * `run` runs either. How to write one: docs/recipes-guide.md.
  */
 import type { EngineServicesClient } from './client';
 import { mintGuid } from './history';
+import { ProjectRecipes, type CatalogEntry, type RecipeKit } from './project-recipes';
 
 /**
  * How a settings property says "this names something that EXISTS". Put it on
@@ -118,6 +125,8 @@ export interface RecipeContext<Settings = Record<string, unknown>> {
   settings: Settings;
   /** Says how far it is, for the native application's progress bar: a line, and a fraction 0..1 when known. */
   progress: (says: string, fraction?: number) => void;
+  /** The tools the built-ins are written with, for a project recipe's code (which imports nothing). */
+  kit?: RecipeKit;
 }
 
 /** What a recipe's `run` returns: the changes, ready to be written in the target. */
@@ -181,8 +190,12 @@ export type RecordsImporter = (bytes: Uint8Array, name: string) => Promise<Uint8
 export class Recipes {
   readonly #registry = new Map<string, Recipe<never>>();
   readonly #importers = new Map<string, RecordsImporter>();
+  /** The project's own recipes: list, save, versions, load (see project-recipes.ts). */
+  readonly project: ProjectRecipes;
 
-  constructor(private readonly client: EngineServicesClient) {}
+  constructor(private readonly client: EngineServicesClient) {
+    this.project = new ProjectRecipes(client, () => new Set(this.#registry.keys()));
+  }
 
   /**
    * Says how this host turns files of one extension ('ifc') into records, so a
@@ -223,13 +236,39 @@ export class Recipes {
   }
 
   /**
+   * Every recipe a project can use: the built-ins, always, and the project's own (each its latest
+   * version), optionally only those that write one application.
+   */
+  async catalog(projectId: string, filter?: { to?: string }): Promise<CatalogEntry[]> {
+    const builtins: CatalogEntry[] = this.list(filter).map((manifest) => ({ manifest, origin: 'builtin' }));
+    let own: CatalogEntry[] = [];
+    try {
+      own = (await this.project.list(projectId)).filter((one) => !filter?.to || one.manifest.to === filter.to);
+    } catch {
+      // A project whose data cannot be read still has the built-ins.
+    }
+    return [...builtins, ...own.sort((a, b) => a.manifest.name.localeCompare(b.manifest.name))];
+  }
+
+  /** A recipe by name for a project: a built-in, or the project's own (its latest version unless named). */
+  async resolve(
+    name: string,
+    projectId: string,
+    version?: string,
+  ): Promise<{ recipe: Recipe<unknown>; origin: 'builtin' | 'project'; version?: string }> {
+    const builtin = this.#registry.get(name);
+    if (builtin) return { recipe: builtin as Recipe<unknown>, origin: 'builtin' };
+    const loaded = await this.project.load(projectId, name, version);
+    return { ...loaded, origin: 'project' };
+  }
+
+  /**
    * The candidates for a recipe's source in a project, for the picker: the
    * documents whose native file has one of the declared extensions, each with
    * the version it is on now. A recipe with no declared source has none.
    */
   async choices(name: string, projectId: string): Promise<RecipeChoice[]> {
-    const recipe = this.#registry.get(name);
-    if (!recipe) throw new Error(`No recipe named "${name}" is registered.`);
+    const { recipe } = await this.resolve(name, projectId);
     const source = recipe.source;
     if (source?.kind !== 'project-file') return [];
     const extensions = (source.extensions ?? []).map((e) => e.toLowerCase());
@@ -264,8 +303,9 @@ export class Recipes {
    * to write. The caller (the native application's plugin) writes them.
    */
   async run<S>(name: string, options: RecipeRunOptions<S>): Promise<RecipeResult> {
-    const recipe = this.#registry.get(name) as Recipe<S> | undefined;
-    if (!recipe) throw new Error(`No recipe named "${name}" is registered.`);
+    const { recipe } = (await this.resolve(name, options.projectId, options.recipeVersion)) as unknown as {
+      recipe: Recipe<S>;
+    };
     if (recipe.to !== options.target.source) {
       throw new Error(
         `Recipe "${name}" writes ${recipe.to}, but the target document belongs to ${options.target.source}.`,
@@ -295,6 +335,8 @@ export interface RecipeRunOptions<S = Record<string, unknown>> {
   made?: ReadonlyMap<string, RecipeMade>;
   /** The run's id, when the caller wants to name it; minted otherwise. */
   opId?: string;
+  /** A project recipe's version to run; its latest when absent. Built-ins have none. */
+  recipeVersion?: string;
   progress?: (says: string, fraction?: number) => void;
 }
 

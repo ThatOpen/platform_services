@@ -49,6 +49,11 @@ on the [That Open Platform](https://platform.thatopen.com) from scratch, using
 > Phrases that mean those: *"export my model to the platform"*, *"send my geometry to Revit"*,
 > *"write a plugin for X"*, *"read a .frag in my app"*.
 
+> **Making a recipe?** If the user wants to bring something of their project into Revit — *"put a
+> column at every point of this layer"*, *"build this IFC's walls in Revit"*, *"a recipe that…"* — that
+> is a recipe, not an app: **[Writing a recipe](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/recipes-guide.md)**.
+> It is applied from inside Revit (That Open > Select recipe, Apply recipe) and saved in their project.
+
 ---
 
 ## First — what are you building? (ask if the user hasn't said)

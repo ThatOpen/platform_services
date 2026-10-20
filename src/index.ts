@@ -6,6 +6,7 @@ export * from './core/frag-items';
 export * from './core/history';
 export * from './core/op-builder';
 export * from './core/recipes';
+export * from './core/project-recipes';
 export * from './core/builtin-recipes';
 export * from './core/request-error';
 export * from './types/items';

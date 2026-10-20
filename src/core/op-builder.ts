@@ -1,6 +1,7 @@
 /**
- * Authors an interoperability OPERATION — a set of deferred edits for one
- * document — and hands back the bytes to upload as a suggestion's payload.
+ * Authors an interoperability OPERATION — the set of changes a recipe asks of
+ * one document — and hands back its bytes: what a native application's plugin
+ * applies, in one transaction.
  *
  * WHY THIS EXISTS AND WHY IT LOOKS LIKE THIS. An operation is carried as a
  * .frag with no geometry at all: the envelope in `Model.metadata`, and one
@@ -10,7 +11,7 @@
  * produce one. So the format stayed, and this builds it here instead.
  *
  * Nothing above this class needs to know any of that. You say add / set /
- * remove and get bytes for {@link FlowDoc.suggest} or a recipe's result.
+ * remove and get the bytes of a recipe's result.
  *
  * WHAT IT DOES NOT DO. It does not translate. Attributes are written exactly
  * as given, in the TARGET application's own terms and units, because data
@@ -85,7 +86,7 @@ export interface Placement {
   rotationDeg?: number;
   /**
    * The id of the object that caused this change, in the AUTHOR's own terms —
-   * a Rhino guid, a row of a spreadsheet, whatever proposed it. Optional, and
+   * a Rhino guid, a row of a spreadsheet, whatever asked for it. Optional, and
    * only useful to whoever wrote it: pass it when you expect to come back and
    * find what you created.
    */
