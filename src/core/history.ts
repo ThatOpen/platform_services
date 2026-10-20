@@ -80,7 +80,9 @@ export interface FlowVersion {
    * changes include a recipe applied in the native application ({@link origin} says which).
    * Absent: a sync.
    */
-  kind?: 'upload' | 'sync' | 'recipe' | string;
+  kind?: 'upload' | 'sync' | 'recipe' | 'restore' | string;
+  /** On a 'restore' (Revit's That Open > History > Restore this version): the version it went back to. */
+  restoredFrom?: { guid: string; version: number };
   /** The file the step brought, on an upload: its id, name and the storage version it landed in. */
   file?: FlowFile;
   /** Where the step came from, when a recipe made it: see {@link FlowOrigin}. */
