@@ -124,6 +124,10 @@ export interface FlowOrigin {
   };
   /** What it wrote, in a line: «IFC to Revit: 12 wall(s), 3 floor(s)». */
   title?: string;
+  /** The settings it ran with, as the person chose them. */
+  settings?: Record<string, unknown>;
+  /** The recipe's name for people ("IFC to Revit"). */
+  recipeTitle?: string;
 }
 
 /** Wire shape of `revitflow_history.json`. */
@@ -254,7 +258,6 @@ const INTERNAL_PREFIX = 'revitflow_';
 // per client. Arbitration is listing order: the earliest claim naming a key
 // holds it. Written by the plugins' LockRegistry; read-only here.
 const LOCKS_ANCHOR = 'bimterop-locks-anchor';
-const versionTag = () => `v-${Date.now()}`;
 
 interface StoredFile {
   id: string;
@@ -906,7 +909,7 @@ export class FlowDoc {
     if (existing) {
       await this.client.updateFile(existing.id, {
         file: blob,
-        versionTag: versionTag(),
+        versionTag: await this.client.nextVersionTag(existing.id),
       });
       return existing;
     }
@@ -924,7 +927,7 @@ export class FlowDoc {
     const created = await this.client.createFile({
       file: blob,
       name,
-      versionTag: versionTag(),
+      versionTag: 'v1',
       parentFolderId: folderId,
       projectId: this.project.projectId,
     });
@@ -938,7 +941,7 @@ export class FlowDoc {
     if (existing) {
       await this.client.updateFile(existing.id, {
         file: model,
-        versionTag: versionTag(),
+        versionTag: await this.client.nextVersionTag(existing.id),
       });
       return existing;
     }
@@ -946,7 +949,7 @@ export class FlowDoc {
     const created = await this.client.createFile({
       file: model,
       name,
-      versionTag: versionTag(),
+      versionTag: 'v1',
       parentFolderId: folderId,
       projectId: this.project.projectId,
     });

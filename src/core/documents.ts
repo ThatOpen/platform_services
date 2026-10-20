@@ -74,7 +74,6 @@ export interface DocumentInfo {
   descriptor: DocumentDescriptor;
 }
 
-const versionTag = () => `v-${Date.now()}`;
 
 function idOf(item: { _id?: unknown; id?: unknown }): string {
   return String(item._id ?? item.id ?? '');
@@ -282,14 +281,14 @@ export class ProjectDocuments {
     if (existing) {
       await this.client.updateFile(existing.id, {
         file: blob,
-        versionTag: versionTag(),
+        versionTag: await this.client.nextVersionTag(existing.id),
       });
       return;
     }
     await this.client.createFile({
       file: blob,
       name: DOCUMENT_FILE,
-      versionTag: versionTag(),
+      versionTag: 'v1',
       parentFolderId: folderId,
       projectId: this.projectId,
     });

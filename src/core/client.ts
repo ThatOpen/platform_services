@@ -1660,6 +1660,28 @@ export class EngineServicesClient {
    * @param params - Optional `{ archived }` filter.
    * @returns Array of versions, sorted by creation date descending.
    */
+  /**
+   * The tag the next version of a file gets: `v1`, `v2`, `v3`… (Antonio, 20-10: «esas versiones de archivos
+   * larguísimas hay que quitarlas: tiene que ser v1, v2, etc»). One more than the highest `v<n>` the file
+   * has, and never less than its number of versions plus one, so a file that once got a timestamp tag
+   * (`v-1792…`) still moves on to a short one. `v1` for a file that has no version yet (or no id).
+   */
+  async nextVersionTag(fileId?: string): Promise<string> {
+    if (!fileId) return 'v1';
+    let versions: { tag?: unknown; versionTag?: unknown }[] = [];
+    try {
+      versions = (await this.listVersions(fileId)) as typeof versions;
+    } catch {
+      return `v-${Date.now()}`; // unreadable: unique beats short, never a collision
+    }
+    let highest = 0;
+    for (const v of versions) {
+      const m = /^v(\d{1,6})$/.exec(String(v.tag ?? v.versionTag ?? ''));
+      if (m) highest = Math.max(highest, Number(m[1]));
+    }
+    return `v${Math.max(highest, versions.length) + 1}`;
+  }
+
   async listVersions(
     itemId: string,
     params: { archived?: boolean } = {},
