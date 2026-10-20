@@ -4,9 +4,11 @@ The concrete contract. [The architecture notes](https://raw.githubusercontent.co
 shaped the way it is; this says what the bytes look like.
 
 > **Plug-ins only.** Since `@thatopen/services` 0.20, apps and scripts do not write this layout by
-> hand: `client.history(projectId)` reads and writes documents, version timelines and proposals,
-> and `client.recipes` runs the scripts that author them — see `src/core/examples/history.ts` in
-> the package. The bytes below are the contract for NATIVE PLUG-INS (which carry their own client),
+> hand: `client.history(projectId)` reads and writes documents and version timelines, and
+> `client.recipes` lists and runs the recipes that bring project data into a native application —
+> see `src/core/examples/history.ts` in the package, and
+> [Writing a recipe](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/recipes-guide.md)
+> for the recipes themselves. The bytes below are the contract for NATIVE PLUG-INS (which carry their own client),
 > and the reference for what the API does underneath. Anything else touching these files directly
 > will break when the layout moves behind the API, which is the plan.
 
@@ -25,12 +27,14 @@ Three different jobs, three different amounts of work. Pick yours before reading
 
 | You want to | Implement | Sections |
 |---|---|---|
-| Send changes to somebody else's model | Publish a proposal | 1, 2, 5 |
+| Let people bring project data into YOUR application | Run a recipe, apply the changes it returns | 1, 2, 5 |
 | Show a model your application did not author | Read a `.frag` | 1, 3 |
 | Let people collaborate in YOUR application | A history, plus whatever arbitration it needs | 1, 3, 4, 6 |
 
-Publishing a proposal needs no ownership, no history and no collaboration layer. That is the point:
-most integrations are the first row.
+Applying a recipe needs no ownership registry and no collaboration layer of your own: the changes
+are an ordinary edit in your application, made by the person working there. Writing a recipe needs
+no plugin at all — that is
+[Writing a recipe](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/recipes-guide.md).
 
 ---
 
@@ -46,8 +50,7 @@ project
         ├── <modelname>.frag               the model, as of the last full export
         │   └── (hidden children)          per-commit delta .frag, addressed by id
         ├── revitflow_history.json         the commit log
-        ├── revitflow_ops.json             the proposal index
-        │   └── (hidden children)          proposal payloads, addressed by id
+        ├── revitflow_recipes.json         the recipes this model was given, and what each made
         ├── revitflow_btree.json           file -> blocks, current state
         ├── revitflow_btree_<n>.json       file -> blocks, as of version n
         ├── revitflow_bindex.json          block -> which pack holds it
@@ -61,55 +64,35 @@ project
 **Visible files are named; hidden files are not.** The platform's hidden-file API has no queryable
 name: listing by parent and fetching by id both return ids and sizes only. So every hidden file's id
 has to be written down somewhere visible when it is created, or it is orphaned for good. That single
-fact explains several shapes below — `deltaId` on a commit, `fragId` on a proposal, and the use of
-an ordinary file as an "anchor" whose only job is to be a parent.
+fact explains several shapes below — `deltaId` on a commit, and the use of an ordinary file as an
+"anchor" whose only job is to be a parent.
 
 **Two things come free with a listing, and they matter.** A hidden file's `_id` is a Mongo ObjectId
 whose first four bytes are its creation time, so a set of hidden files is ordered by arrival without
-downloading any of them. `owningEntity` is the platform user who created it. The queue and the
+downloading any of them. `owningEntity` is the platform user who created it. The sync queue and the
 ownership registry are both built entirely out of those two facts.
 
 ---
 
-## 2. Proposals
+## 2. The changes a recipe returns
 
 
-### The index
+A recipe's `run` answers `{ title, verb, payload, targets, ruleTallies }`, or throws `UpToDate` when
+there is nothing to write. `payload` is the changes; the plugin applies them directly, in its own
+application. They are never uploaded and never queued: they exist between the run and the apply,
+in memory.
 
-`revitflow_ops.json`, a visible file. Schema `revitflow/ops@1`.
+`verb` is a label — `add`, `set`, `remove` or `mixed` — and is never read to decide anything,
+because one run may add, change and remove at once. `title` is what the history row will say.
+`ruleTallies` has one `{ read, written }` per row of the manifest's `rules`.
 
-```json
-{
-  "schema": "revitflow/ops@1",
-  "ops": [{
-    "opId": "op-9a68aceffc4e",
-    "batchId": "batch-...",
-    "fragId": "<hidden file id of the payload>",
-    "title": "4 columns from Rhino",
-    "verb": "add",
-    "author": "anton",
-    "userId": "<platform user id>",
-    "createdAt": "2026-07-31T12:00:00.000Z",
-    "baseCommit": 18,
-    "targets": 4,
-    "state": "pending",
-    "appliedInCommit": 19,
-    "affectedIds": ["...", "..."]
-  }]
-}
-```
-
-`state` is `pending`, `applied` or `discarded`. `verb` is a label for a timeline to show — `add`,
-`set`, `remove` or `mixed` — and is never read to decide anything, because one proposal may add,
-change and remove at once.
-
-The index is read-modify-write today, so two authors writing at the same moment can lose one
-another's entry. Acceptable while a document's queue is written by a handful of people. It is not
-the final answer.
+Recipes build the payload with `OperationBuilder` (`add`, `set`, `remove`, then `build(opId)`), so
+nobody writes these bytes by hand; `describeChanges(payload)` reads them back as a list. What
+follows is what that payload IS, for a plugin that has to apply it.
 
 ### The payload
 
-A `.frag` with **no geometry at all**, stored as a hidden child of the index.
+A `.frag` with **no geometry at all**.
 
 - one geometry-less item per change
 - the target's native id in the item's `guid` — the slot the format already has for a global id
@@ -131,59 +114,45 @@ with "Dimension not found").
   "targetDocument": "<document id>",
   "baseCommitGuid": "<commit guid this was authored against>",
   "baseCommit": 18,
-  "author": "anton",
-  "userId": "<platform user id>",
-  "title": "4 columns from Rhino",
+  "author": "recipe:columns-from-points",
+  "title": "Columns from points: 4 change(s)",
   "summary": "add",
   "transform": { "translate": [0,0,0], "rotate": {"origin":[0,0,0],"axis":[0,0,1],"degrees":90} }
 }
 ```
 
 `schema` is checked exactly. An applier that reads `@1` the `@2` way would not fail, it would
-quietly do the wrong thing, so an unknown schema is refused and the proposal is re-authored.
+quietly do the wrong thing, so an unknown schema is refused and the recipe has to be updated.
 
-`baseCommitGuid` names the commit the proposal was written against. By the time somebody applies it
-the elements it names may be gone, which is reported rather than skipped quietly.
+`baseCommitGuid` / `baseCommit` name the commit of the target the changes were computed against.
+The plugin applies them right after the run, so that is normally the model as it is; an element a
+`set` or `remove` names that is gone all the same is reported rather than skipped quietly.
 
 `transform` is optional and applies to every `set` item, on top of whatever its attributes change.
 It exists alongside the per-item transform because the two answer different questions: an item's own
 transform says "put it HERE", which is what an `add` needs; this says "move it BY this", which needs
 no knowledge of where anything currently is.
 
-**There is no `units` field, deliberately.** A proposal edits the data an application published, so
+**There is no `units` field, deliberately.** The changes edit the data an application published, so
 its numbers are in the terms of that data — exactly as a patch over a JSON document writes the
 fields as the document holds them. Read a position out of a published model, write it back
 unchanged, and nothing moves. Converting from whatever the author's document uses is the
-translator's job, because the translator is the only thing that knows both sides. An earlier version
-made every proposal declare its units, which looked careful and was a bug waiting to happen: it let
+recipe's job, because the recipe is the only thing that knows both sides. An earlier version
+made every change set declare its units, which looked careful and was a bug waiting to happen: it let
 an author state a unit while writing coordinates in an axis convention the target does not use, a
 mistake no declared unit can catch.
 
 ### Who wrote it
 
-`author` is free text for a timeline to print. `userId` is the one that has to be right: it is what
-the platform's own member component resolves into a real name and face. Get it wrong and the
-proposal shows up under somebody else's avatar, which is worse than showing none.
+The envelope's `author` is free text: a recipe writes `recipe:<name>`. It is not who made the
+change. The person who applied the recipe is, and they appear where every change of theirs appears:
+on the commit their sync writes (section 3), whose `userId` is what the platform's own member
+component resolves into a real name and face. Get that wrong and the commit shows up under
+somebody else's avatar, which is worse than showing none.
 
-**In a browser app, take it from `getProjectData`.** It answers with `currentUser` already resolved
-server-side, and the members it lists are keyed by exactly the id the history panel indexes:
-
-```ts
-const { currentUser } = await client.getProjectData(projectId);
-const userId = currentUser?.user._id;      // what the avatar resolves against
-const author = currentUser?.user.fullName; // what the timeline prints
-```
-
-**Do not look for it on the client's context.** `client.context` is the four fields the platform
-injects into the iframe: `appId`, `projectId`, `accessToken`, `apiUrl`. Reading `context.userId` or
-`context.user.name` yields `undefined`, and both failures are silent: the envelope simply ships
-without a `userId`, and the panel falls back to passing `author` as the email, so the member
-component renders whatever it makes of a string that names nobody. A converter did exactly this, and
-it looked fine until somebody noticed the proposal was wearing another person's face.
-
-**In a native plug-in there is no such call**, so read the `u` claim out of the API key's JWT payload
-(base64url, no signature check, since this only decides which name to display). That is what the
-Revit add-in does.
+**In a native plug-in there is no call that answers it**, so read the `u` claim out of the API
+key's JWT payload (base64url, no signature check, since this only decides which name to display).
+That is what the Revit add-in does.
 
 ### The verbs
 
@@ -203,35 +172,32 @@ an author can record something for its own later use without the applier being t
 and without it being mistaken for a parameter of the thing being changed.
 
 - `flow:op` — the verb above
-- `flow:source` — where this change came from, in the AUTHOR's own terms
+- `flow:source` — where this change came from, in the RECIPE's own terms: a stable key, the source
+  file's id plus the thing's own id there
+- `flow:print` — a fingerprint of what the change asks for; the same print next time means nothing
+  to write
 
-`flow:source` is not a link between elements. Nothing is written into either model. It lives on the
-proposal, which is the record of what somebody asked for.
+`flow:source` is not a link between elements. Nothing is written into the source, and no element
+of the target carries it. The plugin keeps it in the target model's record of what that recipe made
+(`revitflow_recipes.json`), which is the recipe's own bookkeeping and nobody else's.
 
 **Every other attribute name belongs to the target application.** `Family`, `Type`, `CategoryId`,
-`Level`, `Position` are what Revit calls its own fields in what Revit publishes. A translator copies
+`Level`, `Position` are what Revit calls its own fields in what Revit publishes. A recipe copies
 them without needing to know what any of them mean; the plugin receiving them is the only thing that
 does. Anything not in the receiving plugin's list of structural fields is treated as a parameter of
-the element, which is what keeps the proposal vocabulary and the export vocabulary the same thing
+the element, which is what keeps the change vocabulary and the export vocabulary the same thing
 rather than two things that have to be kept in step.
 
-### What comes back
+### What the plugin keeps
 
-When a proposal is applied, its index entry gains:
+When it has applied a run, the plugin records in `revitflow_recipes.json`, for that recipe in that
+model, which source key became which native id and with which print — the i-th result is what the
+i-th change produced. A `remove` forgets the element it took out. On the next run that record goes
+back to the recipe as `made` (source key → `{ id, print }`), filtered to what still exists in the
+model, and is how an apply writes only what changed in the source.
 
-```
-appliedInCommit: 19
-affectedIds: ["...", "..."]
-```
-
-**N changes produce N ids, in the order the changes were written.** The applier runs its verbs in
-passes — adds first, so a `set` can address something the same proposal just made — but each change
-records its own result, so the pass order never reaches the answer. Elements a delete took with it
-are appended AFTER all of them, because they correspond to no change and putting them in line would
-shift every id after the delete by an amount the author cannot predict.
-
-That list can therefore be longer than `targets`, and that is not a bug: it is what happened, not
-what was asked for.
+The applier runs its verbs in passes — adds first, so a `set` can address something the same run
+just made — but each change records its own result, so the pass order never reaches the answer.
 
 ---
 
@@ -256,7 +222,12 @@ what was asked for.
     "deltaId": "<hidden file id of this commit's delta .frag>",
     "userId": "<platform user id>",
     "full": false,
-    "appliedOps": ["op-9a68aceffc4e"]
+    "kind": "recipe",
+    "origin": {
+      "recipe": "ifc-to-revit",
+      "title": "IFC to Revit: 6 level(s), 47 wall(s)…",
+      "source": { "folderId": "<id>", "fileId": "<id>", "name": "racbasicsampleproject.ifc", "version": "v1" }
+    }
   }]
 }
 ```
@@ -275,9 +246,15 @@ Rules, restated here because they are the part an implementer gets wrong:
   generating a sentence about element counts, which `changes` already says better.
 - **`full`** means this commit re-exported the whole model, so the visible `.frag` shows the model
   as of here. Otherwise the commit ships only its delta, in a hidden child named by `deltaId`.
-- **`appliedOps`** joins the two halves of a deferred edit: the proposal on the platform, and the
-  native commit that made it real. It is also the idempotency record — "have I already applied
-  this?" is a question about the proposal, not about identity.
+- **`kind`** says what sort of step it was when it was not a plain sync: `upload` (a file brought
+  to the platform) or `recipe` (a sync whose changes include a recipe applied in the native
+  application). Absent means a sync.
+- **`origin`** says, on a `recipe` commit, where the change came from: `{ recipe, recipeVersion?,
+  title, source: { folderId, fileId, name, version } }` — the recipe, the version of a project
+  recipe (absent for a built-in), what it wrote in a line, and the exact source document and
+  version it read. When several recipes were applied since the previous commit, `origins` lists
+  them all and the first is `origin`. The platform's history panel shows these commits with a recipe
+  mark and their title.
 
 ---
 
@@ -332,22 +309,29 @@ for good.
 
 ---
 
-## 5. Publishing a proposal, end to end
+## 5. Applying a recipe in your plugin, end to end
 
-The whole job, for the common case:
+The recipe code is the platform's own, in `@thatopen/services`; a plugin hosts it rather than
+reimplementing it. (The Revit add-in runs it in a hidden WebView2 page and applies the result in
+C#.) The whole job, for the common case:
 
-1. **Read the target model's published data.** The `.frag` the plugin exported. You need it to know
-   what ids exist and what the fields are called.
-2. **Build a geometry-less `.frag`**: one item per change, the target's id in the item's guid,
-   `flow:op` on each item, the application's own field names for everything else.
-3. **Put the envelope in `Model.metadata`.**
-4. **Create the index** `revitflow_ops.json` if it does not exist, and **upload the payload as a
-   hidden child of it**.
-5. **Write the entry**, including the id the upload returned. Miss this and the payload is
-   unreachable forever.
+1. **Offer the recipes.** `client.recipes.catalog(projectId, { to: '<your app>' })` lists the
+   built-ins and the project's own; `client.recipes.choices(name, projectId)` lists the documents
+   it can read, each with its current version; the manifest's `settingsSchema` says what to ask.
+   In Revit this is **That Open > Select recipe**.
+2. **Run it.** `client.recipes.run(name, { projectId, target, input, settings, made, opId,
+   recipeVersion, progress })`, with `made` read from your model's record of what that recipe made
+   before. It answers `{ title, verb, payload, targets, ruleTallies }`, or throws `UpToDate`: say
+   so ("Nothing imported") and stop.
+3. **Apply the payload in ONE transaction** of your application, so one undo takes it all back.
+   Refuse what you cannot build, with a reason; never approximate.
+4. **Record what it made** (source key → native id and print) next to the model's history, and
+   which recipe, version and source version this was.
+5. **On the next sync, say where it came from**: the commit carries `kind: "recipe"` and `origin`
+   (section 3).
 
-That is all. No lock, no history, no ownership. Somebody working in the native application will see
-it waiting and decide.
+That is all. No lock beyond what your application already takes for an edit, no queue, nobody else
+to wait for. In Revit, steps 2 to 4 are **That Open > Apply recipe**.
 
 ---
 

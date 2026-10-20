@@ -95,41 +95,50 @@ back channel to a running application.
 
 ---
 
-## 4. Proposals
+## 4. Recipes
 
-The other half of the history is that anyone can write into it — as a **proposal**.
+The other half is bringing things INTO a native application — as a **recipe**.
 
-A proposal is shaped exactly like a commit. It differs in three ways:
+A recipe reads something of the project (an IFC, a Rhino layer, a `.frag`, anything the platform
+holds) and returns the changes that make the target model match it: adds, edits and removals, in
+the target application's own vocabulary. Three things define it:
 
-**It need not come from the native application.** Another application proposing a change
-(interoperability), a script (automation), a model reading the project and suggesting something
-(AI). The history does not distinguish between them, and does not need to.
+**It is chosen and applied from inside the application that receives it.** In Revit: **That Open >
+Select recipe** (the recipe, its source document from a list, its settings) and **That Open > Apply
+recipe**. The plugin runs the recipe and writes its changes at once, in **one** Revit transaction:
+Ctrl+Z undoes it whole, and closing without saving or going back in the history reverts it like any
+other edit. Nothing is queued, uploaded or waiting for anybody.
 
-**It has not happened.** A commit records a change to the native model; a proposal asks for one. It
-is accepted or rejected. Where the format is proprietary, like Revit, a person working in that
-application accepts it, because materialising it means editing a `.rvt` and only Revit can do that.
-Where the format is open, acceptance can be programmatic — a cloud script can apply it with nobody
-watching.
+**It remembers what it made.** Applying again writes only what changed in the source since the last
+apply; with no change it says "Nothing imported". What each recipe made is kept in the model's own
+That Open data on the platform (`revitflow_recipes.json`, next to its history).
 
-**It addresses published data.** A proposal is a patch over the fields an application already
+**It addresses published data.** Its changes are a patch over the fields an application already
 publishes, in the terms that application already uses.
 
-### Whoever proposes is not whoever accepts
+### Why the person in the application applies it
 
-Deliberately. Somebody working in Rhino can propose that their objects become columns in a Revit
-model, under whatever rules they like. The person responsible for that Revit model is the one who
-decides whether it happens.
+Nobody writes into somebody else's model, and that is settled by where the recipe runs rather than
+by any request travelling between people. The person who applies a
+recipe is the person working in that model, in that application, with its undo, its worksets and
+its sync — so the change is theirs from the first moment, and an ordinary edit of their model.
 
-That separation is what makes it safe to let anything author a proposal — including a model that
-learned the pattern from the project's own history. Nothing needs write access to a native file to
-take part.
+When they sync, the commit says where the change came from: `kind: "recipe"` and an `origin` naming
+the recipe, its version, a title, and the exact source document and version it read. The platform's
+history panel shows such commits with a recipe mark and that title («IFC to Revit: 6 level(s), 47
+wall(s)…», «from racbasicsampleproject.ifc v1»).
+
+Built-in recipes ship in `@thatopen/services` (`ifc-to-revit`, `frag-to-revit`, `rhino-to-revit`)
+and are always available; a project can add its own, usually written by a person with an AI
+starting from a built-in:
+[Writing a recipe](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/recipes-guide.md).
 
 ---
 
 ## 5. Two layers, in this order
 
 ```
-        interoperability      deferred edits proposed by anyone
+        interoperability      recipes, applied in the native tool by whoever works there
    ─────────────────────────
          collaboration        who owns what, and what counts as a commit
 ```
@@ -137,28 +146,29 @@ take part.
 **Collaboration comes first.** It answers two questions for a file: who may change what, and what a
 change becomes once made.
 
-**Interoperability sits on top.** A proposal does not happen when it is written. It happens when
-somebody applies it in the native tool, and that application is an ordinary change: it takes the
-same locks, respects the same ownership, and produces a normal commit.
+**Interoperability sits on top.** A recipe's changes are applied by somebody in the native tool,
+and that is an ordinary change: it takes the same locks, respects the same ownership, and produces a
+normal commit — one marked as a recipe's.
 
 That ordering is why interoperability needed almost no new machinery. It borrows the layer below
 rather than building a parallel one.
 
-> **Writing a proposal requires nothing but the platform. Applying one requires being a participant
+> **Writing a recipe requires nothing but the platform. Applying one requires being a participant
 > in that file's collaboration layer.**
 
 | Direction | What a tool must implement |
 |---|---|
-| Tool → model (propose a change) | Publish a proposal. Nothing else. |
+| Something → tool (bring it in) | Run a recipe and apply the changes it returns. Nothing else. |
+| Tool → everyone (be a source) | Publish its own data. Nothing else. |
 | Model → tool (see the result) | Read a `.frag`. Nothing else. |
 | Tool → tool (edit what it receives) | A full collaboration layer for that tool. |
 
-Most integrations are the first two rows, and neither raises a single question about ownership or
+Most integrations are the first three rows, and none raises a single question about ownership or
 merging.
 
-What a proposal can actually ask for is a separate and longer question, and an open one: host
+What a recipe can actually ask for is a separate and longer question, and an open one: host
 resolution, shared coordinates, type versus instance parameters, orientation, free NURBS and breps,
-family authoring. The rule for all of it is the part that is settled: a proposal that cannot be
+family authoring. The rule for all of it is the part that is settled: a change that cannot be
 honoured is **refused with a reason, never approximated**. A plugin author meeting one of these will
 get a refusal naming it rather than a silently wrong element.
 
@@ -171,8 +181,9 @@ get a refusal naming it rather than a silently wrong element.
 
 The Revit plugin has no idea Rhino exists: it receives verbs over the Revit data it already
 publishes. The Rhino plugin must have no idea Revit exists either — it exports what Rhino has, as
-Rhino has it, and stops. The thing that reads a Rhino model and proposes a change to a Revit one is
-a third thing, and it lives in the platform as an app, a cloud component or a model.
+Rhino has it, and stops. The thing that reads a Rhino model and says what it means in a Revit one is
+a third thing — a recipe — and it lives in the platform: built into `@thatopen/services`, or saved
+in the project. The Revit plugin runs it and applies what it returns, without knowing what it read.
 
 The reason is arithmetic. Put translation in the plugins and every new tool has to learn about every
 existing one: N tools, N² translators, each needing an update when either end changes. Put it in the
@@ -183,10 +194,10 @@ either plugin.
 So the shape of the whole system is: **plugins export and import their own application's data,
 deterministically, and nothing else. The platform is where the glue lives.**
 
-### Which is why the proposal format knows nothing either
+### Which is why the change format knows nothing either
 
-A proposal is a set of changes over data an application already publishes, so it says three things
-and no more: **what kind of change, which item, which fields.**
+What a recipe returns is a set of changes over data an application already publishes, so it says
+three things and no more: **what kind of change, which item, which fields.**
 
 ```
 add     no id yet, attributes describe it, transform says where it goes
@@ -206,13 +217,14 @@ protocol about one application, which is what this whole section exists to preve
 What IS reserved is the `flow:` **namespace**, and an applier skips all of it rather than the names
 it happens to know — so an author can record something for its own later use without the applier
 being taught what it means, and without it being mistaken for a parameter of the thing being
-changed. Today that namespace holds `flow:op` (the verb) and `flow:source` (where the change came
-from, in the author's own terms).
+changed. Today that namespace holds `flow:op` (the verb), `flow:source` (where the change came
+from, in the recipe's own terms) and `flow:print` (a fingerprint of what was asked for, so the next
+apply can tell an unchanged source from a changed one).
 
 Identity is the item's guid and placement is the item's transform, both of which the `.frag` already
 carries. Nothing addresses anything by position: an item is named by its id or not at all. That is
 not a convention to be careful about, it is the only thing the format can express, which is why a
-re-exported model can never make a proposal point somewhere else.
+re-exported model can never make a change point somewhere else.
 
 ---
 
@@ -220,42 +232,33 @@ re-exported model can never make a proposal point somewhere else.
 
 The rule most likely to be undone by accident:
 
-> **Proposals are generic changes over a model. They never establish a correspondence between an
-> element in one application and an element in another — not 1:1, not N:N, not at all.**
+> **A recipe's changes are generic changes over a model. They never establish a shared identity
+> between an element in one application and an element in another — not 1:1, not N:N, not at all.**
 
 Each application owns its ids and nothing else knows what they mean. A Revit `UniqueId` identifies
 something in that Revit model. A Rhino object GUID identifies something in that `.3dm`. Neither is
-ever translated into the other, and no element is ever stamped with where it came from.
+ever translated into the other, and nothing is ever written into the source.
 
-What IS recorded is much weaker, deliberately: a proposal records **which native ids it affected**,
-including the ones it created. A flat list. Not which source produced which result.
+What IS recorded is much weaker, deliberately: **a recipe's own memory of what it made in one
+model.** Every `add` carries a `source` key in the recipe's own terms (the source file's id plus
+the thing's own id there), and when the plugin applies the changes it keeps, for that recipe in
+that model, which key became which native id, with the fingerprint (`flow:print`) of what was asked
+for. It lives in the target model's own That Open data (`revitflow_recipes.json`, next to its
+history), and the plugin hands it back to the recipe on the next run as `made`, filtered to what
+still exists in the model.
 
-```
-affectedIds: [ ... ]      native ids this proposal touched or created
-appliedInCommit: 5        the commit that materialised it
-```
-
-**The ids come back in the order the changes were asked for.** A proposal that sent N changes gets N
-ids, and the i-th id is what the i-th change did. This is a promise, not an accident: the applier
-runs its verbs in passes (adds first, so a `set` can address something the same proposal just made)
-but each change records its own result, so the pass order never reaches the answer. Elements a
-delete took with it are appended AFTER all of them, because they correspond to no change and putting
-them in line would shift every id after the delete by an amount the author cannot predict.
-
-This is the whole mechanism by which an author knows which of the things it created is which. It is
-a proposal returning its results, the way a database returns the rows it inserted.
+That is the whole mechanism by which a recipe knows which of the things it created is which. It is
+the recipe's bookkeeping in the model it writes, not a property of either element.
 
 ### Why this is enough
 
-Because granularity is the author's lever, not ours. A converter that wants a one-to-one
-correspondence emits **one proposal per object** — and then "the ids this proposal affected" IS the
-correspondence, without the system ever having modelled it. A converter that emits one proposal for
-fifty objects gets back fifty ids with no way to tell which is which, and that is the correct
-outcome: it chose that granularity.
+Because it answers one question only — "what did THIS recipe make HERE?" — and that is all a
+re-apply needs: an unchanged print writes nothing, a changed one is made again, a source key that is
+gone is removed. Only what the recipe made is ever removed, never anything a person drew.
 
-So a round trip works — create an object in Rhino, materialise it natively in Revit, then modify the
-same object in Rhino and update it in Revit — without anything anywhere holding a link between the
-two elements.
+So a round trip works — create an object in Rhino, apply the recipe in Revit, then modify the same
+object in Rhino and apply again — without either model holding a link to the other. Another recipe
+reading the same source keeps its own record, and knows nothing of this one's.
 
 ### Why it matters
 
@@ -267,10 +270,10 @@ another. The identity becomes a permanent maintenance surface, and it is the par
 
 We do not have that entity, so there is nothing to keep alive.
 
-**If a future change starts to look like a cross-application id, a mapping table, a `sourceId` field
-on an element, or a "link" between two models: that is this rule being undone.** The question to ask
-is which application's problem it is really solving, and whether it can live in that application
-instead.
+**If a future change starts to look like a cross-application id, a `sourceId` field on an element,
+a mapping shared between recipes or models, or a "link" between two models: that is this rule being
+undone.** The question to ask is which application's problem it is really solving, and whether it
+can live in that application instead — the way a recipe's memory lives in the one model it writes.
 
 ---
 
@@ -353,8 +356,8 @@ So "collaboration in Rhino" is not a thing that exists and gets wired up — it 
 have to be designed and written. Which is exactly what section 1 says is allowed: the contract is
 the history, and how a file is collaborated on underneath is open.
 
-**We are not answering it yet, on purpose.** Rhino authoring proposals for Revit needs no
-collaboration layer at all, and Rhino displaying a Revit model needs only a `.frag` reader. The
+**We are not answering it yet, on purpose.** Bringing a Rhino model into Revit needs no Rhino
+collaboration layer at all — Rhino publishes, and the Revit user applies `rhino-to-revit` — and Rhino displaying a Revit model needs only a `.frag` reader. The
 question appears when several people want to edit one Rhino model at once, and until somebody
 actually wants that, designing it would be guessing.
 
@@ -376,7 +379,8 @@ divide the work by file. If it is the latter, the merge may never be needed.
 
 ## 10. Formats
 
-`.frag` is the transport for both layers: models, per-commit deltas, and proposal payloads. It
+`.frag` is the transport for both layers: models, per-commit deltas, and the changes a recipe
+returns (a geometry-less `.frag`, envelope `revitflow/op@2`). It
 carries stable per-item global ids (Revit `UniqueId`, Rhino object GUID) in its `guids` vector,
 which is what lets anything address an element it did not create.
 
@@ -384,6 +388,6 @@ which is what lets anything address an element it did not create.
 and the **rhino3dm** bindings. That covers the document and its geometry definitions but not the
 Rhino kernel, so a converter can run server-side while real modelling operations still need Rhino.
 
-The concrete wire formats — where each file lives on the platform, what the proposal envelope
-contains, how the queue and the ownership registry work — are in
+The concrete wire formats — where each file lives on the platform, what the change envelope
+contains, how the sync queue and the ownership registry work — are in
 [the plugin guide](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/flow-plugin-guide.md), which is what to read if you are writing a plugin.

@@ -30,28 +30,33 @@ on the [That Open Platform](https://platform.thatopen.com) from scratch, using
 > my app"*, *"make me a set of drawings"*.
 
 > **Not building anything — here to work in Revit?** If what the user actually wants is to share a
-> Revit model with their team, join one a colleague uploaded, or review a change some other tool
-> proposed to their model, this is the wrong guide and nothing below applies. Go to
+> Revit model with their team, join one a colleague uploaded, or bring an IFC or a Rhino model into
+> their Revit model with a recipe that already exists, this is the wrong guide and nothing below
+> applies. Go to
 > **[the Revit collaboration quickstart](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/revit-collab-quickstart.md)** and follow that instead.
 > It is the same shape as this one: ask first, then drive the CLI.
 >
 > Phrases that mean that guide, not this one: *"I want to collaborate on a Revit project"*, *"share
-> my central"*, *"join my team's model"*, *"someone sent me a change to approve"*, *"work on the
+> my central"*, *"join my team's model"*, *"bring this IFC into my Revit model"*, *"work on the
 > same model as my colleague"*.
+>
+> *"Someone sent me a change to approve"* has no guide: nothing is sent into anybody's model any
+> more, and there is nothing to approve. What exists is the person in Revit applying a recipe
+> themselves (That Open > Select recipe, Apply recipe) — Step 6 of that same guide.
 
 > **Making another application talk to this one?** If the user wants their own tool — Rhino, Blender,
-> a script, an in-house app — to send changes into somebody's model or to show a model it did not
-> author, that is a third thing again: **[Writing a flow plugin](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/flow-plugin-guide.md)** is the
+> a script, an in-house app — to publish its data so recipes can read it, to apply recipes in its
+> own models, or to show a model it did not author, that is a third thing again:
+> **[Writing a flow plugin](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/flow-plugin-guide.md)** is the
 > byte contract, and **[the architecture notes](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/flow-architecture.md)** say why it is shaped that
-> way. Start at its section 0, which sorts the work into three sizes; most integrations are the
-> smallest one and need no ownership, no history and no collaboration layer.
+> way. Start at its section 0, which sorts the work into three sizes.
 >
-> Phrases that mean those: *"export my model to the platform"*, *"send my geometry to Revit"*,
-> *"write a plugin for X"*, *"read a .frag in my app"*.
+> Phrases that mean those: *"export my model to the platform"*, *"write a plugin for X"*, *"read a
+> .frag in my app"*.
 
 > **Making a recipe?** If the user wants to bring something of their project into Revit — *"put a
-> column at every point of this layer"*, *"build this IFC's walls in Revit"*, *"a recipe that…"* — that
-> is a recipe, not an app: **[Writing a recipe](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/recipes-guide.md)**.
+> column at every point of this layer"*, *"build this IFC's walls in Revit"*, *"send my geometry to
+> Revit"*, *"a recipe that…"* — that is a recipe, not an app: **[Writing a recipe](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/recipes-guide.md)**.
 > It is applied from inside Revit (That Open > Select recipe, Apply recipe) and saved in their project.
 
 ---
@@ -419,42 +424,45 @@ when its format views itself (`SELF_VIEWING_FORMATS`; `selfView` overrides). A
 file with an old `derivedFileId` link (an IFC's frag) brings the derivative
 into the folder as a view, so the document is born ready to visualize.
 
-## 5d. History and recipes: versions, change requests
+## 5d. History and recipes: versions, bringing data in
 
 Three sentences hold the whole model. Every connected document (a Revit model,
-an AutoCAD drawing) has its version history: who synced, when, what changed.
-Nobody writes in somebody else's document: changes arrive as SUGGESTIONS
-(create/modify/delete native data) that a recipient application — named in the
-suggestion's `to`, the document's own app by default — executes when the owner
-accepts. A RECIPE is a script that writes suggestions in an application's own
-language, from whatever input.
+an AutoCAD drawing) has its version history: who synced, when, what changed,
+and — when a recipe made it — which recipe and which source. Nobody writes in
+somebody else's document: the person working in the native application brings
+things in themselves. A RECIPE brings something of the project (an IFC, a Rhino
+layer, a .frag) into a native application; it is chosen and applied from inside
+that application (in Revit: That Open > Select recipe, Apply recipe), and its
+changes land there at once, in one undoable step.
 
 ```ts
 const history = client.history(projectId);
 const docs = await history.docs();                 // the connected documents
 const doc = history.doc('revit', docs[0].docId);
 const timeline = await doc.timeline();             // versions, oldest first
-const pending = await doc.pendingSuggestions();    // waiting for the owner
+const last = await doc.latest();
+// last.kind: 'upload' | 'sync' | 'recipe'; on a recipe step, last.origin says
+// { recipe, recipeVersion?, title, source: { folderId, fileId, name, version } }
 const holders = await doc.ownership();             // who holds which elements
 const view = await doc.view(['frag']);             // same rule as any document
 
-client.recipes.register(myRecipe);                 // manifest + one run()
-await client.recipes.run('my-recipe', {            // only QUEUES a suggestion:
-  projectId, target: { source: 'revit', docId },   // trying is always safe
-  input, settings, author,
-});
+const recipes = await client.recipes.catalog(projectId, { to: 'revit' }); // built-ins + the project's own
+const sources = await client.recipes.choices('ifc-to-revit', projectId);  // documents it can read
 ```
 
 `docs()` also answers `folderId` — the id the CDE knows that document by, the
 bridge between this section and 5c.
 
-To AUTHOR a suggestion's payload, `OperationBuilder` (same import) writes the
-operation .frag: `new OperationBuilder(target).add(attrs, placement)` /
-`.set(id, attrs)` / `.remove(id)`, then `await builder.build(opId)` gives the
-bytes for `suggest({ payload })`. Attributes go in the TARGET app's own terms
-and units, untranslated. To READ a .frag's data without rendering anything,
-`readFrag(bytes)` answers its metadata and items (guids, categories,
-attributes). Both need the optional peers `flatbuffers` and
+`client.recipes.run(name, { projectId, target, input, settings, made, opId,
+recipeVersion?, progress })` answers `{ title, verb, payload, targets,
+ruleTallies }`, or throws `UpToDate` when there is nothing to write. It is what
+the native plugin calls on Apply recipe; the plugin then writes `payload`
+itself. An app does not apply recipes: it can run one to SEE what it would
+write — `describeChanges(payload)` lists the changes — and nothing is stored.
+
+To READ a .frag's data without rendering anything, `readFrag(bytes)` answers
+its metadata and items (guids, categories, attributes). It and the recipes'
+`OperationBuilder` need the optional peers `flatbuffers` and
 `@thatopen/fragments` resolvable (loaded only when they run — nothing else in
 the package needs them; in plain Node, fragments also pulls `web-ifc`).
 
@@ -462,15 +470,17 @@ BUILT-IN RECIPES ship with the SDK — proof that interoperability works
 without writing anything, and the templates to copy:
 `registerBuiltinRecipes(client)` registers `rhino-to-revit` (a Rhino layer's
 placed objects become instances of a chosen Revit type, reconciled on re-run),
-`ifc-to-revit` and `frag-to-revit` (the platform's own records — columns and
-free-standing instances today, more as the Revit applier grows; walls and
-slabs are read and tallied, proposing nothing yet). Every proposal is a
-suggestion: nothing changes in the native app until its owner accepts there.
+`ifc-to-revit` and `frag-to-revit` (a whole building from the platform's own
+records: levels, walls, curtain walls, floors, roofs, ceilings, stairs,
+columns). A project's OWN recipes are saved in the project, versioned
+(`client.recipes.project.save / versions / source / load / list`), and are
+written by a person with an AI: that is
+**[Writing a recipe](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/recipes-guide.md)**.
 
 This surface is the only supported way in: the storage underneath is private
 and will move. Never list or write the `bimterop` files directly. The full
-walkthrough (manifest fields, StaleHistoryError on concurrent syncs, payloads)
-is `node_modules/@thatopen/services/src/core/examples/history.ts`, indexed in
+walkthrough (StaleHistoryError on concurrent syncs, the version fields) is
+`node_modules/@thatopen/services/src/core/examples/history.ts`, indexed in
 the client API index you already loaded.
 
 ## 5e. The desktop MCP server: `thatopen mcp`

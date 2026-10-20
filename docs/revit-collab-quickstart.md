@@ -1,12 +1,12 @@
 # That Open — Revit Collaboration Quickstart (for AI assistants)
 
 You are an AI assistant. A user pointed you at this guide so you can set up or join **real-time
-Revit collaboration** through the That Open platform, and review the **proposals** other tools send
-into their model. Follow the steps **in order**. Ask the user for anything you don't already have.
+Revit collaboration** through the That Open platform, and bring other things of the project (an IFC,
+a Rhino model…) into their model with **recipes**. Follow the steps **in order**. Ask the user for anything you don't already have.
 **You may run the setup commands yourself** — install the CLI, install the add-in, launch Revit —
 *except* where a step says only the user can.
 
-Needs add-in **1.2.17 or later**. `thatopen revit status` prints `addinVersion`; if it is older,
+Needs add-in **1.3.0 or later**. `thatopen revit status` prints `addinVersion`; if it is older,
 Step 2 updates it. Several things below did not exist or behaved differently before that.
 
 ## What this does
@@ -17,22 +17,22 @@ Two halves, and they are independent. A team can use the first without ever touc
 worksharing. The central lives on the platform. Everyone has their own local; syncing sends their
 changes up and brings the team's down. Syncs are **queued**, so the central never diverges.
 
-**Proposals.** A change authored *outside* Revit arrives as a proposal: a list of adds, edits and
-deletions naming Revit elements. Somebody in Revit reads it and decides. Nothing is applied behind
-anyone's back, and applying it is an ordinary Revit edit that syncs like any other.
+**Recipes.** Something of the project made *outside* this Revit model — an IFC, a Rhino model, a
+`.frag` — is brought in by a recipe, chosen and applied from inside Revit by the person working
+there. Its changes land in one Revit transaction: an ordinary Revit edit that undoes in one step and
+syncs like any other. Nobody else writes into the model.
 
-The proposal system is **open on the authoring side on purpose**. This package does not care what
-wrote one — a Rhino plug-in, a cloud component, a script, a web app. What it defines is the format
-and what Revit does when one arrives. Rhino is the example that exists today; it is an example, not
-the point.
+Recipes are **open on purpose**. Three ship built in (`ifc-to-revit`, `frag-to-revit`,
+`rhino-to-revit`), and a project can add its own, usually written with an AI starting from a
+built-in: **[Writing a recipe](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/recipes-guide.md)**.
 
 ## Rules (follow throughout)
 
 - **Never** print, echo, store, or commit the user's access token.
 - **Ask, don't assume.** Missing a project id, file path, or central name? Ask first.
-- Prefer the **`thatopen` CLI** for platform actions. For the things it does not cover — proposals,
-  and reading who holds what — talk to the **add-in's local API** as described in *Talking to the
-  add-in directly* below. Do not call the platform's own HTTP API by hand.
+- Prefer the **`thatopen` CLI** for platform actions. For the things it does not cover — reading
+  who holds what, and where elements are — talk to the **add-in's local API** as described in
+  *Talking to the add-in directly* below. Do not call the platform's own HTTP API by hand.
 - You may **install software and launch Revit** on the user's machine. Say what you are about to
   run, briefly, before you run it.
 - After each command, **check the output** before moving on. A command that answered is not the
@@ -56,7 +56,7 @@ carry on. Ask only for what is genuinely missing.
 > (A) **Share** a Revit model with my team for the first time.
 > (B) **Connect** to a shared central a teammate already uploaded.
 > (C) I **already have my local open** in Revit — just sync it.
-> (D) **Review a proposal** somebody sent into my model."
+> (D) **Bring something into my model** — an IFC, a Rhino model — with a recipe."
 
 Then collect what that choice needs. Ask now; you will need it below.
 
@@ -85,7 +85,9 @@ Then collect what that choice needs. Ask now; you will need it below.
     `bimterop` folder in the dashboard, or
   - the **local path**, if they already have it: `C:\ThatOpenShared\<project>\<name>\<file>.rvt`.
 
-- **(C)** and **(D):** nothing extra, but Revit must have their local open.
+- **(C):** nothing extra, but Revit must have their local open.
+- **(D):** Revit must have their model open, and what they want to bring in must already be a
+  document of the same project (a file uploaded to the project through the CDE, which makes it a document).
 
 Do **not** ask for the access token yet. That is Step 1.
 
@@ -132,7 +134,7 @@ these credentials.
 thatopen revit status
 ```
 
-- Prints `"loaded": true` → the add-in is running. Check `addinVersion` is **1.2.17 or later**; if
+- Prints `"loaded": true` → the add-in is running. Check `addinVersion` is **1.3.0 or later**; if
   not, update it with the same command as below. Then go to Step 3.
 
 > **`status` also reports a `project`, a `doc` and a `central`. Do not use any of them.** They are
@@ -146,9 +148,9 @@ thatopen revit status
 > somewhere their team cannot see it.
 - Errors *"The That Open Revit add-in is not running"* → work through (a), then (b).
 
-**(a) Is Revit 2026 open?** If not, launch it:
+**(a) Is Revit 2027 open?** If not, launch it:
 ```
-powershell -Command "Start-Process 'C:\Program Files\Autodesk\Revit 2026\Revit.exe'"
+powershell -Command "Start-Process 'C:\Program Files\Autodesk\Revit 2027\Revit.exe'"
 ```
 A cold start takes a while. Re-run `thatopen revit status`.
 
@@ -210,7 +212,7 @@ creates the user's local, and opens it.
 thatopen revit sync
 ```
 
-### (D) Review a proposal
+### (D) Bring something in with a recipe
 
 Go to **Step 6**.
 
@@ -259,72 +261,52 @@ thatopen revit untake --workset "<NAME>"
 
 ---
 
-## Step 6 — Proposals
+## Step 6 — Recipes: bring something into the model
 
-A proposal is a change authored **outside** this Revit: a set of `add`, `set` and `remove` entries
-naming elements by their Revit UniqueId, carried in a `.frag` and queued against one document. It is
-a request, not an edit. Until a person applies it, nothing in the model has moved.
+A recipe brings something of the project — an IFC, a Rhino model, a `.frag` — into this Revit model
+as native Revit elements. It is chosen and applied **from inside Revit**, by the person whose model
+it is, in one go. There is nothing to send, approve or wait for.
 
-**Who writes them is deliberately open.** A Rhino plug-in, a cloud component, a web app, a script:
-anything that can produce the format can queue one. This package's job starts when one arrives,
-which is why nothing below asks where it came from.
+**The source has to be in the project first.** An IFC uploaded to the project, a Rhino model
+published from Rhino (**[Rhino → Revit, start to finish](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/rhino-interop-quickstart.md)**
+covers that side). The recipe reads it from the platform, at the version it is on.
 
-If the user asks how to send changes *from* their own tool — or you are being asked to write that
-tool — the format is documented: **[Writing a flow plugin](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/flow-plugin-guide.md)** is the byte
-contract, and **[the architecture notes](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/flow-architecture.md)** say why it is shaped that way.
-Publishing a proposal is the smallest of the three jobs described there: it needs no ownership, no
-history, and no collaboration layer.
+Tell the user the two commands on the **That Open** ribbon:
 
-If the tool is **Rhino**, the whole path is already written and worked through end to end:
-**[Rhino → Revit, start to finish](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/rhino-interop-quickstart.md)**. Read that
-instead of assembling it from the two documents above — it covers installing the plug-in, driving
-Rhino without a keyboard, and the traps that cost a night.
+1. **That Open > Select recipe.** Pick the recipe — the built-ins (`ifc-to-revit`, `frag-to-revit`,
+   `rhino-to-revit`) and any the project made itself, marked "this project" with their version —
+   then its **source** from the list of the project's documents it can read, then its settings.
+   "More…" shows what the recipe does and what it leaves out. The choice is remembered with the
+   model, so this is done once.
+2. **That Open > Apply recipe.** The recipe runs inside the add-in and its changes are written at
+   once, in **one** Revit transaction. **Ctrl+Z undoes it whole**; closing without saving, or going
+   back in the history, reverts it like any other edit.
 
-**This is where you use the add-in's local API** — the CLI has no proposal commands yet.
+**Applying again writes only what changed** in the source since the last apply. With no change it
+says **"Nothing imported"** — that is the answer, not an error. What each recipe made is remembered
+in the model's own That Open data on the platform, so this works from any machine with that model.
 
-**List what is waiting:**
-```
-POST /ops        →  { ok, ops: [ { OpId, Title, Author, State, BaseCommit, AffectedIds } ] }
-```
-`State` is `pending`, `applied` or `discarded`. Show the user the pending ones by title and author.
+The change is in the local only; the user still syncs (Step 4) to publish it. That commit is
+marked as a recipe's: the history panel shows it with a recipe mark and a title such as
+«IFC to Revit: 6 level(s), 47 wall(s)…», «from racbasicsampleproject.ifc v1» — which recipe, and
+which version of which source, made it.
 
-**Check one before touching anything.** This is read-only; no transaction is opened:
-```
-POST /op-check   { "opId": "op-…" }
-```
-Read three things out of the answer, and tell the user all three:
-
-- `plan.canApply` — whether it can be applied right now.
-- `plan.blocker` — if not, why, phrased as the next thing to do. Read it out rather than paraphrase
-  it. It names the person to go and ask when a workset is held by somebody, and it points at Revit's
-  own dialog when the workset is merely free. "You need permissions" loses both.
-- `authoredAgainst`, `youAreOn`, `behind` — the version the proposal was written against and the one
-  the model is on now. **A proposal does not expire and is not blocked for being old**: it says
-  *move this by two metres*, not *put it at this coordinate*, so it still means what it said. But
-  when `behind` is present, say so before the user approves. The model has moved underneath it.
-
-**Expect this one, it is not a bug:** an `add` lands on the document's **active** workset, so
-whoever applies has to hold *that* one — often `Workset1`, which nobody thinks of as theirs. If the
-check blocks on a workset nobody seems to be using, that is why.
-
-**Apply it,** once the user has said yes:
-```
-POST /apply-ops  { "opId": "op-…" }
-```
-Everything in the proposal happens in **one** Revit transaction: one undo, one entry in the history.
-Afterwards the entry's `State` is `applied` and `AffectedIds` lists what it touched, in the order the
-proposal named them — which is how an authoring tool learns which Revit element corresponds to which
-of its own objects. The change is in the local only; the user still syncs (Step 4) to publish it.
-
-**Reject it:**
-```
-POST /op-discard { "opId": "op-…" }
-```
+**Expect this one, it is not a bug:** elements a recipe adds land on the document's **active**
+workset, so whoever applies has to be able to edit *that* one — often `Workset1`, which nobody
+thinks of as theirs.
 
 **Verify with coordinates, not with the word "applied".** After applying, `POST /where` with
-`{ "uids": [ … ] }` gives each element's position in metres. If a proposal said it moved four
-things, check that four things moved. "Applied" and "applied to three of the four" read identically
-in a status field and differently in a model.
+`{ "uids": [ … ] }` gives each element's position in metres. If the title says four columns, check
+that four columns are where the source put them. "Applied" and "applied to three of the four" read
+identically in a notice and differently in a model.
+
+If the user wants a recipe that does not exist yet — *"a column at every point of this layer"*,
+*"a room for every space of this spreadsheet"* — that is
+**[Writing a recipe](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/recipes-guide.md)**:
+written with you, tested without Revit, saved in the project, and then listed in Select recipe.
+If they want their own application to take part — be a source, or apply recipes itself —
+**[Writing a flow plugin](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/flow-plugin-guide.md)** is the byte
+contract, and **[the architecture notes](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/flow-architecture.md)** say why it is shaped that way.
 
 ---
 
@@ -400,7 +382,7 @@ cover. Do not use it to skip a CLI command that exists.
 ```
 
 Send the token as the header **`X-RevitFlow-Token`**, POST JSON, read JSON back. The endpoints this
-guide uses are `status`, `ops`, `op-check`, `apply-ops`, `op-discard`, `where` and `worksets`.
+guide uses are `status`, `where` and `worksets`.
 
 Three things that will otherwise mislead you:
 
@@ -437,8 +419,10 @@ Three things that will otherwise mislead you:
   half needs no network at all — use it to see what the user themselves holds.
 - **A teammate can still edit "my" workset** → ownership has not reached them yet. You must sync
   after taking it, and they must sync afterwards.
-- **A proposal blocks on a workset nobody seems to own** → it is probably the **active** workset,
-  needed by its `add` entries. See Step 6.
+- **Apply recipe is refused on a workset nobody seems to own** → it is probably the **active**
+  workset, where the recipe's new elements land. See Step 6.
+- **Apply recipe says "Nothing imported"** → the source has not changed since the last apply.
+  Expected. Publish or upload a new version of the source first.
 - **Everything hangs and nothing new is in the log** → a Revit dialog is waiting for a click.
 
 ---
@@ -448,8 +432,8 @@ Three things that will otherwise mislead you:
 - Ask for every value you do not have. Never guess a project id, a file path or a central name.
 - Never echo or store the token.
 - You may install the CLI and the add-in and launch Revit. Only the "Always Load" prompt needs the
-  user — and so does every decision about applying a proposal.
-- CLI first; the add-in's local API for proposals and for reading ownership; never the platform's
-  own HTTP API by hand.
+  user — and so does applying a recipe, which is an edit of their model made from their Revit.
+- CLI first; the add-in's local API for reading ownership and positions; never the platform's own
+  HTTP API by hand.
 - Read each answer before the next step, and prefer a measured value to a status word: coordinates
   over "applied", `revitOwner` over "it should be fine".

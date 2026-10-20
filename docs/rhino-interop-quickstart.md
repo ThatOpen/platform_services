@@ -13,18 +13,27 @@ platform. If it is not, that is
 Five steps, and it is worth saying them plainly before touching anything, because the shape is what
 people get wrong:
 
-1. Rhino **publishes** its model to the platform as a `.frag`. That is all the plug-in does. It
+1. Rhino **publishes** its model to the project as a `.frag`. That is all the plug-in does. It
    mentions Revit nowhere.
-2. A **converter** — code in the user's own app, not in either plug-in — reads that `.frag` and
-   decides what it means in Revit's vocabulary.
-3. The converter **queues a proposal**. It changes nothing.
-4. Somebody **in Revit accepts it**. Applying is a decision, and the decision belongs to the person
-   whose model it is.
-5. They **sync**, and it becomes a commit like any other.
+2. In Revit, the person whose model it is chooses the **`rhino-to-revit` recipe**: **That Open >
+   Select recipe**, source: that Rhino model; settings: the Rhino layer and the Revit type.
+3. **That Open > Apply recipe.** The recipe — the platform's code, in neither plug-in — reads the
+   `.frag` and says what it means in Revit's vocabulary; the Revit add-in writes it in **one**
+   transaction. Ctrl+Z undoes it whole.
+4. They **sync**, and it becomes a commit like any other, marked as the recipe's, naming the Rhino
+   model and the version it read.
+5. Rhino changes, publishes again, and **Apply recipe again** writes only the difference: new
+   objects become new instances, moved ones move theirs, deleted ones have theirs removed.
+
+> **Known gap, today.** Revit's Select recipe can only offer settings that are booleans or Revit
+> family types. `rhino-to-revit` also asks for a **Rhino layer, read from the source**, so Select
+> recipe does not offer it yet. Steps 2 and 3 are how this path works once the dialog can show a
+> list read from the source; until then, say so plainly rather than improvising another route.
 
 **No element is ever tied to an element.** The only thing linking a Rhino object to a Revit column
-is the converter's own note of what it asked for. Anybody proposing to store a link between the two
-models is proposing the thing this architecture exists to avoid.
+is the recipe's own record, in the Revit model's That Open data, of what it made from which object.
+Nothing is written into the Rhino model, and no Revit element carries a link. Anybody proposing to
+store a link between the two models is proposing the thing this architecture exists to avoid.
 
 ## Before anything
 
@@ -75,7 +84,7 @@ It lands on a **locked layer**, with no properties, and it cannot be sent back. 
 asks, because it looks like a limitation and it is a decision: a `.frag` is a tessellation — what a
 Revit wall LOOKS like, not what it IS — so editing one in Rhino and returning it could only produce
 a worse version of a model Revit already owns. The lock stops somebody editing a mesh that is really
-somebody else's wall and then proposing that as a change.
+somebody else's wall and then publishing that as though it were theirs.
 
 If the folder holds more than one model the call comes back with `available` listing them and no
 import. Ask which; do not pick the first. Somebody spending an afternoon modelling against the wrong
@@ -105,7 +114,7 @@ of a wide one is a defensible place for a new column — it sits under the beam 
 
 There is no "make me a column" endpoint, and there should not be. This plug-in moves data and
 decides nothing about what any of it means; the moment it grows a command called `columns` it has an
-opinion about buildings, and that opinion belongs in the converter. Rhino's own commands do the job:
+opinion about buildings, and that opinion belongs in the recipe. Rhino's own commands do the job:
 
 ```
 POST /script   { "script": "_-Layer _New \"flow:columns\" _Current \"flow:columns\" _Enter" }
@@ -117,13 +126,14 @@ Verified: that produces a point at the given coordinate and a 450×450×3500 ext
 `_-Box` takes two opposite corners of the base and then a height, so a 450 square centred on
 `(x, y)` runs from `(x−225, y−225)` to `(x+225, y+225)`.
 
-**Place BOTH, and understand why.** The converter reads **points** on a layer and turns each into a
-Revit column. It does not read solids. But a point is invisible at building scale, so a Rhino file of
-"the new columns" looks like an empty file — impossible to work with and impossible to show anybody.
-So the point is the data, and the box is the picture. Put them on sibling layers (`flow:columns` and
-`flow:columns (view)`) so the converter's layer holds nothing but points.
+**Place BOTH, and understand why.** `rhino-to-revit` places one Revit instance at each object of the
+chosen layer that has a `Position` — a point is exactly that; anything else on the layer with a `Position` becomes an instance too, so keep the layer for the points. But a point
+is invisible at building scale, so a Rhino file of "the new columns" looks like an empty file —
+impossible to work with and impossible to show anybody. So the point is the data, and the box is the
+picture. Put them on sibling layers (`flow:columns` and `flow:columns (view)`) so the recipe's layer
+holds nothing but points.
 
-Nothing downstream reads the box. If somebody later rewrites the converter to read solids, the point
+Nothing downstream reads the box. If somebody later writes a recipe that reads solids, the point
 layer goes away and everything else still works.
 
 **Sizes and coordinates are in the DOCUMENT's units.** `POST /status` reports them. The sample
@@ -157,8 +167,8 @@ the only thing that tells a command that did nothing from one that worked.
 
 ### And then anything else
 
-Nothing above is about columns. It is: make a layer, put geometry on it, and let the converter say
-what it means. The same shape covers whatever the user actually wants —
+Nothing above is about columns. It is: make a layer, put geometry on it, and let a recipe say what
+it means. The same shape covers whatever the user actually wants —
 
 | want | command |
 | --- | --- |
@@ -172,8 +182,8 @@ The leading `-` is what matters: it is Rhino's command-line form, which takes it
 instead of opening a dialog. Without it the command puts a window on screen and waits for a person,
 and there is no person.
 
-Two rules carry over to anything you draw here. The geometry the converter reads goes on **its own
-layer, holding nothing else**, because the converter selects by layer and cannot tell your helper
+Two rules carry over to anything you draw here. The geometry the recipe reads goes on **its own
+layer, holding nothing else**, because the recipe selects by layer and cannot tell your helper
 geometry from your data. And the coordinates are always in the **document's units**.
 
 ## 4. Publish
@@ -192,31 +202,31 @@ tessellated copy of the Revit model, republished under the Rhino model's name. O
 `ThatOpen:Source` are excluded now, but if you ever see the item count in the hundreds, that is what
 happened.
 
-Points count as items without geometry. That is correct: they are the data the converter reads, not
+Points count as items without geometry. That is correct: they are the data the recipe reads, not
 something to draw.
 
-## 5. The converter (a recipe)
+Once published, the Rhino model is a document of the project, and that is what Revit's Select recipe
+lists as a source. Publishing again makes a new version of it; the next Apply reads that one.
+
+## 5. The recipe
 
 This is the part that is **not** in either plug-in, and should not be. It reads the published
-`.frag`, decides what it means, and queues a proposal.
+`.frag`, decides what it means in Revit, and returns the changes; the Revit add-in applies them.
 
-> A converter is one kind of **recipe**: a script that writes proposals in the target program's
-> own words. Since `@thatopen/services` 0.20, write it against the SDK instead of the raw files:
-> `client.history(projectId)` reads the queue and the timeline and queues the proposal
-> (`doc.suggest`), and `client.recipes` is the registry/runner apps use to list it, render its
-> settings form and run it safely. The four steps below are unchanged.
-
-The worked example is `RhinoColumnsConverter`: points on a named layer become Revit columns of a
-given family and type. It is written to be read and then rewritten — the next person wants walls
-from curves, or louvres from blocks — but four steps survive any rewrite:
+The one that exists is the built-in **`rhino-to-revit`** (`src/core/builtin-recipes/rhino-to-revit.ts`
+in `@thatopen/services`): each placed object of a chosen Rhino layer becomes an instance of a chosen
+Revit family type. It is written to be read and then rewritten as a project recipe — the next person
+wants walls from curves, or louvres from blocks — and
+**[Writing a recipe](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/recipes-guide.md)**
+is how. Four steps survive any rewrite:
 
 1. read the source model's own data, in the source's own units
-2. ask what this converter already made, which comes from the queue and nowhere else
+2. ask what this recipe already made in this model (`made`, which the add-in hands it)
 3. decide: new ones are added, known ones updated, vanished ones removed
-4. queue one operation
+4. return the changes, or `UpToDate` when there are none
 
-It persists nothing of its own. Run it on another machine, or as a cloud component, and it behaves
-identically, because everything it remembers it reads back from what it wrote to the platform.
+It persists nothing of its own. What it made is kept by the Revit add-in in the model's That Open
+data, so Apply behaves the same from any machine with that model.
 
 The byte contract is **[Writing a flow plugin](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/flow-plugin-guide.md)**, and the reasoning
 behind the shape is **[the architecture notes](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/flow-architecture.md)**.
@@ -238,7 +248,7 @@ One item per Rhino object, category `IFCBUILDINGELEMENTPROXY`, carrying these at
 
 **The layers are published as items too**, category `IFCBUILDINGSTOREY`, geometry-less, carrying a
 single `Name` attribute holding the layer's full path. They have no `Layer` and no `Position`. So a
-converter that matches the layer name loosely, or that assumes every item it sees has a position,
+recipe that matches the layer name loosely, or that assumes every item it sees has a position,
 reads a layer as a column. Test both fields, positively:
 
 ```ts
@@ -250,38 +260,37 @@ if (attrs.Type !== "Point") continue;   // and this is what separates points fro
 for a line. It is the only thing distinguishing the data from the helper geometry if somebody ends up
 putting both on one layer.
 
-Reading it in the app, where the client is already authenticated:
+Reading it in a recipe, which imports nothing: the tools are on `context.kit`.
 
-```ts
-const res = await client.downloadFile(fileId);
-const bytes = new Uint8Array(await res.arrayBuffer());
-const model = FRAGS.EditUtils.getModelFromBuffer(bytes, false);
+```js
+const { picked, contents } = await context.kit.readPickedFrag(context, context.input);
+// contents.metadata, and contents.items: [{ localId, guid, category, attrs }]
 ```
 
-`getModelFromBuffer(bytes, raw)`: `raw` is false for anything downloaded, because what the platform
-stores is compressed. Attribute rows come back as JSON triples, `[name, value, type]`, one per call
-to `row.data(j)`.
+`readPickedFrag` downloads the source document at the version picked in Revit and reads it;
+`kit.readFrag(bytes)` does the same for any `.frag` bytes you already have.
 
 ### Units, and why the envelope has no units field
 
-**Print both files' metadata BEFORE you write a line of the converter.** This is an ordering
+**Print both files' metadata BEFORE you write a line of a recipe.** This is an ordering
 instruction, not advice. The whole conversion rests on what those two files declare, and it takes
 thirty seconds to find out:
 
 ```ts
+import { readFrag } from '@thatopen/services';
 for (const id of [rhinoFileId, revitFileId]) {
   const res = await client.downloadFile(id);
-  const m = FRAGS.EditUtils.getModelFromBuffer(new Uint8Array(await res.arrayBuffer()), false);
-  console.log(id, m.metadata());
+  const { metadata } = await readFrag(new Uint8Array(await res.arrayBuffer()));
+  console.log(id, metadata);
 }
 ```
 
 Measured on a live demo, 2026-08-05: a converter was written the other way round, four hundred lines
 first and the check afterwards, and the target's metadata turned out to be `{}`. Everything above the
-units gate was correct and none of it could run. Read the two files, then write the converter around
+units gate was correct and none of it could run. Read the two files, then write the recipe around
 what is actually in them.
 
-A proposal's numbers are in the terms of **what the target published**. When Revit's export declares
+A recipe's changes are in the terms of **what the target published**. When Revit's export declares
 anything, it says so itself:
 
 ```json
@@ -289,8 +298,9 @@ anything, it says so itself:
 ```
 
 Rhino publishes its document units in the same place, `model.metadata()`, under `data.units`. On the
-sample project that is `Millimeters`. So the converter divides by **304.8**, and it is the converter's
-job precisely because it is the only piece that knows both sides.
+sample project that is `Millimeters`. So the recipe divides by **304.8**, and it is the recipe's
+job precisely because it is the only piece that knows both sides. `rhino-to-revit` reads
+`data.units` and **refuses** a Rhino model that does not declare one it knows, rather than guess.
 
 **When the target declares nothing.** Models published by add-in versions before 1.2.27 carry empty
 metadata on their first commit, so `{}` is a state you will meet on any project created before then.
@@ -308,131 +318,50 @@ from the data** rather than leaving it as an assumption:
 **What you must never do is guess silently.** A wrong factor puts the columns a thousand times too
 far away, and nothing about the result says why. Refusing is a worse demo and a better outcome.
 
-### Building the payload
+### Building the changes
 
-```ts
-const model = EU.getModelFromBuffer(EU.newModel({ raw: true }), true);
-return EU.edit(model, requests, { raw: false }).model;
-```
-
-`newModel` hands back uncompressed bytes, so `raw` is true on the way in and false on the way out.
-
-**Every `CREATE_ITEM` needs its own `localId`.** Three requests sharing one id collapse into a single
-item, with no error and no warning. The first attempt at this produced 1 item from 3 requests, which
-would have queued a proposal for one column out of four. Count from 1, and leave `localId: 0` for the
-`UPDATE_METADATA` request that carries the envelope.
-
-### Writing it to the platform
-
-Three calls, in this order: create the visible index if it does not exist, upload the payload as a
-hidden child of it, then write the entry including the id the upload returned.
-
-```ts
-const created = await client.createFile({
-  file, name: "revitflow_ops.json",
-  parentFolderId: folderId,          // parentFolderId, NOT folderId
-  projectId,                         // required
-  versionTag: "1",
-});
-
-const { hiddenFileId } = await client.createHiddenFile(
-  new File([payload], `${opId}.frag`), opsId,
-);
-
-await client.updateFile(opsId, { file, versionTag: `v-${Date.now()}` });
-```
-
-Two failures paid for, both at runtime, both from code that compiled and read fine:
-
-- **"A projectId is required to upload files."** The folder field was misnamed at the same time and
-  said nothing at all, because an unknown key is dropped in silence. Fix the `projectId` alone and
-  the queue gets created at the root of the project, where nothing looks for it.
-- **"Duplicated entry"** on the update. The version tag was numbered by counting the entries: the
-  file is created with tag `"1"`, the first entry makes the list one long, and the update asks for
-  `"1"` again. Counting is wrong past that too, since removing an op makes the next one reuse a tag.
-  Use a timestamp. This is what the Revit add-in settled on.
-
-Miss the id `createHiddenFile` returns and the payload is unreachable forever: hidden files have no
-queryable name, so the visible index is the only place it can be written down. If the index write
-fails after the upload, that payload is orphaned. Harmless, invisible, and worth knowing.
+A recipe builds what it returns with `kit.OperationBuilder` — `add(attrs, { position, source })`,
+`set(id, attrs, placement)`, `remove(id)`, then `build(opId)` — which writes the geometry-less
+`.frag` and its envelope. Nobody assembles those bytes by hand any more. The rules that make a
+re-apply write only the difference — a stable `source` key on every add (the Rhino object's guid),
+removing only what the recipe made — are in
+**[Writing a recipe](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/recipes-guide.md)**.
 
 ### Do not learn the format from files on the machine
 
-`PlatformClient.fromPlatformContext()` exists in the app, not in a script, so a Node one-liner cannot
-read back what Rhino just published. The tempting fallback is the `.frag` files lying around under
-`%APPDATA%\ThatOpen` and in `flow-reconcile`. They are somebody's earlier session. One of them held
-four points on a layer called `Columnas`, left over from an older run, and reading it as current
-would have built a converter against a layer name nobody was using any more.
+The tempting shortcut is the `.frag` files lying around under `%APPDATA%\ThatOpen` and in
+`flow-reconcile`. They are somebody's earlier session. One of them held four points on a layer
+called `Columnas`, left over from an older run, and reading it as current would have built a
+converter against a layer name nobody was using any more.
 
 The tables above are here so nobody has to do that. If you still want to see real bytes, publish
-something small and read it back inside the app.
+something small and read it back with `readFrag`, or run the recipe without Revit and read the
+changes it would write with `describeChanges` (section 5 of the recipes guide).
 
-### What "it builds" does not tell you
+## 6. Apply it in Revit
 
-The dev build does not typecheck. `npm run build` said **111 modules, built clean** on a converter
-whose `tsc --noEmit` was red in four places, and the run that produced this guide read that line as
-proof and moved on. Run the typechecker separately, and read what it says.
+In Revit, with the model open:
 
-Its complaint was worth having. A file that does not exist yet is read with a fallback, and the
-fallback's shape becomes the type:
+1. **That Open > Select recipe.** Recipe: **Rhino to Revit**. Source: the Rhino model published in
+   step 4, from the list of the project's documents. Settings: the **Rhino layer** (`flow:columns`)
+   and the **Revit type** every point becomes.
+2. **That Open > Apply recipe.** The recipe runs inside the add-in and the instances are written at
+   once, in **one** Revit transaction: Ctrl+Z undoes it whole.
 
-```ts
-const history = await this._readJson(id, { commits: [] });   // commits: never[]
-const head = history.commits.at(-1);                          // head: never
-```
+**This is the known gap from the top of this guide.** Select recipe can only offer settings that are
+booleans or Revit family types, and `rhino-to-revit`'s layer is a list read from the source, so the
+dialog does not offer this recipe yet. Say so to the user if they reach this step; do not work
+around it by writing into the model some other way.
 
-Every field read off `head` is then an error, which is the typechecker pointing out that the empty
-case was never really thought about. Type the fallback, and decide what an empty history means.
-
-Three more that only fail once somebody presses the button:
-
-- **The published file name is a parameter, not a constant.** `/publish` takes `name`. A converter
-  that hardcodes `rhino-columns.frag` answers "publish from Rhino first" when the file is right
-  there under another name. If you cannot find it, list what the folder actually holds and say so.
-- **A loose folder match picks silently.** Falling back from an exact name to "any folder ending in
-  this" is fine with one project and wrong the first time there are two, with nothing on screen to
-  say which one it chose.
-- **The platform round trip is not exercised by anything above.** The two failures this cost were
-  `parentFolderId` and the version tag, and both compiled, read fine, and only spoke on the first
-  real click. Press it once yourself, on something small, before showing it to anybody.
-
-Not clicking it in front of the user is still the right call. Queuing a proposal writes into a
-shared project, and that is theirs to trigger. Press it in a scratch document instead.
-
-## 6. Accept it in Revit
-
-The Revit add-in's local API, `%APPDATA%\ThatOpen\revit-addin.json`, header `X-RevitFlow-Token`.
-
-**List what is waiting:**
-```
-POST /ops
-```
-
-**Check one before offering it:**
-```
-POST /op-check   { "opId": "op-…" }
-```
-
-It answers with the version the proposal was authored against and the version the model is on now.
-A proposal does not go stale — it says "move this BY two feet", not "put it at this coordinate" — but
-show the user both numbers and let them decide.
-
-**Apply it, once they have said yes:**
-```
-POST /apply-ops   { "opId": "op-…" }
-```
-
-Everything in the proposal happens in **one** Revit transaction: one undo, one entry in the history.
-There is also a **Proposals** button on the ribbon, which shows the queue and lets a person accept or
-refuse. Prefer it when there is somebody at the machine — accepting somebody else's change is a
-decision, and a decision wants the thing being decided in front of you.
-
-The change is in their local only. They still sync.
+Applying again after Rhino publishes a new version writes only the difference; with no change it
+says "Nothing imported". The change is in their local only. They still sync.
 
 ## 7. Sync, and look at it
 
 Revit's own Synchronize with Central. The add-in rides it: the work reaches the team and the commit
-lands in the history, with the new columns in it, viewable in the app like any other change.
+lands in the history, with the new columns in it, viewable in the app like any other change. The
+history panel marks it as a recipe's commit, with its title and the Rhino model and version it was
+made from.
 
 ## Traps, all of them paid for
 
@@ -440,25 +369,19 @@ lands in the history, with the new columns in it, viewable in the app like any o
   copy leaves a plug-in that is neither version.
 - **`script` deadlocks on any command that asks a question.** Use the endpoints.
 - **Units are the document's**, everywhere. Ask `POST /status` rather than assuming metres.
-- **The converter reads points, not solids.** Somebody modelling a beautiful steel section will
+- **The recipe places points, not solids.** Somebody modelling a beautiful steel section will
   convert nothing at all, with no error to explain it.
+- **A Rhino model that does not declare its units is refused.** That is the recipe refusing to
+  guess a factor of 1000, not a failure.
+- **Select recipe does not offer `rhino-to-revit` yet.** Its layer setting is read from the source,
+  and the Revit dialog only shows booleans and family types today. A known gap; say so.
 - **Do not publish what you imported.** If the item count is in the hundreds, reference geometry is
   going back up.
 - **Group before concluding anything about the model.** The first rows of a listing are a sample,
   and on this project the sample was the exception twice running.
-- **Every `CREATE_ITEM` needs its own `localId`.** Sharing one collapses them into a single item,
-  silently. Four columns asked for, one column proposed.
-- **`parentFolderId`, not `folderId`, and `projectId` alongside it.** An unknown key is dropped
-  without a word, so only half the mistake reports itself.
-- **Version tags are timestamps, not counts.** Numbering by how many entries there are collides on
-  the very first update.
 - **Stray `.frag` files on the machine are not the current format.** They are an earlier session.
-- **Read the two files' metadata before writing the converter, not after.** Everything the
+- **Read the two files' metadata before writing a recipe, not after.** Everything the
   conversion rests on is declared in them, or is not, and finding out costs thirty seconds at the
   start and four hundred lines at the end.
-- **Build only what was asked for.** An extra button and an extra layout are minutes each, and they
-  come out of the same hour as the thing that has to work.
-- **A clean build is not a typecheck.** Vite does not run `tsc`. "Built clean" and "correct" are two
-  different sentences.
 - **Read these guides verbatim.** A fetch that summarises gives you the shape of the thing and none
   of the numbers, and every number here was paid for. Use the raw URL.
