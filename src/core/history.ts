@@ -65,6 +65,9 @@ export interface FlowVersion {
   counts: FlowCounts;
   /** Hidden-file id of the delta .frag; absent on the baseline and geometry-less versions. */
   deltaId?: string;
+  /** Hidden-file id of the same delta as a STREAMED bundle (TOSTRM1, `format: 'tostrm'`): what the viewer opens,
+   * streaming being the default (21-10). Absent where `deltaId` is, and on versions written before it existed. */
+  streamId?: string;
   /** Hidden-file id of the per-element geometry fingerprints, when the writer keeps them. */
   geomId?: string;
   /** Platform user id of the committer, when the writer knew it. */
@@ -197,6 +200,8 @@ export interface FlowModelParts {
     guid: string;
     /** Hidden-file id of the delta .frag; absent on geometry-less versions. */
     deltaId?: string;
+    /** Hidden-file id of its streamed bundle (see {@link FlowVersion.streamId}). */
+    streamId?: string;
     /** Elements this version removed, by the native app's own stable ids. */
     removedUniqueIds: string[];
   }[];
@@ -565,6 +570,7 @@ export class FlowDoc {
       .map((version) => ({
         guid: version.guid,
         ...(version.deltaId ? { deltaId: version.deltaId } : {}),
+        ...(version.streamId ? { streamId: version.streamId } : {}),
         removedUniqueIds: version.changes
           .filter((change) => change.type === 'delete')
           .map((change) => change.uniqueId),
