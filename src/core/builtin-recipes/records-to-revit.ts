@@ -34,7 +34,7 @@ import {
   whatItMadeBefore,
   type PickedFile,
 } from './shared';
-import { familiesFromShapes, roofOverWall } from './shapes-to-families';
+import { familiesFromShapes, openingsFromShapes, roofOverWall } from './shapes-to-families';
 
 /** Revit's own category ids, printed from RevitAPI.dll - never guessed. */
 const CATEGORY = {
@@ -925,6 +925,13 @@ function sharedRun(to: 'frag' | 'ifc') {
         })
       )
         shapeCount++;
+    }
+    // The openings nothing fills, cut in their walls (Revit's Wall Opening): racbasic's kitchen niche left its
+    // timber wall twice the IFC's volume (21-10).
+    if (shapes) {
+      for (const o of openingsFromShapes(shapes, seen, picked.fileId)) {
+        add(o.key, { WallOpening: o.box.map((v) => num(v * s)).join(',') }, { host: o.host });
+      }
     }
 
     // ---- 6. What the applier cannot create yet: counted, so the person sees

@@ -87,7 +87,11 @@ export function familiesFromShapes(shapes: SourceShapes, written: ReadonlySet<st
     const upright = Math.abs(z[2] - 1) < 1e-6 && dot(cross(first.x, first.y), first.z) > 0 && Math.abs(sx - sy) < 1e-6 && Math.abs(sx - sz) < 1e-6;
     const angle = upright ? Math.atan2(first.x[1], first.x[0]) : 0;
     const c = Math.cos(-angle), sn = Math.sin(-angle);
-    const at = first.t;
+    const at = [first.t[0], first.t[1], first.t[2]];
+    // 🔴 A COLUMN'S BODY AT ITS OWN HEIGHT: Revit holds a column family's free-form body at the project's zero
+    // whatever its base, offsets, point or a move say (measured 21-10: racbasic's L column 3 m low, its concrete one
+    // 2.9 m, nothing moved them). So the family's frame is at zero height and the body where the file has it.
+    if (/COLUMN/i.test(category)) at[2] = 0;
     // World → the family's frame: unshift, unturn.
     const toFamily = (p: number[]) => {
       const dx = p[0] - at[0], dy = p[1] - at[1];
@@ -203,6 +207,68 @@ function hash(text: string): string {
 }
 
 /** World points of an element of `shapes` (metres). */
+/**
+ * The openings nothing fills (a niche, a pass-through), in the walls that `written` builds: each its points flat
+ * (metres, the file's frame) and the change of the wall it is cut in. A door's or window's opening is cut by its family.
+ */
+export function openingsFromShapes(shapes: SourceShapes, written: ReadonlySet<string>, fileId: string): { key: string; host: string; box: number[] }[] {
+  const wallKey = new Map<string, string>();
+  for (const key of written) {
+    const [, gid, kind] = key.split(':');
+    if (gid && /^run/.test(kind ?? '') && !wallKey.has(gid)) wallKey.set(gid, key);
+  }
+  const out: { key: string; host: string; box: number[] }[] = [];
+  for (const el of shapes.elements.values()) {
+    if (el.ifcClass.toUpperCase() !== 'IFCOPENINGELEMENT' || !el.host) continue;
+    const host = wallKey.get(el.host);
+    if (!host) continue;
+    const pts = pointsOf(shapes, el.gid);
+    if (pts.length < 4) continue;
+    // A RECTANGLE IN THE WALL, or not cut: Revit cuts a wall only with rectangles, and the extent of an opening under
+    // a sloped top cut half its wall away (racbasic's SIP gable wall: 0.61 m³ for the IFC's 1.19; 21-10). Its volume
+    // against its box along the wall's axis says.
+    const axis = wallAxis(pointsOf(shapes, el.host));
+    if (!axis) continue;
+    const along = pts.map((p) => (p[0] - axis.a[0]) * axis.u[0] + (p[1] - axis.a[1]) * axis.u[1]);
+    const across = pts.map((p) => -(p[0] - axis.a[0]) * axis.u[1] + (p[1] - axis.a[1]) * axis.u[0]);
+    const span = (v: number[]) => Math.max(...v) - Math.min(...v);
+    const box = span(along) * span(across) * span(pts.map((p) => p[2]));
+    if (!(box > 0) || Math.abs(volumeOf(shapes, el.gid)) < 0.75 * box) continue; // boxes measured 0.81..0.92, the others 0.42..0.62
+    // Its points, not a box: the wall may run at any angle, and the applier takes their extent along it.
+    out.push({ key: `${fileId}:${el.gid}:opening`, host, box: pts.flat() });
+  }
+  return out;
+}
+
+/** A wall's long axis in plan, from its two farthest points: a start and the unit along it. */
+function wallAxis(pts: number[][]): { a: number[]; u: number[] } | undefined {
+  if (pts.length < 2) return undefined;
+  let a = pts[0], b = pts[0], far = 0;
+  for (const p of pts) { const d = Math.hypot(p[0] - pts[0][0], p[1] - pts[0][1]); if (d > far) { far = d; b = p; } }
+  far = 0;
+  for (const p of pts) { const d = Math.hypot(p[0] - b[0], p[1] - b[1]); if (d > far) { far = d; a = p; } }
+  if (far < 0.1) return undefined;
+  return { a, u: [(b[0] - a[0]) / far, (b[1] - a[1]) / far] };
+}
+
+/** An element's enclosed volume (m³), its triangles placed: the divergence sum. */
+function volumeOf(shapes: SourceShapes, gid: string): number {
+  const el = shapes.elements.get(gid);
+  let v = 0;
+  if (!el) return v;
+  for (const piece of el.pieces) {
+    const g = shapes.geometries.get(piece.geometry);
+    if (!g) continue;
+    const m = piece.matrix;
+    const P = (i: number) => {
+      const x = g.verts[i * 3], y = g.verts[i * 3 + 1], z = g.verts[i * 3 + 2];
+      return [m[0] * x + m[4] * y + m[8] * z + m[12], m[1] * x + m[5] * y + m[9] * z + m[13], m[2] * x + m[6] * y + m[10] * z + m[14]];
+    };
+    for (let t = 0; t + 2 < g.tris.length; t += 3) v += dot(P(g.tris[t]), cross(P(g.tris[t + 1]), P(g.tris[t + 2]))) / 6;
+  }
+  return v;
+}
+
 function pointsOf(shapes: SourceShapes, gid: string): number[][] {
   const el = shapes.elements.get(gid);
   const out: number[][] = [];
