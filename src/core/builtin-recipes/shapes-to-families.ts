@@ -367,7 +367,7 @@ function volumeOf(shapes: SourceShapes, gid: string): number {
   return v;
 }
 
-function pointsOf(shapes: SourceShapes, gid: string): number[][] {
+export function pointsOf(shapes: SourceShapes, gid: string): number[][] {
   const el = shapes.elements.get(gid);
   const out: number[][] = [];
   if (!el) return out;

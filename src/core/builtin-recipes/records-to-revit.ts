@@ -34,7 +34,7 @@ import {
   whatItMadeBefore,
   type PickedFile,
 } from './shared';
-import { familiesFromShapes, openingsFromShapes, roofOverWall } from './shapes-to-families';
+import { familiesFromShapes, openingsFromShapes, pointsOf as shapePoints, roofOverWall } from './shapes-to-families';
 
 /** Revit's own category ids, printed from RevitAPI.dll - never guessed. */
 const CATEGORY = {
@@ -428,7 +428,26 @@ function sharedRun(to: 'frag' | 'ifc') {
       const height = body.height!;
       const level = levels.get(String(body.level ?? record.params.level ?? ''))!;
       const lookRef = record.params.lookRef as string;
-      const { from: f, to: e } = extended.get(sg)!;
+      let { from: f, to: e } = extended.get(sg)!;
+      // 🔴 A SQUARE END WHERE THE FILE'S SHAPE ENDS, UNJOINED. Which wall runs through a corner is Revit's join order,
+      // which the API cannot set (13-10): racbasic's corner walls came out the other way round, 0.2 m long and short.
+      // The file's own shape says where each end is; a square end goes exactly there and is left unjoined, so the
+      // corner is the file's whatever Revit would choose. A slanted end (a mitre) keeps Revit's join.
+      const exact = new Set<string>();
+      const shapeOfWall = shapes && record.item.guid && segs.filter((o) => o.record === record).length === 1 ? shapes.elements.get(record.item.guid) : undefined;
+      if (shapeOfWall) {
+        const pts = shapePoints(shapes!, record.item.guid!);
+        const L = Math.hypot(e[0] - f[0], e[1] - f[1]);
+        if (pts.length >= 4 && L > 0.05) {
+          const d = [(e[0] - f[0]) / L, (e[1] - f[1]) / L];
+          const along = pts.map((p) => (p[0] - f[0]) * d[0] + (p[1] - f[1]) * d[1]);
+          const lo = Math.min(...along), hi = Math.max(...along);
+          const square = (at: number) => along.every((a) => Math.abs(a - at) > 0.03 || Math.abs(a - at) < 0.002);
+          const f0 = f;
+          if (square(lo)) { f = [f0[0] + d[0] * lo, f0[1] + d[1] * lo]; exact.add('start'); }
+          if (square(hi)) { e = [f0[0] + d[0] * hi, f0[1] + d[1] * hi]; exact.add('end'); }
+        }
+      }
       // A run's `base` is RELATIVE to its level (run:0 of racbasic: Level 2 at 3.0 m,
       // base -0.3, built 2.7..9.2), so it is Revit's base offset as it stands.
       const z = (level.at + base) * s;
@@ -444,7 +463,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       // Which ends Revit may join: only those that meet another wall where it was authored.
       // Every end the record says meets another wall may join it, moved or not: Revit's cleanup
       // there is part of the wall (racbasic's foundation wall reaches 0.101 m past its line).
-      const joins = [f !== sg.from || sg.joinStart ? 'start' : '', e !== sg.to || sg.joinEnd ? 'end' : ''].filter(Boolean);
+      const joins = [f !== sg.from || sg.joinStart ? 'start' : '', e !== sg.to || sg.joinEnd ? 'end' : ''].filter((end) => Boolean(end) && !exact.has(end));
       if (joins.length) attrs.JoinEnds = joins.join(',');
       // How each joined end meets: a mitre where the record wants one (Revit's Wall Joins).
       const mitres = joins.filter((end) => record.params[end === 'start' ? 'wantedAtStart' : 'wantedAtEnd'] === 'mitre');
