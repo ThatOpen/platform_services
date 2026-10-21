@@ -949,12 +949,35 @@ function sharedRun(to: 'frag' | 'ifc') {
     // Whatever no step above builds natively (doors and windows, furniture, fixtures, proxies, columns, railings,
     // the parts of nothing written) is a family: one per shape, defined from the file's own geometry in the
     // element's frame, placed where the file has each. Doors and windows in the wall whose opening they fill.
+    // 🔴 THE SHAPES AT THE RECORDS' HEIGHT. The records are read at the project's height (`atTheProjectsHeight`), the
+    // shapes where the file has them: DACH stands 500 m up, and every family, opening and room came in 500 m above its
+    // building (21-10). The offset is measured on the walls (their shape's bottom against their record's), and only
+    // a large one (a site's elevation, not a wall standing below its base) is taken off.
+    const shapeDz = (() => {
+      if (!shapes) return 0;
+      const d: number[] = [];
+      for (const sg of segs) {
+        const g = sg.record.item.guid;
+        if (!g || !shapes.elements.has(g)) continue;
+        const body = innerJson<RunBody>(sg.record, 'run');
+        const level = levels.get(String(body?.level ?? sg.record.params.level ?? ''));
+        if (!body || !level) continue;
+        const pts = shapePoints(shapes, g);
+        if (!pts.length) continue;
+        let low = Infinity;
+        for (const p of pts) low = Math.min(low, p[2]);
+        d.push(low - (level.at + (typeof body.base === 'number' ? body.base : 0)));
+      }
+      d.sort((a, b) => a - b);
+      const m = d.length ? d[Math.floor(d.length / 2)] : 0;
+      return Math.abs(m) > 0.5 ? m : 0;
+    })();
     const shaped = shapes ? familiesFromShapes(shapes, seen, picked.fileId) : [];
     let shapeCount = 0;
     for (const one of shaped) {
       if (
         add(one.key, one.attrs, {
-          position: [one.at[0] * s, one.at[1] * s, one.at[2] * s],
+          position: [one.at[0] * s, one.at[1] * s, (one.at[2] - shapeDz) * s],
           rotationDeg: one.rotationDeg,
           ...(one.host ? { host: one.host } : {}),
         })
@@ -965,14 +988,14 @@ function sharedRun(to: 'frag' | 'ifc') {
     // timber wall twice the IFC's volume (21-10).
     if (shapes) {
       for (const o of openingsFromShapes(shapes, seen, picked.fileId)) {
-        add(o.key, { WallOpening: o.box.map((v) => num(v * s)).join(',') }, { host: o.host });
+        add(o.key, { WallOpening: o.box.map((v, i) => num((i % 3 === 2 ? v - shapeDz : v) * s)).join(',') }, { host: o.host });
       }
     }
     // The rooms, last: each where its space's floor is, bounded by the walls as Revit bounds a room (21-10: the
     // originals hold 14 and 91 of them, and nothing made one).
     if (shapes) {
       for (const r of roomsFromShapes(shapes, picked.fileId)) {
-        add(r.key, { Room: '1', Name: r.name, Number: r.number, Height: num(r.height * s) }, { position: [r.at[0] * s, r.at[1] * s, r.at[2] * s] });
+        add(r.key, { Room: '1', Name: r.name, Number: r.number, Height: num(r.height * s) }, { position: [r.at[0] * s, r.at[1] * s, (r.at[2] - shapeDz) * s] });
       }
     }
 
