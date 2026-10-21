@@ -442,7 +442,14 @@ function sharedRun(to: 'frag' | 'ifc') {
           const d = [(e[0] - f[0]) / L, (e[1] - f[1]) / L];
           const along = pts.map((p) => (p[0] - f[0]) * d[0] + (p[1] - f[1]) * d[1]);
           const lo = Math.min(...along), hi = Math.max(...along);
-          const square = (at: number) => along.every((a) => Math.abs(a - at) > 0.03 || Math.abs(a - at) < 0.002);
+          // Square: the shape's points at that end span its whole thickness. A mitre reaches its end at one edge only
+          // (r20: a 3 cm window called racbasic's mitres square and ten walls ran past them).
+          const across = pts.map((p) => -(p[0] - f[0]) * d[1] + (p[1] - f[1]) * d[0]);
+          const thick = Math.max(...across) - Math.min(...across);
+          const square = (at: number) => {
+            const end = across.filter((_, k) => Math.abs(along[k] - at) < 0.002);
+            return end.length >= 2 && Math.max(...end) - Math.min(...end) > 0.9 * thick;
+          };
           const f0 = f;
           if (square(lo)) { f = [f0[0] + d[0] * lo, f0[1] + d[1] * lo]; exact.add('start'); }
           if (square(hi)) { e = [f0[0] + d[0] * hi, f0[1] + d[1] * hi]; exact.add('end'); }
