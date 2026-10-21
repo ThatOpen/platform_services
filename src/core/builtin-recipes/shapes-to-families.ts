@@ -91,7 +91,9 @@ export function familiesFromShapes(shapes: SourceShapes, written: ReadonlySet<st
     // 🔴 A COLUMN'S BODY AT ITS OWN HEIGHT: Revit holds a column family's free-form body at the project's zero
     // whatever its base, offsets, point or a move say (measured 21-10: racbasic's L column 3 m low, its concrete one
     // 2.9 m, nothing moved them). So the family's frame is at zero height and the body where the file has it.
-    if (/COLUMN/i.test(category)) at[2] = 0;
+    // (Superseded: a column is now made as a free family, `ColumnFree`, which stands where it is put; its frame is
+    // its own and its shape is shared by every column like it.)
+    const freeColumn = /COLUMN/i.test(category);
     // World → the family's frame: unshift, unturn.
     const toFamily = (p: number[]) => {
       const dx = p[0] - at[0], dy = p[1] - at[1];
@@ -129,7 +131,7 @@ export function familiesFromShapes(shapes: SourceShapes, written: ReadonlySet<st
     // 🔴 A PRISM IS A PROFILE AND A LENGTH (a beam, a mullion, a member, a panel): one family per profile with its
     // length a parameter, as a person makes a framing family, not one family per piece (rac_advanced made 113
     // families of one 50 x 150 mullion, one per length; 21-10).
-    const prism = !el.host && pieces.length === 1 && !/COLUMN/i.test(category) ? prismOf(pieces[0]) : null;
+    const prism = !el.host && pieces.length === 1 ? prismOf(pieces[0]) : null;
     if (prism) {
       const profileKey = prism.loops.map((l) => l.map(([u, v]) => `${Math.round(u * 304.8)},${Math.round(v * 304.8)}`).join(';')).join('|');
       const pkey = `prism|${category}|${prism.axis}|${profileKey}`;
@@ -142,7 +144,7 @@ export function familiesFromShapes(shapes: SourceShapes, written: ReadonlySet<st
         pf = { family: name, type: name, first: true, key: hash(pkey) };
         familyOfShape.set(pkey, pf);
       }
-      const pattrs: Record<string, string> = { ShapeCategory: category, Family: pf.family, Type: pf.type, ShapeKey: pf.key, PrismLength: String(round(prism.length, 1e-5)) };
+      const pattrs: Record<string, string> = { ShapeCategory: category, Family: pf.family, Type: pf.type, ShapeKey: pf.key, PrismLength: String(round(prism.length, 1e-5)), ...(freeColumn ? { ColumnFree: '1' } : {}) };
       if (pf.first) { pattrs.Prism = JSON.stringify({ axis: prism.axis, loops: prism.loops }); pf.first = false; }
       // The extrusion starts at the family's origin: the instance goes where the prism starts.
       const off = [0, 0, 0];
@@ -181,6 +183,7 @@ export function familiesFromShapes(shapes: SourceShapes, written: ReadonlySet<st
       Family: family.family,
       Type: family.type,
       ShapeKey: family.key,
+      ...(freeColumn ? { ColumnFree: '1' } : {}),
     };
     if (family.first) {
       // The shape travels once, with the first instance: feet, in the family's frame.
