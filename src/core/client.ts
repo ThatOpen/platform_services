@@ -1502,33 +1502,6 @@ export class EngineServicesClient {
   }
 
   /**
-   * A short-lived presigned URL for a file's own content (one version of it),
-   * fetched straight from storage with HTTP `Range` requests: how a streamed
-   * model's bundle is read by pieces. The same as
-   * {@link getHiddenFileSignedUrl}, for a regular file. Storage serves ONE
-   * range per request: ask several pieces in parallel, not in one request.
-   *
-   * @param fileId - The file's item id.
-   * @param options - `versionTag` (default: the latest), `expiresIn` in
-   *   seconds (60–3600, default 900).
-   * @returns `{ url, expiresAt }`.
-   */
-  async getFileSignedUrl(
-    fileId: string,
-    options?: { versionTag?: string; expiresIn?: number },
-  ) {
-    const query = {
-      ...(options?.versionTag && { versionTag: options.versionTag }),
-      ...(options?.expiresIn != null && { expiresIn: options.expiresIn }),
-    };
-    return await this.#requestApi<{ url: string; expiresAt: string }>(
-      'GET',
-      `${ITEM_PATH}/${encodeURIComponent(fileId)}/signed-url`,
-      { ...(Object.keys(query).length > 0 && { query }) },
-    );
-  }
-
-  /**
    * Batch variant of {@link getHiddenFileSignedUrl}. Mints presigned URLs for
    * many hidden files in one request.
    *

@@ -29,8 +29,19 @@ import { ProjectHistory } from './history';
 export interface DocumentView {
   /** The view file's item id — ids survive renames, names do not. */
   fileId: string;
-  /** Lowercase format name: 'frag', 'ifc', 'potree', 'pdf'… */
+  /** Lowercase format name: 'frag', 'ifc', 'potree', 'pdf', 'tostrm'… */
   format: string;
+  /**
+   * A view stored as a HIDDEN file of `fileId`'s item, read by pieces with
+   * `getHiddenFileSignedUrl`: a streamed model's TOSTRM1 bundle hangs from
+   * its .frag (`format: 'tostrm'`).
+   */
+  hiddenId?: string;
+  /**
+   * The version of `fileId` the view was made from. A view whose versionTag
+   * is not the file's current one is stale: open another view, or remake it.
+   */
+  versionTag?: string;
 }
 
 /**
@@ -61,6 +72,7 @@ const TYPE_OF_FORMAT: Record<string, DocumentType> = {
   rfa: 'bim',
   ifc: 'bim',
   frag: 'bim',
+  tostrm: 'bim',
   '3dm': 'bim',
   nwd: 'bim',
   dgn: 'bim',
