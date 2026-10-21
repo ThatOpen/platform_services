@@ -34,7 +34,7 @@ import {
   whatItMadeBefore,
   type PickedFile,
 } from './shared';
-import { familiesFromShapes, openingsFromShapes, pointsOf as shapePoints, roofOverWall } from './shapes-to-families';
+import { familiesFromShapes, openingsFromShapes, pointsOf as shapePoints, roofOverWall, roomsFromShapes } from './shapes-to-families';
 
 /** Revit's own category ids, printed from RevitAPI.dll - never guessed. */
 const CATEGORY = {
@@ -966,6 +966,13 @@ function sharedRun(to: 'frag' | 'ifc') {
     if (shapes) {
       for (const o of openingsFromShapes(shapes, seen, picked.fileId)) {
         add(o.key, { WallOpening: o.box.map((v) => num(v * s)).join(',') }, { host: o.host });
+      }
+    }
+    // The rooms, last: each where its space's floor is, bounded by the walls as Revit bounds a room (21-10: the
+    // originals hold 14 and 91 of them, and nothing made one).
+    if (shapes) {
+      for (const r of roomsFromShapes(shapes, picked.fileId)) {
+        add(r.key, { Room: '1', Name: r.name, Number: r.number, Height: num(r.height * s) }, { position: [r.at[0] * s, r.at[1] * s, r.at[2] * s] });
       }
     }
 

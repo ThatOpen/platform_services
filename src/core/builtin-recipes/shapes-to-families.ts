@@ -341,6 +341,50 @@ export function prismOf(piece: { v: number[]; t: number[] }): { axis: number; fr
   return null;
 }
 
+/**
+ * The rooms: each IfcSpace as a point inside its floor (the middle of the largest triangle of its bottom), its bottom
+ * and its height (metres, the file's frame), its number (Name) and name (LongName). A room is the walls' to bound, as
+ * in Revit: placed at that point after them, it takes their outline.
+ */
+export function roomsFromShapes(shapes: SourceShapes, fileId: string): { key: string; at: [number, number, number]; height: number; number: string; name: string }[] {
+  const out: { key: string; at: [number, number, number]; height: number; number: string; name: string }[] = [];
+  for (const el of shapes.elements.values()) {
+    if (el.ifcClass.toUpperCase() !== 'IFCSPACE') continue;
+    let lo = Infinity, hi = -Infinity;
+    const tris: number[][][] = [];
+    for (const piece of el.pieces) {
+      const g = shapes.geometries.get(piece.geometry);
+      if (!g) continue;
+      const m = piece.matrix;
+      const P = (i: number) => {
+        const x = g.verts[i * 3], y = g.verts[i * 3 + 1], z = g.verts[i * 3 + 2];
+        return [m[0] * x + m[4] * y + m[8] * z + m[12], m[1] * x + m[5] * y + m[9] * z + m[13], m[2] * x + m[6] * y + m[10] * z + m[14]];
+      };
+      for (let t = 0; t + 2 < g.tris.length; t += 3) {
+        const tri = [P(g.tris[t]), P(g.tris[t + 1]), P(g.tris[t + 2])];
+        for (const p of tri) { lo = Math.min(lo, p[2]); hi = Math.max(hi, p[2]); }
+        tris.push(tri);
+      }
+    }
+    if (!Number.isFinite(lo) || hi - lo < 0.1) continue;
+    let best: number[][] | null = null, bestArea = 0;
+    for (const tri of tris) {
+      if (!tri.every((p) => Math.abs(p[2] - lo) < 1e-3)) continue;
+      const area = Math.abs((tri[1][0] - tri[0][0]) * (tri[2][1] - tri[0][1]) - (tri[2][0] - tri[0][0]) * (tri[1][1] - tri[0][1])) / 2;
+      if (area > bestArea) { bestArea = area; best = tri; }
+    }
+    if (!best) continue;
+    out.push({
+      key: `${fileId}:${el.gid}:room`,
+      at: [(best[0][0] + best[1][0] + best[2][0]) / 3, (best[0][1] + best[1][1] + best[2][1]) / 3, lo],
+      height: hi - lo,
+      number: el.name ?? '',
+      name: el.longName ?? el.name ?? '',
+    });
+  }
+  return out;
+}
+
 /** A wall's long axis in plan, from its two farthest points: a start and the unit along it. */
 function wallAxis(pts: number[][]): { a: number[]; u: number[] } | undefined {
   if (pts.length < 2) return undefined;

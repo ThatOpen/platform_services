@@ -196,6 +196,7 @@ export interface SourceShapes {
       gid: string;
       ifcClass: string;
       name: string | null;
+      longName?: string | null;
       objectType: string | null;
       typeName: string | null;
       parent: string | null;
