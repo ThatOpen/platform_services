@@ -126,6 +126,32 @@ export function familiesFromShapes(shapes: SourceShapes, written: ReadonlySet<st
       keyParts.push(`${piece.geometry}@${[...o, ...relX, ...relY].map((v) => round(v, 1e-4).toFixed(4)).join(',')}`);
     }
     if (pieces.length === 0) continue;
+    // 🔴 A PRISM IS A PROFILE AND A LENGTH (a beam, a mullion, a member, a panel): one family per profile with its
+    // length a parameter, as a person makes a framing family, not one family per piece (rac_advanced made 113
+    // families of one 50 x 150 mullion, one per length; 21-10).
+    const prism = !el.host && pieces.length === 1 && !/COLUMN/i.test(category) ? prismOf(pieces[0]) : null;
+    if (prism) {
+      const profileKey = prism.loops.map((l) => l.map(([u, v]) => `${Math.round(u * 304.8)},${Math.round(v * 304.8)}`).join(';')).join('|');
+      const pkey = `prism|${category}|${prism.axis}|${profileKey}`;
+      let pf = familyOfShape.get(pkey);
+      if (!pf) {
+        const label = clean(el.typeName ?? el.objectType ?? el.name ?? el.ifcClass);
+        const n = (namesTaken.get(label) ?? 0) + 1;
+        namesTaken.set(label, n);
+        const name = n === 1 ? label : `${label} (${n})`;
+        pf = { family: name, type: name, first: true, key: hash(pkey) };
+        familyOfShape.set(pkey, pf);
+      }
+      const pattrs: Record<string, string> = { ShapeCategory: category, Family: pf.family, Type: pf.type, ShapeKey: pf.key, PrismLength: String(round(prism.length, 1e-5)) };
+      if (pf.first) { pattrs.Prism = JSON.stringify({ axis: prism.axis, loops: prism.loops }); pf.first = false; }
+      // The extrusion starts at the family's origin: the instance goes where the prism starts.
+      const off = [0, 0, 0];
+      off[prism.axis] = prism.from / FEET;
+      const cw = Math.cos(angle), sw = Math.sin(angle);
+      const start: [number, number, number] = [at[0] + cw * off[0] - sw * off[1], at[1] + sw * off[0] + cw * off[1], at[2] + off[2]];
+      out.push({ key: `${fileId}:${el.gid}:shape`, attrs: pattrs, at: start, rotationDeg: (angle * 180) / Math.PI });
+      continue;
+    }
     // THE SAME SHAPE, WHEREVER IT CAME FROM. A file may write each element its own copy of a geometry (Revit's
     // IFC export does, for piles of one type), so geometries' ids alone made one family per pile. The key is the
     // shape itself in the family's frame (to the millimetre), so equal shapes share a family however they were written.
@@ -238,6 +264,78 @@ export function openingsFromShapes(shapes: SourceShapes, written: ReadonlySet<st
     out.push({ key: `${fileId}:${el.gid}:opening`, host, box: pts.flat() });
   }
   return out;
+}
+
+/**
+ * The piece as a prism along one of its frame's axes, or null: every point on one of two planes across that axis, and
+ * the cap on the first plane a closed outline (with its holes). Feet, in the family's frame; the outline in the two
+ * other axes' order ((axis+1)%3, (axis+2)%3).
+ */
+export function prismOf(piece: { v: number[]; t: number[] }): { axis: number; from: number; length: number; loops: [number, number][][] } | null {
+  const tol = 1e-3;
+  const n = piece.v.length / 3;
+  if (n < 6) return null;
+  // The longest way first: a box is a prism every way, and its length is what varies between a type's pieces.
+  const extent = [0, 1, 2].map((k) => { let lo = Infinity, hi = -Infinity; for (let i = 0; i < n; i++) { const c = piece.v[i * 3 + k]; lo = Math.min(lo, c); hi = Math.max(hi, c); } return hi - lo; });
+  for (const axis of [0, 1, 2].sort((a, b) => extent[b] - extent[a])) {
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 0; i < n; i++) { const c = piece.v[i * 3 + axis]; lo = Math.min(lo, c); hi = Math.max(hi, c); }
+    if (hi - lo < 0.01) continue;
+    let ok = true;
+    for (let i = 0; i < n && ok; i++) { const c = piece.v[i * 3 + axis]; if (Math.abs(c - lo) > tol && Math.abs(c - hi) > tol) ok = false; }
+    if (!ok) continue;
+    const u = (axis + 1) % 3, w = (axis + 2) % 3;
+    // Points welded to 0.1 mm in the cap's plane, so the cap's triangles share their corners.
+    const id = new Map<string, number>();
+    const pts: [number, number][] = [];
+    const at = (i: number) => {
+      const p: [number, number] = [piece.v[i * 3 + u], piece.v[i * 3 + w]];
+      const k = `${Math.round(p[0] * 3048)},${Math.round(p[1] * 3048)}`;
+      if (!id.has(k)) { id.set(k, pts.length); pts.push(p); }
+      return id.get(k)!;
+    };
+    const edges = new Map<string, number>();
+    const capTris: number[][] = [];
+    for (let t = 0; t + 2 < piece.t.length; t += 3) {
+      const tri = [piece.t[t], piece.t[t + 1], piece.t[t + 2]];
+      if (!tri.every((i) => Math.abs(piece.v[i * 3 + axis] - lo) <= tol)) continue;
+      const q = tri.map(at);
+      if (q[0] === q[1] || q[1] === q[2] || q[0] === q[2]) continue;
+      capTris.push(q);
+      for (let k = 0; k < 3; k++) { const a = q[k], b = q[(k + 1) % 3]; const key = a < b ? `${a},${b}` : `${b},${a}`; edges.set(key, (edges.get(key) ?? 0) + 1); }
+    }
+    if (capTris.length === 0) continue;
+    // Boundary: edges of one triangle only, chained into loops.
+    const next = new Map<number, number[]>();
+    for (const tri of capTris) for (let k = 0; k < 3; k++) {
+      const a = tri[k], b = tri[(k + 1) % 3];
+      if (edges.get(a < b ? `${a},${b}` : `${b},${a}`) !== 1) continue;
+      next.set(a, [...(next.get(a) ?? []), b]);
+    }
+    if ([...next.values()].some((v) => v.length !== 1)) continue;
+    const loops: [number, number][][] = [];
+    const left = new Set(next.keys());
+    while (left.size) {
+      const start = left.values().next().value as number;
+      const loop: [number, number][] = [];
+      let cur = start, guard = 0;
+      do { loop.push(pts[cur]); left.delete(cur); cur = next.get(cur)![0]; } while (cur !== start && guard++ < 100000 && next.has(cur));
+      if (cur !== start || loop.length < 3) { loops.length = 0; break; }
+      // Collinear corners out: a fan leaves points along straight edges.
+      const clean = loop.filter((p, i) => {
+        const a = loop[(i - 1 + loop.length) % loop.length], b = loop[(i + 1) % loop.length];
+        return Math.abs((p[0] - a[0]) * (b[1] - a[1]) - (p[1] - a[1]) * (b[0] - a[0])) > 1e-7;
+      });
+      loops.push(clean.map(([x, y]) => [round(x, 1e-5), round(y, 1e-5)] as [number, number]));
+    }
+    if (loops.length === 0 || loops.some((l) => l.length < 3)) continue;
+    // The cap and the far end the same outline: each cap point has its twin at the other end.
+    let twins = 0;
+    for (let i = 0; i < n; i++) if (Math.abs(piece.v[i * 3 + axis] - hi) <= tol) twins++;
+    if (twins < 3) continue;
+    return { axis, from: lo, length: hi - lo, loops };
+  }
+  return null;
 }
 
 /** A wall's long axis in plan, from its two farthest points: a start and the unit along it. */
