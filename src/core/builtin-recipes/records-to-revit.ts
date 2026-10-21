@@ -34,7 +34,7 @@ import {
   whatItMadeBefore,
   type PickedFile,
 } from './shared';
-import { familiesFromShapes } from './shapes-to-families';
+import { familiesFromShapes, roofOverWall } from './shapes-to-families';
 
 /** Revit's own category ids, printed from RevitAPI.dll - never guessed. */
 const CATEGORY = {
@@ -307,6 +307,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       return { A, u, n, L, W, si, sj, ridge, top, ti, tj, zAt };
     };
     const roofRecords = new Map(records.filter((r) => r.kind === 'extrusion' && r.params.of === 'roof').map((r) => [r.id, r]));
+    const roofGids = [...roofRecords.values()].filter((r) => r.item.guid).map((r) => ({ id: r.id, gid: r.item.guid! }));
 
     // ---- 1. Levels: named identity, ensured on the target. ----
     // Counted as WRITTEN only when asked for: one this recipe made before is kept, not written
@@ -512,7 +513,10 @@ function sharedRun(to: 'frag' | 'ifc') {
         delete attrs.TopLevel;
         delete attrs.TopOffset;
       }
-      if (typeof attachedTo === 'string' && !attrs.Profile) attrs.AttachTop = key(attachedTo);
+      // Not said by the converter: read off the file's own shape (a top the roof cut).
+      const attachTo = typeof attachedTo === 'string' ? attachedTo
+        : shapes && record.item.guid ? roofOverWall(shapes, record.item.guid, roofGids) : undefined;
+      if (attachTo && !attrs.Profile) attrs.AttachTop = key(attachTo);
       const width = thicknessOf(lookRef);
       if (width) attrs['Type.Width'] = num(width);
       if (add(`${key(record.id)}#${sg.i}`, attrs)) wallCount++;

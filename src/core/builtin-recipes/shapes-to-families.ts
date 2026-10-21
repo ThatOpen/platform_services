@@ -201,3 +201,55 @@ function hash(text: string): string {
   }
   return (h >>> 0).toString(36);
 }
+
+/** World points of an element of `shapes` (metres). */
+function pointsOf(shapes: SourceShapes, gid: string): number[][] {
+  const el = shapes.elements.get(gid);
+  const out: number[][] = [];
+  if (!el) return out;
+  for (const piece of el.pieces) {
+    const g = shapes.geometries.get(piece.geometry);
+    if (!g) continue;
+    const m = piece.matrix;
+    for (let i = 0; i < g.verts.length; i += 3) {
+      const x = g.verts[i], y = g.verts[i + 1], z = g.verts[i + 2];
+      out.push([m[0] * x + m[4] * y + m[8] * z + m[12], m[1] * x + m[5] * y + m[9] * z + m[13], m[2] * x + m[6] * y + m[10] * z + m[14]]);
+    }
+  }
+  return out;
+}
+
+/**
+ * 🔴 A WALL WHOSE TOP THE FILE SHOWS CUT BY A ROOF, ATTACHED TO IT (21-10: racbasic's partitions under its roof stood
+ * flat-topped, 6-30 % more wall than the IFC, because the converter had not said they were attached). The wall's top
+ * in the file is not level (its two ends' tops differ, or its middle stands above them), and a roof covers it from
+ * just above: that roof's record id, or undefined.
+ */
+export function roofOverWall(shapes: SourceShapes, wallGid: string, roofs: { id: string; gid: string }[]): string | undefined {
+  const pts = pointsOf(shapes, wallGid);
+  if (pts.length < 4 || roofs.length === 0) return undefined;
+  // The wall's long horizontal axis, from its two farthest points in plan.
+  let a = pts[0], b = pts[0], far = 0;
+  for (const p of pts) { const d = Math.hypot(p[0] - pts[0][0], p[1] - pts[0][1]); if (d > far) { far = d; b = p; } }
+  far = 0;
+  for (const p of pts) { const d = Math.hypot(p[0] - b[0], p[1] - b[1]); if (d > far) { far = d; a = p; } }
+  if (far < 0.3) return undefined;
+  const ux = (b[0] - a[0]) / far, uy = (b[1] - a[1]) / far;
+  const along = (p: number[]) => (p[0] - a[0]) * ux + (p[1] - a[1]) * uy;
+  const top = Math.max(...pts.map((p) => p[2]));
+  const topNear = (t: number) => Math.max(...pts.filter((p) => Math.abs(along(p) - t) < 0.05).map((p) => p[2]), -Infinity);
+  const startTop = topNear(0), endTop = topNear(far);
+  if (Math.abs(startTop - endTop) < 0.05 && top - Math.max(startTop, endTop) < 0.05) return undefined;
+  const cx = (a[0] + b[0]) / 2, cy = (a[1] + b[1]) / 2;
+  let best: { id: string; gap: number } | undefined;
+  for (const roof of roofs) {
+    const rp = pointsOf(shapes, roof.gid);
+    if (rp.length === 0) continue;
+    const xs = rp.map((p) => p[0]), ys = rp.map((p) => p[1]), zs = rp.map((p) => p[2]);
+    if (cx < Math.min(...xs) - 0.2 || cx > Math.max(...xs) + 0.2 || cy < Math.min(...ys) - 0.2 || cy > Math.max(...ys) + 0.2) continue;
+    const gap = Math.min(...zs) - top;
+    if (gap > 1.5 || Math.max(...zs) < top - 0.05) continue;
+    if (!best || Math.abs(gap) < Math.abs(best.gap)) best = { id: roof.id, gap };
+  }
+  return best?.id;
+}
