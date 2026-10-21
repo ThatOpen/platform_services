@@ -33,11 +33,77 @@ export interface DocumentView {
   format: string;
 }
 
+/**
+ * What a document IS, for a person: the first thing every documents menu
+ * shows, and what it filters by — each app lists only the types it works
+ * with (Antonio, 21-10: «que pueda ser cualquier cosa es confuso»). The
+ * format stays a property of the document's files; it is not its type.
+ */
+export type DocumentType = 'bim' | 'drawings' | 'reality' | 'generic';
+
+/** Every document type, with the words and the icon every app shows for it. */
+export const DOCUMENT_TYPES: Record<
+  DocumentType,
+  { label: string; icon: string }
+> = {
+  bim: { label: 'BIM model', icon: 'tabler:building' },
+  drawings: { label: 'Drawings', icon: 'tabler:layout-board' },
+  reality: { label: 'Reality capture', icon: 'tabler:3d-cube-sphere' },
+  generic: { label: 'Generic', icon: 'tabler:file' },
+};
+
+/**
+ * The type a document without one written is read as, from its formats:
+ * documents made before types existed. A document's written type always wins.
+ */
+const TYPE_OF_FORMAT: Record<string, DocumentType> = {
+  rvt: 'bim',
+  rfa: 'bim',
+  ifc: 'bim',
+  frag: 'bim',
+  '3dm': 'bim',
+  nwd: 'bim',
+  dgn: 'bim',
+  dwg: 'drawings',
+  dxf: 'drawings',
+  las: 'reality',
+  laz: 'reality',
+  e57: 'reality',
+  ply: 'reality',
+  potree: 'reality',
+  splat: 'reality',
+  spz: 'reality',
+  ksplat: 'reality',
+};
+
+/** A document's type: the one written in it, else the one its formats say. */
+export function documentTypeOf(
+  descriptor: Pick<DocumentDescriptor, 'type' | 'native' | 'views'>,
+): DocumentType {
+  if (descriptor.type && descriptor.type in DOCUMENT_TYPES) {
+    return descriptor.type;
+  }
+  const formats = [
+    descriptor.native?.format,
+    ...descriptor.views.map((v) => v.format),
+  ];
+  for (const format of formats) {
+    const type = format ? TYPE_OF_FORMAT[format.toLowerCase()] : undefined;
+    if (type) return type;
+  }
+  return 'generic';
+}
+
 /** The wire shape of `document.json`, schema `thatopen/document@1`. */
 export interface DocumentDescriptor {
   schema: typeof DOCUMENT_SCHEMA;
   /** The document's own name — what a row shows. Not any file's name. */
   name: string;
+  /**
+   * What the document is ({@link DocumentType}). Written by whoever makes the
+   * document; one without it is read by {@link documentTypeOf}.
+   */
+  type?: DocumentType;
   /**
    * The native form, when the document has one (a .rvt, a .3dm). A document
    * born on the platform (a loose .frag) may not.
@@ -92,11 +158,20 @@ export class ProjectDocuments {
 
   /**
    * Every document of the project: the folders that carry a descriptor.
-   * Plain folders and loose files simply do not appear. One folder listing
+   * Plain folders and loose files simply do not appear. `types` keeps only
+   * the documents of those types ({@link documentTypeOf}): what an app's
+   * documents menu asks for. One folder listing
    * for the project plus one file listing and one descriptor download per
    * folder, fetched in parallel — the storage offers nothing cheaper yet.
    */
-  async list(): Promise<DocumentInfo[]> {
+  async list(options?: { types?: DocumentType[] }): Promise<DocumentInfo[]> {
+    const all = await this.#listAll();
+    const types = options?.types;
+    if (!types?.length) return all;
+    return all.filter((d) => types.includes(documentTypeOf(d.descriptor)));
+  }
+
+  async #listAll(): Promise<DocumentInfo[]> {
     // ONE listing of the project's files finds every descriptor, and each
     // says its folder. Listing each folder's files instead was one request
     // per folder, and the panels of one Coordinator load asked several
@@ -131,7 +206,13 @@ export class ProjectDocuments {
    */
   async fromFile(
     fileId: string,
-    options?: { name?: string; selfView?: boolean; author?: string },
+    options?: {
+      name?: string;
+      selfView?: boolean;
+      author?: string;
+      /** What the document is; read from its formats when not said. */
+      type?: DocumentType;
+    },
   ): Promise<DocumentInfo> {
     const item = await this.client.getFile(fileId);
     const fileName = String(item.name ?? '');
@@ -171,6 +252,7 @@ export class ProjectDocuments {
       native: { fileId, format },
       views,
     };
+    descriptor.type = options?.type ?? documentTypeOf(descriptor);
     await this.setDescriptor(folderId, descriptor);
     // 🔴 THE HISTORY IS EXPLICIT AND STARTS HERE (Antonio, 18-10): a document made from a file is
     // born with one step, «uploaded to the platform», naming the file. Not derived later from the
@@ -261,6 +343,18 @@ export class ProjectDocuments {
       view,
     ];
     await this.setDescriptor(folderId, descriptor);
+  }
+
+  /** Says what a document is: writes its {@link DocumentType}. */
+  async setType(folderId: string, type: DocumentType): Promise<void> {
+    const descriptor = await this.descriptor(folderId);
+    if (!descriptor) {
+      throw new Error(
+        'This folder has no document descriptor yet: call setDescriptor first.',
+      );
+    }
+    if (descriptor.type === type) return;
+    await this.setDescriptor(folderId, { ...descriptor, type });
   }
 
   /** Writes the descriptor, creating or replacing `document.json`. */
@@ -565,9 +659,14 @@ function normalize(parsed: unknown): DocumentDescriptor | null {
     typeof native === 'object' &&
     typeof native.fileId === 'string' &&
     typeof native.format === 'string';
+  const type =
+    typeof raw.type === 'string' && raw.type in DOCUMENT_TYPES
+      ? (raw.type as DocumentType)
+      : undefined;
   return {
     schema: DOCUMENT_SCHEMA,
     name: raw.name,
+    ...(type ? { type } : {}),
     ...(hasNative ? { native: { fileId: native.fileId, format: native.format } } : {}),
     views,
   };
