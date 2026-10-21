@@ -17,7 +17,7 @@
  * like `run:0` are DOCUMENT-scoped, not GUIDs: a reconcile key must carry the
  * source file's identity next to them.
  */
-import type { PickedSource, RecipeContext } from '../recipes';
+import type { PickedSource, RecipeContext, SourceShapes } from '../recipes';
 import { readFrag, type FragItem } from '../frag-items';
 
 /** The modeling engine's attribute names (its `element-attributes.ts`). */
@@ -176,16 +176,23 @@ export async function readPickedFrag(
   );
   const extension = /\.([^.]+)$/.exec(picked.name)?.[1]?.toLowerCase() ?? 'frag';
   let site: SiteLocation | null = null;
+  /** The file's own shapes, when the host reads them (families are made from these). */
+  let shapes: SourceShapes | null = null;
   if (extension !== 'frag') {
     const importer = context.client.recipes.importerFor(extension);
     if (!importer) {
       throw new Error(`This app cannot read .${extension} files: it provides no importer for them.`);
     }
     if (extension === 'ifc') site = siteLocationOf(bytes);
+    const reader = context.client.recipes.shapesFor(extension);
+    if (reader) {
+      context.progress(`Reading the shapes of ${picked.name}`);
+      shapes = await reader(bytes, picked.name);
+    }
     context.progress(`Reading ${picked.name}`);
     bytes = await importer(bytes, picked.name);
   }
-  return { picked, contents: await readFrag(bytes), site };
+  return { picked, contents: await readFrag(bytes), site, shapes };
 }
 
 /**

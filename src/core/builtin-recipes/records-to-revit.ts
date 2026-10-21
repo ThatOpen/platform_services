@@ -34,6 +34,7 @@ import {
   whatItMadeBefore,
   type PickedFile,
 } from './shared';
+import { familiesFromShapes } from './shapes-to-families';
 
 /** Revit's own category ids, printed from RevitAPI.dll - never guessed. */
 const CATEGORY = {
@@ -156,7 +157,7 @@ const num = (v: number) => String(v);
 
 function sharedRun(to: 'frag' | 'ifc') {
   return async (context: RecipeContext<Settings>) => {
-    const { picked, contents, site } = await readPickedFrag(
+    const { picked, contents, site, shapes } = await readPickedFrag(
       context,
       context.input as PickedFile | undefined,
     );
@@ -242,7 +243,7 @@ function sharedRun(to: 'frag' | 'ifc') {
     const add = (
       sourceKey: string,
       attrs: Record<string, string>,
-      placement?: { position?: [number, number, number]; rotationDeg?: number },
+      placement?: { position?: [number, number, number]; rotationDeg?: number; host?: string },
     ) => {
       seen.add(sourceKey);
       const framed = sharedFrame ? { ...attrs, Frame: 'shared', ...(sharedAt ? { SharedAt: sharedAt } : {}) } : attrs;
@@ -904,6 +905,24 @@ function sharedRun(to: 'frag' | 'ifc') {
         instanceCount++;
     }
 
+    // ---- 5b. Everything else with a body, as FAMILIES made from the file's own shapes. ----
+    // 🔴 (Antonio, 21-10: «llegar al 100 %… comparar el brep o la mesh y que sea igual… definiendo familias»).
+    // Whatever no step above builds natively (doors and windows, furniture, fixtures, proxies, columns, railings,
+    // the parts of nothing written) is a family: one per shape, defined from the file's own geometry in the
+    // element's frame, placed where the file has each. Doors and windows in the wall whose opening they fill.
+    const shaped = shapes ? familiesFromShapes(shapes, seen, picked.fileId) : [];
+    let shapeCount = 0;
+    for (const one of shaped) {
+      if (
+        add(one.key, one.attrs, {
+          position: [one.at[0] * s, one.at[1] * s, one.at[2] * s],
+          rotationDeg: one.rotationDeg,
+          ...(one.host ? { host: one.host } : {}),
+        })
+      )
+        shapeCount++;
+    }
+
     // ---- 6. What the applier cannot create yet: counted, so the person sees
     // what the model holds and what still waits. ----
     // Only what no step above reads. A stair's landing goes with its stair, so a slab that is
@@ -954,6 +973,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       stairCount ? `${stairCount} stair(s)` : '',
       columnCount ? `${columnCount} column(s)` : '',
       instanceCount ? `${instanceCount} instance(s)` : '',
+      shapeCount ? `${shapeCount} family instance(s)` : '',
       changed ? `${changed} changed` : '',
       removed ? `${removed} gone` : '',
     ].filter(Boolean);
@@ -974,6 +994,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         { read: stairRead, written: stairCount },
         { read: columnRead, written: columnCount },
         { read: instanceRead, written: instanceCount },
+        { read: shaped.length, written: shapeCount },
         { read: removed, written: removed },
         { read: hostedWaiting + bodiesWaiting, written: 0 },
       ],
@@ -1025,6 +1046,7 @@ const sharedRules = [
   { reads: 'Stairs', writes: 'A native stair: a straight or sketched run, with its landings' },
   { reads: 'Column records (members)', writes: 'A Revit column at each, on its level' },
   { reads: 'Free-standing family instances', writes: 'When turned on: a new instance of the same-named type, placed and turned' },
+  { reads: 'Everything else with a body: doors, windows, furniture, fixtures, proxies, columns, railings', writes: "A family made from the file's own shape, one per shape, placed where the file has it (doors and windows in their wall)" },
   { reads: 'Things this recipe made whose record is gone', writes: 'That element removed' },
   { reads: 'Hosted doors/windows, footings, ramps, other bodies', writes: 'Nothing yet - read and counted' },
 ];

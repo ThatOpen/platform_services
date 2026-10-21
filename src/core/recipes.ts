@@ -185,11 +185,35 @@ export class UpToDate extends Error {
 export type RecordsImporter = (bytes: Uint8Array, name: string) => Promise<Uint8Array>;
 
 /**
+ * A file's shapes as its own geometry and placements (the engine's `ifcShapes`): what a recipe needs to define a
+ * family once per shape and place it many times. Z up, metres. The host that has the engine provides it.
+ */
+export interface SourceShapes {
+  geometries: Map<number, { verts: Float64Array; tris: Uint32Array }>;
+  elements: Map<
+    string,
+    {
+      gid: string;
+      ifcClass: string;
+      name: string | null;
+      objectType: string | null;
+      typeName: string | null;
+      parent: string | null;
+      host: string | null;
+      opening?: string | null;
+      pieces: { geometry: number; matrix: number[] }[];
+    }
+  >;
+}
+export type ShapesReader = (bytes: Uint8Array, name: string) => Promise<SourceShapes>;
+
+/**
  * The local recipe registry and runner. Reach it as `client.recipes`.
  */
 export class Recipes {
   readonly #registry = new Map<string, Recipe<never>>();
   readonly #importers = new Map<string, RecordsImporter>();
+  readonly #shapes = new Map<string, ShapesReader>();
   /** The project's own recipes: list, save, versions, load (see project-recipes.ts). */
   readonly project: ProjectRecipes;
 
@@ -205,6 +229,16 @@ export class Recipes {
    */
   provideImporter(extension: string, importer: RecordsImporter): void {
     this.#importers.set(extension.toLowerCase(), importer);
+  }
+
+  /** Says how this host reads a file's shapes (its geometry, per element and per type), for recipes that make families. */
+  provideShapes(extension: string, reader: ShapesReader): void {
+    this.#shapes.set(extension.toLowerCase(), reader);
+  }
+
+  /** The shapes reader provided for an extension, or undefined. */
+  shapesFor(extension: string): ShapesReader | undefined {
+    return this.#shapes.get(extension.toLowerCase());
   }
 
   /** The importer provided for an extension, or undefined. */

@@ -51,6 +51,8 @@ const OP_KEY = 'flow:op';
  * lost machine takes with it.
  */
 const SOURCE_KEY = 'flow:source';
+/** What an added item is placed in (the applier's `flow:host`). */
+const HOST_KEY = 'flow:host';
 
 /** The schema this writes. An applier that speaks a different one must refuse rather than guess. */
 export const OP_SCHEMA = 'revitflow/op@2';
@@ -80,6 +82,11 @@ export interface OperationTarget {
 
 /** Where an added item goes, and how it is turned, in the target's own terms. */
 export interface Placement {
+  /**
+   * What it is placed IN: another change of this operation, by its `source` (a door's wall, made in the same
+   * operation), or an element the target already has, by its id. The applier hosts it there.
+   */
+  host?: string;
   /** [x, y, z] in the TARGET model's own units and axes. Not converted here. */
   position?: [number, number, number];
   /** Degrees about Z, in the target's convention. */
@@ -219,6 +226,7 @@ export class OperationBuilder {
     if (placement.rotationDeg !== undefined)
       out.Rotation = num(placement.rotationDeg);
     if (placement.source) out[SOURCE_KEY] = placement.source;
+    if (placement.host) out[HOST_KEY] = placement.host;
     return out;
   }
 
