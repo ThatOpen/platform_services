@@ -519,6 +519,15 @@ function sharedRun(to: 'frag' | 'ifc') {
       if (attachTo && !attrs.Profile) attrs.AttachTop = key(attachTo);
       const width = thicknessOf(lookRef);
       if (width) attrs['Type.Width'] = num(width);
+      // ITS LAYERS, as the file declares them (the original's compound wall: a face between each two, which a
+      // one-layer type has not; racbasic's partitions 6 cm off the original everywhere, 21-10). Revit lists them
+      // from the exterior, the side left of the line; the file stacks them from the line's right, and a usage
+      // against its axis is the same type flipped (one type for every wall of it, as in Revit).
+      const declared = record.item.guid ? shapes?.elements.get(record.item.guid) : undefined;
+      if (declared?.layers && declared.layers.length > 1) {
+        attrs['Type.Layers'] = JSON.stringify([...declared.layers].reverse().map((l) => [+num(l.thickness * s), l.material ?? '', l.function ?? '']));
+        if (declared.layersFlipped) attrs.FlipLayers = '1';
+      }
       if (add(`${key(record.id)}#${sg.i}`, attrs)) wallCount++;
     }
 

@@ -202,6 +202,9 @@ export interface SourceShapes {
       host: string | null;
       opening?: string | null;
       pieces: { geometry: number; matrix: number[] }[];
+      /** Its layer stack as the file declares it, metres, in the file's order; flipped: laid against its axis. */
+      layers?: { thickness: number; material?: string; function?: string }[];
+      layersFlipped?: boolean;
     }
   >;
 }
