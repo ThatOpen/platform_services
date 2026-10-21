@@ -76,7 +76,10 @@ export function familiesFromShapes(shapes: SourceShapes, written: ReadonlySet<st
   const out: ShapedInstance[] = [];
   for (const el of shapes.elements.values()) {
     if (writtenGids.has(el.gid) || NOT_A_THING.has(el.ifcClass.toUpperCase())) continue;
-    if (el.parent && writtenGids.has(el.parent)) continue;
+    // A part of something written is that thing's (a curtain wall's mullions and panels), except a door or window
+    // in it: Revit's curtain wall takes no door from the file, so it is made as the door it is (racbasic: 5 doors of
+    // curtain walls missing, 21-10).
+    if (el.parent && writtenGids.has(el.parent) && !/^IFC(DOOR|WINDOW)$/i.test(el.ifcClass)) continue;
     if (el.pieces.length === 0) continue;
     const category = SHAPE_CATEGORY[el.ifcClass.toUpperCase()] ?? GENERIC;
 
