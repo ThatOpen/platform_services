@@ -232,6 +232,35 @@ describe('EngineServicesClient — HTTP contract', () => {
     });
   });
 
+  describe('upload filename', () => {
+    // The platform takes fileExtension from the multipart filename; a bare
+    // Blob would be sent as "blob" and stored with fileExtension "".
+    it('createFile sends a bare Blob under the item name', async () => {
+      fetchMock.mockResolvedValue(okResponse({}));
+      const client = new EngineServicesClient(TOKEN, API);
+      await client.createFile({ file: new Blob(['{}']), name: 'result.json', versionTag: 'v1' });
+      const file = (getCall(fetchMock).init.body as FormData).get('file') as File;
+      expect(file.name).toBe('result.json');
+      expect(await file.text()).toBe('{}');
+    });
+
+    it('createFile keeps a File\'s own name', async () => {
+      fetchMock.mockResolvedValue(okResponse({}));
+      const client = new EngineServicesClient(TOKEN, API);
+      await client.createFile({ file: new File(['x'], 'model.ifc'), name: 'Model', versionTag: 'v1' });
+      const file = (getCall(fetchMock).init.body as FormData).get('file') as File;
+      expect(file.name).toBe('model.ifc');
+    });
+
+    it('updateFile names a bare Blob when a name is given', async () => {
+      fetchMock.mockResolvedValue(okResponse({}));
+      const client = new EngineServicesClient(TOKEN, API);
+      await client.updateFile('item-1', { file: new Blob(['{}']), name: 'result.json', versionTag: 'v2' });
+      const file = (getCall(fetchMock).init.body as FormData).get('file') as File;
+      expect(file.name).toBe('result.json');
+    });
+  });
+
   describe('error handling', () => {
     it('throws when the server responds with a non-2xx status', async () => {
       fetchMock.mockResolvedValue(errorResponse(403, 'Forbidden'));
