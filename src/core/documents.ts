@@ -61,8 +61,9 @@ export const DOCUMENT_TYPES: Record<
   drawings: { label: 'Drawings', icon: 'tabler:layout-board' },
   reality: { label: 'Reality capture', icon: 'tabler:3d-cube-sphere' },
   // 🔴 The project's coordination record (Antonio, 22-10: «los topics sean su propio documento… no pertenecen a
-  // ningún modelo, pueden hablar de varios a la vez»): its topics, as a BCF, with a history of their own.
-  coordination: { label: 'Coordination', icon: 'tabler:messages' },
+  // ningún modelo, pueden hablar de varios a la vez»): its topics, as a BCF, with a history of their own. Named as a thing,
+  // as a plan set is («Coordination set», Antonio 22-10).
+  coordination: { label: 'Coordination set', icon: 'tabler:messages' },
   generic: { label: 'Generic', icon: 'tabler:file' },
 };
 
