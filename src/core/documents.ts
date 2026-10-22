@@ -50,7 +50,7 @@ export interface DocumentView {
  * with (Antonio, 21-10: «que pueda ser cualquier cosa es confuso»). The
  * format stays a property of the document's files; it is not its type.
  */
-export type DocumentType = 'bim' | 'drawings' | 'reality' | 'generic';
+export type DocumentType = 'bim' | 'drawings' | 'reality' | 'coordination' | 'generic';
 
 /** Every document type, with the words and the icon every app shows for it. */
 export const DOCUMENT_TYPES: Record<
@@ -60,6 +60,9 @@ export const DOCUMENT_TYPES: Record<
   bim: { label: 'BIM model', icon: 'tabler:building' },
   drawings: { label: 'Drawings', icon: 'tabler:layout-board' },
   reality: { label: 'Reality capture', icon: 'tabler:3d-cube-sphere' },
+  // 🔴 The project's coordination record (Antonio, 22-10: «los topics sean su propio documento… no pertenecen a
+  // ningún modelo, pueden hablar de varios a la vez»): its topics, as a BCF, with a history of their own.
+  coordination: { label: 'Coordination', icon: 'tabler:messages' },
   generic: { label: 'Generic', icon: 'tabler:file' },
 };
 
@@ -86,6 +89,8 @@ const TYPE_OF_FORMAT: Record<string, DocumentType> = {
   splat: 'reality',
   spz: 'reality',
   ksplat: 'reality',
+  bcf: 'coordination',
+  bcfzip: 'coordination',
 };
 
 /** A document's type: the one written in it, else the one its formats say. */
