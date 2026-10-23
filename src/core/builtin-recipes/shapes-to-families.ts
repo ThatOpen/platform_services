@@ -81,7 +81,10 @@ export function familiesFromShapes(shapes: SourceShapes, written: ReadonlySet<st
     // curtain walls missing, 21-10).
     if (el.parent && writtenGids.has(el.parent) && !/^IFC(DOOR|WINDOW)$/i.test(el.ifcClass)) continue;
     if (el.pieces.length === 0) continue;
-    const category = SHAPE_CATEGORY[el.ifcClass.toUpperCase()] ?? GENERIC;
+    // A column its file calls structural is a structural column: an architectural one is merged into the walls it stands
+    // in (Savoyvilla's «结构柱» pilotis: 27 of 39 lost their part inside the walls, 23-10).
+    const structural = /^IFCCOLUMN$/i.test(el.ifcClass) && /structural|estructural|结构柱|tragend|tragwerk/i.test(`${el.typeName ?? ''} ${el.objectType ?? ''} ${el.name ?? ''}`);
+    const category = structural ? 'OST_StructuralColumns' : SHAPE_CATEGORY[el.ifcClass.toUpperCase()] ?? GENERIC;
 
     // The frame: the first piece's placement, if it is upright and unmirrored only its turn about Z.
     const first = parts(el.pieces[0].matrix);
