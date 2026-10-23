@@ -1,5 +1,11 @@
 # thatopen-services
 
+## 0.31.1
+
+### Patch Changes
+
+- 5e80dd1: Publishes what 0.31.0 carries (the `coordination` document type, the IFC→Revit recipe): 0.31.0 was versioned but never reached npm, stopped by lint on an unused function in the recipe.
+
 ## 0.31.0
 
 ### Minor Changes
