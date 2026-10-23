@@ -136,8 +136,12 @@ export function familiesFromShapes(shapes: SourceShapes, written: ReadonlySet<st
     // families of one 50 x 150 mullion, one per length; 21-10).
     const prism = !el.host && pieces.length === 1 ? prismOf(pieces[0]) : null;
     if (prism) {
-      const profileKey = prism.loops.map((l) => l.map(([u, v]) => `${Math.round(u * 304.8)},${Math.round(v * 304.8)}`).join(';')).join('|');
-      const pkey = `prism|${category}|${prism.axis}|${profileKey}`;
+      // 🔴 ONE FAMILY PER PROFILE, HOWEVER IT IS TURNED (metal.ifc, 23-10: 1388 prism families of 663 profiles; one round
+      // bar in 27 families): the profile centred, turned to its canonical way (vertical prisms: any turn about Z; lying
+      // ones: as it is or end for end), and the instance moved and turned to put it back.
+      const canon = canonicalPrism(prism);
+      const profileKey = canon.key;
+      const pkey = `prism|${category}|${canon.axis}|${profileKey}`;
       let pf = familyOfShape.get(pkey);
       if (!pf) {
         const label = clean(el.typeName ?? el.objectType ?? el.name ?? el.ifcClass);
@@ -148,13 +152,17 @@ export function familiesFromShapes(shapes: SourceShapes, written: ReadonlySet<st
         familyOfShape.set(pkey, pf);
       }
       const pattrs: Record<string, string> = { ShapeCategory: category, Family: pf.family, Type: pf.type, ShapeKey: pf.key, PrismLength: String(round(prism.length, 1e-5)), ...(freeColumn ? { ColumnFree: '1' } : {}) };
-      if (pf.first) { pattrs.Prism = JSON.stringify({ axis: prism.axis, loops: prism.loops }); pf.first = false; }
+      if (pf.first) { pattrs.Prism = JSON.stringify({ axis: canon.axis, loops: canon.loops }); pf.first = false; }
       // The extrusion starts at the family's origin: the instance goes where the prism starts.
       const off = [0, 0, 0];
-      off[prism.axis] = prism.from / FEET;
+      off[prism.axis] = (canon.flipped ? prism.from + prism.length : prism.from) / FEET;
+      // Where the profile's centre went, in the family's frame (feet → m).
+      const u = (prism.axis + 1) % 3, w = (prism.axis + 2) % 3;
+      off[u] += canon.centre[0] / FEET;
+      off[w] += canon.centre[1] / FEET;
       const cw = Math.cos(angle), sw = Math.sin(angle);
       const start: [number, number, number] = [at[0] + cw * off[0] - sw * off[1], at[1] + sw * off[0] + cw * off[1], at[2] + off[2]];
-      out.push({ key: `${fileId}:${el.gid}:shape`, attrs: pattrs, at: start, rotationDeg: (angle * 180) / Math.PI });
+      out.push({ key: `${fileId}:${el.gid}:shape`, attrs: pattrs, at: start, rotationDeg: ((angle + canon.turn) * 180) / Math.PI });
       continue;
     }
     // THE SAME SHAPE, WHEREVER IT CAME FROM. A file may write each element its own copy of a geometry (Revit's
@@ -254,7 +262,11 @@ export function openingsFromShapes(shapes: SourceShapes, written: ReadonlySet<st
     if (el.ifcClass.toUpperCase() !== 'IFCOPENINGELEMENT' || !el.host) continue;
     const host = wallKey.get(el.host);
     if (!host) continue;
-    const pts = pointsOf(shapes, el.gid);
+    // 🔴 EACH PIECE ITS OWN OPENING: Revit writes a wall's edited profile as one opening of several extrusions
+    // (Savoyvilla: walls twice the IFC's volume, their two-box openings failing the rectangle test as a whole, 23-10).
+    // (And the pieces of one geometry that touch nothing of each other, apart: web-ifc may give the two as one.)
+    for (const part of openingParts(shapes, el.gid)) {
+    const pts = part.pts;
     if (pts.length < 4) continue;
     // A RECTANGLE IN THE WALL, or not cut: Revit cuts a wall only with rectangles, and the extent of an opening under
     // a sloped top cut half its wall away (racbasic's SIP gable wall: 0.61 m³ for the IFC's 1.19; 21-10). Its volume
@@ -265,11 +277,74 @@ export function openingsFromShapes(shapes: SourceShapes, written: ReadonlySet<st
     const across = pts.map((p) => -(p[0] - axis.a[0]) * axis.u[1] + (p[1] - axis.a[1]) * axis.u[0]);
     const span = (v: number[]) => Math.max(...v) - Math.min(...v);
     const box = span(along) * span(across) * span(pts.map((p) => p[2]));
-    if (!(box > 0) || Math.abs(volumeOf(shapes, el.gid)) < 0.75 * box) continue; // boxes measured 0.81..0.92, the others 0.42..0.62
+    if (!(box > 0) || Math.abs(part.volume) < 0.75 * box) continue; // boxes measured 0.81..0.92, the others 0.42..0.62
     // Its points, not a box: the wall may run at any angle, and the applier takes their extent along it.
-    out.push({ key: `${fileId}:${el.gid}:opening`, host, box: pts.flat() });
+    out.push({ key: `${fileId}:${el.gid}:opening${part.index === 0 && part.of === 1 ? '' : `#${part.index}`}`, host, box: pts.flat() });
+    }
   }
   return out;
+}
+
+/**
+ * A prism's profile in its canonical way: centred on its box, and turned (a vertical prism, about Z: its principal axes,
+ * or for a round one its outermost points, tried) or put end for end (a lying one: Z turned half a turn mirrors its
+ * profile across the vertical), whichever writes the smallest key. `turn`: radians the instance turns more about Z;
+ * `centre`: where the profile's centre is in the family's frame before the turn (feet).
+ */
+function canonicalPrism(prism: { axis: number; loops: [number, number][][] }): { axis: number; loops: [number, number][][]; key: string; centre: [number, number]; turn: number; flipped: boolean } {
+  const all = prism.loops.flat();
+  // The centre: the mean of its points, the same however it is turned (a box's middle is not).
+  const c: [number, number] = [all.reduce((x, p) => x + p[0], 0) / all.length, all.reduce((x, p) => x + p[1], 0) / all.length];
+  // A ROUND ONE (a faceted circle, or a tube's two) is the same whatever its roll: each regular loop about the centre
+  // laid with a vertex at angle 0 (a 22-gon of 10 mm moves by 0.1 mm at most).
+  const centred = prism.loops.map((l) => {
+    const q = l.map(([a, b]) => [a - c[0], b - c[1]] as [number, number]);
+    const r = q.map(([a, b]) => Math.hypot(a, b));
+    const mean = r.reduce((x, y) => x + y, 0) / r.length;
+    if (q.length < 8 || mean <= 0 || r.some((x) => Math.abs(x - mean) > 0.02 * mean)) return q;
+    const area = q.reduce((sum, p, i) => { const n = q[(i + 1) % q.length]; return sum + p[0] * n[1] - n[0] * p[1]; }, 0);
+    const dir = area >= 0 ? 1 : -1;
+    return q.map((_, k) => [mean * Math.cos((dir * 2 * Math.PI * k) / q.length), mean * Math.sin((dir * 2 * Math.PI * k) / q.length)] as [number, number]);
+  });
+  const keyOf = (loops: [number, number][][]) => {
+    const norm = loops.map((l) => {
+      const q = l.map(([a, b]) => `${Math.round(a * 304.8)},${Math.round(b * 304.8)}`);
+      let best = 0;
+      for (let i = 1; i < q.length; i++) if (q[i] < q[best]) best = i;
+      return [...q.slice(best), ...q.slice(0, best)].join(';');
+    });
+    return norm.sort().join('|');
+  };
+  const turned = (loops: [number, number][][], t: number) => {
+    const ct = Math.cos(-t), st = Math.sin(-t);
+    return loops.map((l) => l.map(([a, b]) => [ct * a - st * b, st * a + ct * b] as [number, number]));
+  };
+  const candidates: { loops: [number, number][][]; turn: number; flipped: boolean }[] = [];
+  // Lying along Y is lying along X a quarter turn about Z: its profile (z, x) becomes (y, z) = (-x, z).
+  let axis = prism.axis, base = 0, lying = centred;
+  if (axis === 1) { axis = 0; base = Math.PI / 2; lying = centred.map((l) => l.map(([a, b]) => [-b, a] as [number, number])); }
+  if (axis === 2) {
+    // The principal axes of the points, and for a round one each outermost point brought to angle 0.
+    let sxx = 0, syy = 0, sxy = 0;
+    const pts = centred.flat();
+    for (const [a, b] of pts) { sxx += a * a; syy += b * b; sxy += a * b; }
+    const angles = new Set<number>();
+    const principal = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+    for (let k = 0; k < 4; k++) angles.add(principal + (k * Math.PI) / 2);
+    const r = pts.map(([a, b]) => Math.hypot(a, b));
+    const far = Math.max(...r);
+    const outer = pts.filter((_, i) => r[i] > far - 0.003);
+    if (Math.abs(sxx - syy) < 1e-3 * (sxx + syy) || outer.length > 4)
+      for (const [a, b] of outer.slice(0, 64)) angles.add(Math.atan2(b, a));
+    for (const t of angles) candidates.push({ loops: turned(centred, t), turn: t, flipped: false });
+  } else {
+    // Lying along X or Y: half a turn about Z sends it end for end and mirrors the profile's first axis.
+    candidates.push({ loops: lying, turn: 0, flipped: false });
+    candidates.push({ loops: lying.map((l) => l.map(([a, b]) => [-a, b] as [number, number]).reverse()), turn: Math.PI, flipped: true });
+  }
+  let best = candidates[0], bestKey = keyOf(best.loops);
+  for (const one of candidates.slice(1)) { const k = keyOf(one.loops); if (k < bestKey) { best = one; bestKey = k; } }
+  return { axis, loops: best.loops, key: bestKey, centre: c, turn: base + best.turn, flipped: best.flipped };
 }
 
 /**
@@ -399,12 +474,50 @@ function wallAxis(pts: number[][]): { a: number[]; u: number[] } | undefined {
   return { a, u: [(b[0] - a[0]) / far, (b[1] - a[1]) / far] };
 }
 
+/** An element's triangles placed, split into the bodies that share no vertex: each its points and volume. */
+function openingParts(shapes: SourceShapes, gid: string): { pts: number[][]; volume: number; index: number; of: number }[] {
+  const el = shapes.elements.get(gid);
+  if (!el) return [];
+  const points: number[][] = [];
+  const tris: number[] = [];
+  const at = new Map<string, number>();
+  for (const piece of el.pieces) {
+    const g = shapes.geometries.get(piece.geometry);
+    if (!g) continue;
+    const m = piece.matrix;
+    const local: number[] = [];
+    for (let i = 0; i < g.verts.length; i += 3) {
+      const x = g.verts[i], y = g.verts[i + 1], z = g.verts[i + 2];
+      const p = [m[0] * x + m[4] * y + m[8] * z + m[12], m[1] * x + m[5] * y + m[9] * z + m[13], m[2] * x + m[6] * y + m[10] * z + m[14]];
+      const k = p.map((c) => Math.round(c * 1e4)).join(',');
+      let id = at.get(k);
+      if (id === undefined) { id = points.length; at.set(k, id); points.push(p); }
+      local.push(id);
+    }
+    for (let t = 0; t + 2 < g.tris.length; t += 3) tris.push(local[g.tris[t]], local[g.tris[t + 1]], local[g.tris[t + 2]]);
+  }
+  const root = points.map((_, i) => i);
+  const find = (i: number): number => { while (root[i] !== i) { root[i] = root[root[i]]; i = root[i]; } return i; };
+  for (let t = 0; t < tris.length; t += 3) { const a = find(tris[t]); root[find(tris[t + 1])] = a; root[find(tris[t + 2])] = a; }
+  const groups = new Map<number, { pts: Set<number>; volume: number }>();
+  for (let t = 0; t < tris.length; t += 3) {
+    const r = find(tris[t]);
+    let g = groups.get(r);
+    if (!g) { g = { pts: new Set(), volume: 0 }; groups.set(r, g); }
+    const [a, b, c] = [points[tris[t]], points[tris[t + 1]], points[tris[t + 2]]];
+    g.volume += dot(a, cross(b, c)) / 6;
+    g.pts.add(tris[t]); g.pts.add(tris[t + 1]); g.pts.add(tris[t + 2]);
+  }
+  const list = [...groups.values()];
+  return list.map((g, index) => ({ pts: [...g.pts].map((i) => points[i]), volume: g.volume, index, of: list.length }));
+}
+
 /** An element's enclosed volume (m³), its triangles placed: the divergence sum. */
-function volumeOf(shapes: SourceShapes, gid: string): number {
+function volumeOf(shapes: SourceShapes, gid: string, only?: number): number {
   const el = shapes.elements.get(gid);
   let v = 0;
   if (!el) return v;
-  for (const piece of el.pieces) {
+  for (const piece of only === undefined ? el.pieces : [el.pieces[only]]) {
     const g = shapes.geometries.get(piece.geometry);
     if (!g) continue;
     const m = piece.matrix;
@@ -417,11 +530,11 @@ function volumeOf(shapes: SourceShapes, gid: string): number {
   return v;
 }
 
-export function pointsOf(shapes: SourceShapes, gid: string): number[][] {
+export function pointsOf(shapes: SourceShapes, gid: string, only?: number): number[][] {
   const el = shapes.elements.get(gid);
   const out: number[][] = [];
   if (!el) return out;
-  for (const piece of el.pieces) {
+  for (const piece of only === undefined ? el.pieces : [el.pieces[only]]) {
     const g = shapes.geometries.get(piece.geometry);
     if (!g) continue;
     const m = piece.matrix;
