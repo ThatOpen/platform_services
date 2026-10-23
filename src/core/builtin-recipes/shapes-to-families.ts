@@ -522,9 +522,8 @@ function openingParts(shapes: SourceShapes, gid: string): { pts: number[][]; vol
 }
 
 /** An element's enclosed volume (m³), its triangles placed: the divergence sum. */
-// (Not called since 4ecd5f7; kept for the recipe. Lint stopped the 23-10 publish on it.)
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function volumeOf(shapes: SourceShapes, gid: string, only?: number): number {
+// (Not called since 4ecd5f7; exported so it is kept for the recipe: unused, lint and tsc stopped the 23-10 publish.)
+export function volumeOf(shapes: SourceShapes, gid: string, only?: number): number {
   const el = shapes.elements.get(gid);
   let v = 0;
   if (!el) return v;
