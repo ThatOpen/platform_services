@@ -1,5 +1,12 @@
 # thatopen-services
 
+## 0.31.0
+
+### Minor Changes
+
+- db8312c: Documents: a fifth `DocumentType`, `'coordination'` ("Coordination set": a project's topics, kept as a BCF). `.bcf` and `.bcfzip` files read as coordination, and `list({ types: ['coordination'] })` lists the Coordinator's sets. The IFC→Revit recipe also improves: one prism family per profile however it is turned, structural columns where the file says so, shapes placed on their side share a family by their turn about Z, and a sloped footprint roof stands on its bottom at the eaves.
+- de439fe: Streamed models are read from hidden files: `DocumentView` gains `hiddenId` (the view is a hidden file of `fileId`'s item, read by pieces with `getHiddenFileSignedUrl` / `getHiddenFileSignedUrlsBatch`) and `versionTag` (the version of `fileId` it was made from; a different current version means the view is stale). A streamed model's bundle is the view `{ fileId: <.frag item>, format: 'tostrm', hiddenId, versionTag }`, and `tostrm` reads as a `'bim'` document. `client.getFileSignedUrl`, published in 0.30.0 for a backend route that was never deployed, is removed: stream from hidden files.
+
 ## 0.30.0
 
 ### Minor Changes
