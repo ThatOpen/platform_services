@@ -88,7 +88,13 @@ export function familiesFromShapes(shapes: SourceShapes, written: ReadonlySet<st
     const sx = len(first.x), sy = len(first.y), sz = len(first.z);
     const z = first.z.map((v) => v / (sz || 1));
     const upright = Math.abs(z[2] - 1) < 1e-6 && dot(cross(first.x, first.y), first.z) > 0 && Math.abs(sx - sy) < 1e-6 && Math.abs(sx - sz) < 1e-6;
-    const angle = upright ? Math.atan2(first.x[1], first.x[0]) : 0;
+    // 🔴 ANY LOCAL AXIS UP OR DOWN IS UPRIGHT ENOUGH (metal.ifc, 23-10: 10544 of 13117 placements lie on their side, as a
+    // steel exporter writes them, and every bolt was a family of its own, 811): the frame's turn is that of its first
+    // local axis lying flat, the same rule for every element placed the same way, so equal shapes still share a family.
+    const rigid = dot(cross(first.x, first.y), first.z) > 0 && Math.abs(sx - sy) < 1e-6 && Math.abs(sx - sz) < 1e-6;
+    const axes = [first.x, first.y, first.z].map((a) => a.map((v) => v / (sx || 1)));
+    const flat = rigid && !upright && axes.some((a) => Math.abs(Math.abs(a[2]) - 1) < 1e-6) ? axes.find((a) => Math.abs(a[2]) < 1e-6) : undefined;
+    const angle = upright ? Math.atan2(first.x[1], first.x[0]) : flat ? Math.atan2(flat[1], flat[0]) : 0;
     const c = Math.cos(-angle), sn = Math.sin(-angle);
     const at = [first.t[0], first.t[1], first.t[2]];
     // 🔴 A COLUMN'S BODY AT ITS OWN HEIGHT: Revit holds a column family's free-form body at the project's zero
