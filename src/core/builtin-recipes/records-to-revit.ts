@@ -849,8 +849,13 @@ function sharedRun(to: 'frag' | 'ifc') {
           if (above) attrs.BaseOffset = num((above.at - drop - width / s - level.at) * s);
         }
         const slopes = (body as { slopes?: (number | null)[] } | null)?.slopes;
-        if (kind === 'roof' && Array.isArray(slopes) && slopes.some((x) => typeof x === 'number'))
+        if (kind === 'roof' && Array.isArray(slopes) && slopes.some((x) => typeof x === 'number')) {
           attrs.Slopes = JSON.stringify(slopes.map((x) => (typeof x === 'number' ? x : null)));
+          // 🔴 ITS BASE IS THE TOP AT THE EAVES (measured below), and Revit's footprint roof stands on its bottom there:
+          // down by its thickness measured plumb, t·√(1+p²) (DACH: all 15 sloped roofs 0.17 m off their slope, 23-10).
+          const p = Math.max(...slopes.filter((x): x is number => typeof x === 'number').map((x) => Math.abs(x)));
+          if (width && p > 0) attrs.BaseOffset = num(base * s - width * Math.sqrt(1 + p * p));
+        }
         // A GABLE - four edges, two opposite ones sloping - is Revit's ROOF BY EXTRUSION: its
         // ridge profile drawn across, pushed along the eaves. A footprint roof cannot be it: its
         // one base is the bottom at every eave, and the record's base is the TOP at the eaves
