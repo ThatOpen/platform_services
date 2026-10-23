@@ -1,5 +1,12 @@
 # thatopen-services
 
+## 0.33.0
+
+### Minor Changes
+
+- c460728: `documents.list()` asks the platform for every descriptor of the project in one request (`client.listDocumentDescriptors`, `GET /item/documents`) and keeps each by its version. A platform without that route answers 404, and the list reads them one by one as before, without asking that platform again in the page. A 429 or a 5xx is still an error.
+- b8ce8b8: Fewer platform calls again. A project's listings (`item/folder`, `item?itemType`, `folder/:id/items`) and its `project/:id/data` are shared for 15 s instead of 2, and any write from the page still clears them. A permission check no longer clears the shared reads: it is what sent `project/data` twice in the same millisecond. `history.json` and the other history JSON files are read once per version.
+
 ## 0.32.0
 
 ### Minor Changes
