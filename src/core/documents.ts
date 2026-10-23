@@ -178,7 +178,7 @@ let descriptorsRouteMissing = false;
  * Which version a listed file is at, as its listing says: what tells a kept read from a stale one. Its newest
  * version's tag (the item's `updatedAt` does not move when a version is added, measured on DEV, 23-10).
  */
-const stampOf = (item: unknown): string | undefined => {
+export const stampOf = (item: unknown): string | undefined => {
   const it = item as { versions?: { tag?: string; createdAt?: string }[]; versionTag?: unknown };
   const newest = [...(it.versions ?? [])].sort((a, b) => String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')))[0];
   const stamp = newest?.tag ?? it.versionTag;

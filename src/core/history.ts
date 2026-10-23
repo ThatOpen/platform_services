@@ -26,7 +26,7 @@
  * the agreed phase 2.
  */
 import type { EngineServicesClient } from './client';
-import { ProjectDocuments, type DocumentDescriptor, type DocumentView } from './documents';
+import { ProjectDocuments, stampOf, type DocumentDescriptor, type DocumentView } from './documents';
 
 /** One element mutation inside a version. Wire-compatible with the plugins. */
 export interface FlowChange {
@@ -267,7 +267,16 @@ const LOCKS_ANCHOR = 'bimterop-locks-anchor';
 interface StoredFile {
   id: string;
   name: string;
+  /** Its newest version as the listing said it (see `stampOf`): what tells a kept read from a stale one. */
+  stamp?: string;
 }
+
+/**
+ * The JSON files read (a history, its ownership), by file: kept while the listing says the file is at the same
+ * version. The Coordinator's start read one set's history three times, by three readers (Antonio 23-10: «reducir las
+ * llamadas al backend»).
+ */
+const jsonReads = new Map<string, { stamp: string; value: Promise<unknown> }>();
 
 /**
  * Only the folders whose parent IS `parentId`. Needed on top of the query
@@ -864,6 +873,7 @@ export class FlowDoc {
         return items.map((item) => ({
           id: idOf(item as never),
           name: String((item as { name?: unknown }).name ?? ''),
+          stamp: stampOf(item),
         }));
       })();
       this.#filesListed.catch(() => {
@@ -899,6 +909,19 @@ export class FlowDoc {
   async #readJson<T>(name: string): Promise<T | undefined> {
     const file = await this.#file(name);
     if (!file) return undefined;
+    const kept = file.stamp ? jsonReads.get(file.id) : undefined;
+    if (kept && kept.stamp === file.stamp) return structuredClone(await kept.value) as T | undefined;
+    const value = this.#downloadJson<T>(file, name);
+    if (file.stamp) {
+      jsonReads.set(file.id, { stamp: file.stamp, value });
+      value.catch(() => {
+        if (jsonReads.get(file.id)?.value === value) jsonReads.delete(file.id);
+      });
+    }
+    return structuredClone(await value) as T | undefined;
+  }
+
+  async #downloadJson<T>(file: StoredFile, name: string): Promise<T | undefined> {
     const response = await this.client.downloadFile(file.id);
     // 🔴 A FAILED READ IS AN ERROR, NEVER A FILE (23-10, DEV's rate limit): the 429's own JSON was taken for the
     // history, and the next commit wrote a history that began there, in place of the real one.
@@ -922,6 +945,7 @@ export class FlowDoc {
     });
     const existing = await this.#file(name);
     if (existing) {
+      jsonReads.delete(existing.id);
       await this.client.updateFile(existing.id, {
         file: blob,
         versionTag: await this.client.nextVersionTag(existing.id),

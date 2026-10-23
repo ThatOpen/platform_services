@@ -58,6 +58,17 @@ const RETRY_MAX_DELAY_MS = 30_000;
 
 /** How long a read's answer is given again to the same read (see `#requestApi`). */
 const READ_SHARED_MS = 2000;
+/**
+ * The same for the project's listings and its data, which every component of an app reads as it starts, seconds
+ * apart: the Coordinator's start, after the 2 s above, still listed the folders and the files twice and read the
+ * project's data three times, 3 to 5 s apart (Antonio 24-10: «reducir las llamadas al máximo»). Any write of this
+ * page forgets them all as well, so what this page changed is never read stale.
+ */
+const LISTING_SHARED_MS = 15_000;
+/** Routes that are POSTed to but change nothing. */
+const isAsking = (path: string) => /^\/?project\/permissions\/check/.test(path);
+const isListing = (path: string) =>
+  /^\/?(item\/folder\/?$|item\/?$|item\/folder\/[^/]+\/items\/?$|project\/[^/]+\/data\/?$)/.test(path);
 /** The reads on their way or just answered, by their URL: shared by every client of the page (one user, one platform). */
 const sharedReads = new Map<string, { at: number; pending: boolean; answer: Promise<unknown> }>();
 const RETRY_JITTER_RATIO = 0.25;
@@ -419,7 +430,7 @@ export class EngineServicesClient {
       const key = `${this.#buildUrl(path)}?${new URLSearchParams(this.#cleanData(requestData?.query) as Record<string, string>).toString()}`;
       const now = Date.now();
       const kept = sharedReads.get(key);
-      if (kept && (kept.pending || now - kept.at < READ_SHARED_MS)) {
+      if (kept && (kept.pending || now - kept.at < (isListing(path) ? LISTING_SHARED_MS : READ_SHARED_MS))) {
         return kept.answer.then((data) => (data === undefined ? data : structuredClone(data))) as Promise<T>;
       }
       const entry = { at: now, pending: true, answer: this.#requestApiOnce<T>(method, path, requestData) as Promise<unknown> };
@@ -435,7 +446,9 @@ export class EngineServicesClient {
       );
       return entry.answer.then((data) => (data === undefined ? data : structuredClone(data))) as Promise<T>;
     }
-    if (method !== 'GET') sharedReads.clear();
+    // (A POST that only asks, such as the permission checks, writes nothing: it sent at the same moment as the
+    // project's data made that read go twice, 24-10.)
+    if (method !== 'GET' && !isAsking(path)) sharedReads.clear();
     return this.#requestApiOnce<T>(method, path, requestData);
   }
 
