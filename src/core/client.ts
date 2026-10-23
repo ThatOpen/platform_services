@@ -594,6 +594,25 @@ export class EngineServicesClient {
   }
 
   /**
+   * Every document descriptor of a project in one request, read by the
+   * platform (`GET /item/documents`). Throws a {@link RequestError} like any
+   * request; a platform from before the route answers 404 (or 400, taking
+   * `documents` for an item id), which `documents.list()` reads as "ask one
+   * by one".
+   */
+  async listDocumentDescriptors(projectId: string) {
+    return await this.#requestApi<{
+      documents: {
+        folderId: string;
+        fileId: string;
+        versionTag: string | null;
+        descriptor: Record<string, unknown>;
+      }[];
+      unread: number;
+    }>('GET', `${ITEM_PATH}/documents`, { query: { projectId } });
+  }
+
+  /**
    * Gets a single file by ID, optionally including version history.
    * @param fileId - The file's unique identifier.
    * @param props - Options such as whether to include versions.

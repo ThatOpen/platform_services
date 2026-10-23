@@ -171,6 +171,9 @@ function idOf(item: { _id?: unknown; id?: unknown }): string {
 /** The descriptors read, by their file: kept while the file's last change is the same (see `#readDescriptor`). */
 const descriptorReads = new Map<string, { stamp: string; value: Promise<DocumentDescriptor | null> }>();
 
+/** The platform answered that it has no `GET /item/documents`: not asked again in this page. */
+let descriptorsRouteMissing = false;
+
 /**
  * Which version a listed file is at, as its listing says: what tells a kept read from a stale one. Its newest
  * version's tag (the item's `updatedAt` does not move when a version is added, measured on DEV, 23-10).
@@ -204,6 +207,11 @@ export class ProjectDocuments {
   }
 
   async #listAll(): Promise<DocumentInfo[]> {
+    // ONE REQUEST WHEN THE PLATFORM CAN: it reads every descriptor itself
+    // (`GET /item/documents`, 23-10). Reading them here was one download per
+    // document, 16 of the CDE's 37 requests at start.
+    const all = await this.#listAllAtOnce();
+    if (all) return all;
     // ONE listing of the project's files finds every descriptor, and each
     // says its folder. Listing each folder's files instead was one request
     // per folder, and the panels of one Coordinator load asked several
@@ -323,6 +331,39 @@ export class ProjectDocuments {
     const file = await this.#descriptorFile(folderId);
     if (!file) return null;
     return this.#readDescriptor(file.id, file.stamp);
+  }
+
+  /**
+   * Every descriptor from the platform in one request, or null when the
+   * platform has no such route (one from before it: 404, or 400 taking
+   * `documents` for an item id) and they are read one by one. Asked once per
+   * page: a platform without it is not asked again. A 429 or a 5xx is an
+   * error, never "no documents" (23-10).
+   */
+  async #listAllAtOnce(): Promise<DocumentInfo[] | null> {
+    if (descriptorsRouteMissing) return null;
+    let answer: Awaited<ReturnType<EngineServicesClient['listDocumentDescriptors']>>;
+    try {
+      answer = await this.client.listDocumentDescriptors(this.projectId);
+    } catch (error) {
+      const status = (error as { status?: number }).status;
+      if (status === 404 || status === 400 || status === 405) {
+        descriptorsRouteMissing = true;
+        return null;
+      }
+      throw error;
+    }
+    const found: DocumentInfo[] = [];
+    for (const one of answer?.documents ?? []) {
+      const descriptor = normalize(one.descriptor);
+      if (!descriptor || !one.folderId) continue;
+      // Kept by its version, as a download would be: a later read one by one needs no request.
+      if (one.fileId && one.versionTag) {
+        descriptorReads.set(one.fileId, { stamp: one.versionTag, value: Promise.resolve(descriptor) });
+      }
+      found.push({ folderId: String(one.folderId), descriptor });
+    }
+    return found;
   }
 
   /**
