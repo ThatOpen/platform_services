@@ -504,6 +504,7 @@ export class FlowDoc {
       );
     }
     const response = await this.client.downloadFile(file.id);
+    if (!response.ok) throw new Error(`Reading the model answered ${response.status}`);
     return await response.blob();
   }
 
@@ -854,7 +855,12 @@ export class FlowDoc {
       this.#filesAt = Date.now();
       this.#filesListed = (async () => {
         const folderId = await this.#folder(false);
-        const items = await this.client.listFiles({ folderId });
+        // (From the project's listing, shared by every reader of the page, not one listing per document: the
+        // Coordinator's start listed 16 folders one by one for their histories, Antonio 23-10.)
+        const items = (await this.client.listFiles({ projectId: this.project.projectId })).filter((item) => {
+          const where = item as { folderId?: unknown; parentFolderId?: unknown };
+          return String(where.folderId ?? where.parentFolderId ?? '') === folderId;
+        });
         return items.map((item) => ({
           id: idOf(item as never),
           name: String((item as { name?: unknown }).name ?? ''),
@@ -894,6 +900,9 @@ export class FlowDoc {
     const file = await this.#file(name);
     if (!file) return undefined;
     const response = await this.client.downloadFile(file.id);
+    // 🔴 A FAILED READ IS AN ERROR, NEVER A FILE (23-10, DEV's rate limit): the 429's own JSON was taken for the
+    // history, and the next commit wrote a history that began there, in place of the real one.
+    if (!response.ok) throw new Error(`Reading ${name} answered ${response.status}`);
     const text = await response.text();
     if (!text.trim()) return undefined;
     return JSON.parse(text) as T;

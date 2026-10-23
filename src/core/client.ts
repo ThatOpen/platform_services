@@ -55,6 +55,11 @@ const ITEM_TYPE_APP = 'APP';
 
 const RETRY_BASE_DELAY_MS = 500;
 const RETRY_MAX_DELAY_MS = 30_000;
+
+/** How long a read's answer is given again to the same read (see `#requestApi`). */
+const READ_SHARED_MS = 2000;
+/** The reads on their way or just answered, by their URL: shared by every client of the page (one user, one platform). */
+const sharedReads = new Map<string, { at: number; pending: boolean; answer: Promise<unknown> }>();
 const RETRY_JITTER_RATIO = 0.25;
 
 const sleep = (ms: number) =>
@@ -391,6 +396,50 @@ export class EngineServicesClient {
   }
 
   async #requestApi<T = object>(
+    method: string,
+    path: string,
+    requestData?: {
+      body?: BodyInit;
+      query?: object;
+      contentType?:
+        | 'application/json'
+        | 'multipart/form-data'
+        | 'application/x-www-form-urlencoded';
+      retries?: number;
+      responseType?: 'json' | 'blob';
+      retryAttempt?: number;
+    },
+  ): Promise<T> {
+    // 🔴 ONE READ, HOWEVER MANY ASK (Antonio 23-10: «las llamadas deberían estar controladas para ser siempre lo mínimo
+    // posible», for the apps and the built-in components): a read asked again while the same one is on its way, or
+    // within READ_SHARED_MS of its answer, is given that answer (a copy), not sent again. Measured on the Coordinator's
+    // start: the project's files listed 14 times, its folders 12, its data 6, past the platform's 100 a minute. Any
+    // write forgets them all, so nothing read after a write is from before it.
+    if (method === 'GET' && requestData?.responseType !== 'blob' && !requestData?.retryAttempt) {
+      const key = `${this.#buildUrl(path)}?${new URLSearchParams(this.#cleanData(requestData?.query) as Record<string, string>).toString()}`;
+      const now = Date.now();
+      const kept = sharedReads.get(key);
+      if (kept && (kept.pending || now - kept.at < READ_SHARED_MS)) {
+        return kept.answer.then((data) => (data === undefined ? data : structuredClone(data))) as Promise<T>;
+      }
+      const entry = { at: now, pending: true, answer: this.#requestApiOnce<T>(method, path, requestData) as Promise<unknown> };
+      sharedReads.set(key, entry);
+      entry.answer.then(
+        () => {
+          entry.pending = false;
+          entry.at = Date.now();
+        },
+        () => {
+          if (sharedReads.get(key) === entry) sharedReads.delete(key);
+        },
+      );
+      return entry.answer.then((data) => (data === undefined ? data : structuredClone(data))) as Promise<T>;
+    }
+    if (method !== 'GET') sharedReads.clear();
+    return this.#requestApiOnce<T>(method, path, requestData);
+  }
+
+  async #requestApiOnce<T = object>(
     method: string,
     path: string,
     requestData?: {
@@ -1811,12 +1860,20 @@ export class EngineServicesClient {
 
   async #downloadItem(itemId: string, params?: DownloadItemFileParams) {
     const { versionTag, withDraft } = params || {};
-    return await this.#requestFile(`${ITEM_PATH}/${itemId}/download`, {
+    const response = await this.#requestFile(`${ITEM_PATH}/${itemId}/download`, {
       query: {
         ...(versionTag && { versionTag }),
         ...(withDraft && { withDraft }),
       },
     });
+    // 🔴 A REFUSED OR FAILED READ IS AN ERROR, NEVER THE FILE (23-10, DEV's rate limit): the body of a 429 was read
+    // as the file asked for, by every reader that did not check (descriptors, histories, the stores that read, change
+    // and write back), so a document vanished from its list, a coordination set was made again, and a history could
+    // be written over from nothing. A 404 is still answered: some ask whether a file is there.
+    if (response.status === 429 || response.status >= 500) {
+      throw new Error(`Downloading ${itemId} answered ${response.status}${response.status === 429 ? ' (rate limited)' : ''}`);
+    }
+    return response;
   }
 
   async #createItem<T = Item, P extends object = object>(

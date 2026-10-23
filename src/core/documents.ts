@@ -168,6 +168,20 @@ function idOf(item: { _id?: unknown; id?: unknown }): string {
  * Every method takes the document's FOLDER id — the id interfaces know the
  * document by.
  */
+/** The descriptors read, by their file: kept while the file's last change is the same (see `#readDescriptor`). */
+const descriptorReads = new Map<string, { stamp: string; value: Promise<DocumentDescriptor | null> }>();
+
+/**
+ * Which version a listed file is at, as its listing says: what tells a kept read from a stale one. Its newest
+ * version's tag (the item's `updatedAt` does not move when a version is added, measured on DEV, 23-10).
+ */
+const stampOf = (item: unknown): string | undefined => {
+  const it = item as { versions?: { tag?: string; createdAt?: string }[]; versionTag?: unknown };
+  const newest = [...(it.versions ?? [])].sort((a, b) => String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')))[0];
+  const stamp = newest?.tag ?? it.versionTag;
+  return stamp === undefined || stamp === null ? undefined : String(stamp);
+};
+
 export class ProjectDocuments {
   constructor(
     private readonly client: EngineServicesClient,
@@ -203,7 +217,7 @@ export class ProjectDocuments {
         const where = item as { folderId?: unknown; parentFolderId?: unknown };
         const folderId = String(where.folderId ?? where.parentFolderId ?? '');
         if (!folderId) return null;
-        const descriptor = await this.#readDescriptor(idOf(item as never));
+        const descriptor = await this.#readDescriptor(idOf(item as never), stampOf(item));
         return descriptor ? { folderId, descriptor } : null;
       }),
     );
@@ -308,11 +322,32 @@ export class ProjectDocuments {
   async descriptor(folderId: string): Promise<DocumentDescriptor | null> {
     const file = await this.#descriptorFile(folderId);
     if (!file) return null;
-    return this.#readDescriptor(file.id);
+    return this.#readDescriptor(file.id, file.stamp);
   }
 
-  async #readDescriptor(fileId: string): Promise<DocumentDescriptor | null> {
+  /**
+   * 🔴 EACH DESCRIPTOR READ ONCE A VERSION (Antonio 23-10: the calls «siempre lo mínimo posible»): kept by its file and
+   * the moment its listing says it last changed, for every list and panel of the page (the Coordinator's start read
+   * the same 16 four times). Written here, it is forgotten.
+   */
+  #readDescriptor(fileId: string, stamp?: string): Promise<DocumentDescriptor | null> {
+    const kept = stamp ? descriptorReads.get(fileId) : undefined;
+    if (kept && kept.stamp === stamp) return kept.value;
+    const value = this.#downloadDescriptor(fileId);
+    if (stamp) {
+      descriptorReads.set(fileId, { stamp, value });
+      value.catch(() => {
+        if (descriptorReads.get(fileId)?.value === value) descriptorReads.delete(fileId);
+      });
+    }
+    return value;
+  }
+
+  async #downloadDescriptor(fileId: string): Promise<DocumentDescriptor | null> {
     const response = await this.client.downloadFile(fileId);
+    // 🔴 A FAILED READ IS AN ERROR, NEVER «NO DESCRIPTOR» (23-10, DEV's rate limit): a 429 made every document vanish
+    // from the lists, and a coordination set none was listed for was made again.
+    if (!response.ok) throw new Error(`Reading a document's descriptor answered ${response.status}`);
     const text = await response.text();
     if (!text.trim()) return null;
     let parsed: unknown;
@@ -391,6 +426,7 @@ export class ProjectDocuments {
     });
     const existing = await this.#descriptorFile(folderId);
     if (existing) {
+      descriptorReads.delete(existing.id);
       await this.client.updateFile(existing.id, {
         file: blob,
         versionTag: await this.client.nextVersionTag(existing.id),
@@ -474,12 +510,17 @@ export class ProjectDocuments {
 
   async #descriptorFile(
     folderId: string,
-  ): Promise<{ id: string } | undefined> {
-    const items = await this.client.listFiles({ folderId });
+  ): Promise<{ id: string; stamp?: string } | undefined> {
+    // (Found in the project's listing, which every list and panel of the page shares, not one listing per folder: the
+    // Coordinator's start listed 16 folders one by one for this.)
+    const items = (await this.client.listFiles({ projectId: this.projectId })).filter((item) => {
+      const where = item as { folderId?: unknown; parentFolderId?: unknown };
+      return String(where.folderId ?? where.parentFolderId ?? '') === folderId;
+    });
     const found = items.find(
       (item) => String((item as { name?: unknown }).name ?? '') === DOCUMENT_FILE,
     );
-    return found ? { id: idOf(found as never) } : undefined;
+    return found ? { id: idOf(found as never), stamp: stampOf(found) } : undefined;
   }
 }
 
