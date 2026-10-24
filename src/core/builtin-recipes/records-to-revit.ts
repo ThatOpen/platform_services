@@ -1058,6 +1058,9 @@ function sharedRun(to: 'frag' | 'ifc') {
     // element's frame, placed where the file has each. Doors and windows in the wall whose opening they fill.
     if (shapedPanels.size && typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[shaped-panels] ${shapedPanels.size} curtain panel(s) made as families of their shape`);
     const shaped = shapes ? familiesFromShapes(shapes, seen, picked.fileId, shapedPanels) : [];
+    // (RECIPE_GID=<gid>: what one shaped element is sent as, its shape left out.)
+    if (typeof process !== 'undefined' && process.env?.RECIPE_GID)
+      for (const one of shaped.filter((x) => x.key.includes(process.env!.RECIPE_GID!))) console.error(`[shaped] ${one.key} at ${one.at} turn ${one.rotationDeg} host ${one.host} ${JSON.stringify({ ...one.attrs, Shape: one.attrs.Shape ? '…' : undefined })}`);
     let shapeCount = 0;
     for (const one of shaped) {
       if (
