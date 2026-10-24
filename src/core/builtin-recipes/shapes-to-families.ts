@@ -716,10 +716,6 @@ export function wallTopOf(shapes: SourceShapes, gid: string, from: number[], to:
       const a = all[(k - 1 + all.length) % all.length], b = all[(k + 1) % all.length];
       return Math.abs((b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])) > 1e-4 * Math.hypot(b[0] - a[0], b[1] - a[1]);
     });
-    // (And its holes, the outline's other loops of a tenth of a square metre or more: the openings the file cut.)
-    const holes = allLoops.filter((l) => l.pts !== best && l.area >= 0.1 && l.pts.length <= 200).map((l) => l.pts);
-    // 🔴 A loop not inside the outline is another piece of the wall, not a hole (Schependomlaan 24-10: a partition cut
-    // through by a full-height opening, made of its larger piece alone, 0.50 m³ for 0.77): then no outline.
     const inside = (p: [number, number], poly: [number, number][]) => {
       let c = false;
       for (let i = 0, j = poly.length - 1; i < poly.length; j = i++)
@@ -727,6 +723,12 @@ export function wallTopOf(shapes: SourceShapes, gid: string, from: number[], to:
       return c;
     };
     const centre = (l: [number, number][]) => [l.reduce((t, p) => t + p[0], 0) / l.length, l.reduce((t, p) => t + p[1], 0) / l.length] as [number, number];
+    // (And its holes, the outline's other loops of a tenth of a square metre or more: the openings the file cut.)
+    // (A piece outside it counts from a hundredth: Schependomlaan's partitions keep a 35 mm post beyond their doorway,
+    // 0.095 m², and were made whole boxes, 0.30 m³ for 0.11.)
+    const holes = allLoops.filter((l) => l.pts !== best && l.area >= 0.01 && l.pts.length <= 200 && (l.area >= 0.1 || !inside(centre(l.pts), best!))).map((l) => l.pts);
+    // 🔴 A loop not inside the outline is another piece of the wall, not a hole (Schependomlaan 24-10: a partition cut
+    // through by a full-height opening, made of its larger piece alone, 0.50 m³ for 0.77): then no outline.
     // (Each such piece its own outline, made a wall of its own beside the largest.)
     const pieces = holes.filter((h) => !inside(centre(h), best!));
     // 🔴 AND THE OUTLINE MUST BE THE WALL (Duplex 24-10: a layered party wall whose outer layer stops short read as two
