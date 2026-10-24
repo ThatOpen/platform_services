@@ -729,6 +729,21 @@ export function wallTopOf(shapes: SourceShapes, gid: string, from: number[], to:
     const centre = (l: [number, number][]) => [l.reduce((t, p) => t + p[0], 0) / l.length, l.reduce((t, p) => t + p[1], 0) / l.length] as [number, number];
     // (Each such piece its own outline, made a wall of its own beside the largest.)
     const pieces = holes.filter((h) => !inside(centre(h), best!));
+    // 🔴 AND THE OUTLINE MUST BE THE WALL (Duplex 24-10: a layered party wall whose outer layer stops short read as two
+    // pieces, made 0.85 m³ for 2.86): its area, less its holes and with its pieces, times its thickness within 15 % of
+    // the wall's own volume; else nothing is read.
+    const areaOf = (l: [number, number][]) => { let a = 0; for (let i = 0; i < l.length; i++) { const p = l[i], q = l[(i + 1) % l.length]; a += p[0] * q[1] - q[0] * p[1]; } return Math.abs(a) / 2; };
+    const thick = outer - Math.min(...facing.map((t) => t.across));
+    let volume = 0;
+    for (const piece of el.pieces) {
+      const g = shapes.geometries.get(piece.geometry);
+      if (!g) continue;
+      const m = piece.matrix;
+      const W = (i: number) => { const x = g.verts[i * 3], y = g.verts[i * 3 + 1], z = g.verts[i * 3 + 2]; return [m[0] * x + m[4] * y + m[8] * z + m[12], m[1] * x + m[5] * y + m[9] * z + m[13], m[2] * x + m[6] * y + m[10] * z + m[14]]; };
+      for (let i = 0; i + 2 < g.tris.length; i += 3) { const a = W(g.tris[i]), b = W(g.tris[i + 1]), c = W(g.tris[i + 2]); volume += (a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0])) / 6; }
+    }
+    const read = (areaOf(clean) - holes.filter((h) => !pieces.includes(h)).reduce((t, h) => t + areaOf(h), 0) + pieces.reduce((t, p) => t + areaOf(p), 0)) * thick;
+    if (thick > 0.01 && Math.abs(volume) > 1e-6 && Math.abs(read - Math.abs(volume)) > 0.15 * Math.abs(volume)) return null;
     if (pieces.length) return { lo, hi, bottom, chain: [], outline: clean, holes: holes.filter((h) => !pieces.includes(h)), pieces };
     return (clean.length > 4 || holes.length) && clean.length <= 200 ? { lo, hi, bottom, chain: [], outline: clean, holes } : null;
   }
