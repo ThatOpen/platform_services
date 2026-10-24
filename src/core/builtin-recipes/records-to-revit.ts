@@ -874,6 +874,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       if (shapes && record.item.guid && /^IFCRAMP(FLIGHT)?$/i.test(shapes.elements.get(record.item.guid)?.ifcClass ?? '')) continue;
       slabRead[kind]++;
       const body = innerJson<ExtrusionBody>(record, 'extrusion');
+      if (typeof process !== 'undefined' && process.env?.RECIPE_SLAB === record.item.guid) console.error(`[slab] ${record.item.guid}: params ${JSON.stringify(record.params).slice(0, 600)} body ${JSON.stringify(body).slice(0, 1500)}`);
       const base =
         typeof record.params.base === 'number' ? record.params.base : 0;
       const level = levels.get(String(body?.level ?? record.params.level ?? ''));
@@ -960,6 +961,22 @@ function sharedRun(to: 'frag' | 'ifc') {
         // A slab's `base` is its BOTTOM face, relative to its level; Revit places a floor by its
         // TOP face (height offset from level), and ignores the profile's z.
         attrs.HeightOffset = num(base * s + width);
+        // 🔴 A SLOPED ONE (DACH's gravel, 5°: made flat at its high side, 24-10): its arrow from its lowest corner up
+        // the slope and the slope itself; its top then at that corner, the slope's rise lower than at its high side.
+        const slope = (body as { slope?: { toward?: number; by?: number } } | null)?.slope;
+        const outline = body?.profile?.outline?.curves ?? [];
+        if (slope && typeof slope.by === 'number' && Math.abs(slope.by) > 1e-4 && typeof slope.toward === 'number' && outline.length >= 3) {
+          const d = [Math.cos(slope.toward), Math.sin(slope.toward)];
+          const pts = outline.map((cv) => cv.from!).filter(Boolean);
+          const proj = pts.map((p) => p[0] * d[0] + p[1] * d[1]);
+          const lo = Math.min(...proj), hi = Math.max(...proj);
+          const tail = pts[proj.indexOf(lo)];
+          if (hi - lo > 1e-3) {
+            attrs.Slope = num(slope.by);
+            attrs.SlopeArrow = JSON.stringify([tail[0] * s, tail[1] * s, (tail[0] + d[0] * (hi - lo)) * s, (tail[1] + d[1] * (hi - lo)) * s]);
+            attrs.HeightOffset = num(base * s + width - slope.by * (hi - lo) * s);
+          }
+        }
       }
       if (add(key(record.id), attrs)) slabMade[kind]++;
     }
