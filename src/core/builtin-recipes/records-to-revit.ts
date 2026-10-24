@@ -760,8 +760,25 @@ function sharedRun(to: 'frag' | 'ifc') {
       if (!attrs.Profile && !attrs.AttachTop && shapeOfWall) {
         // (Its whole outline first, when nothing is hosted in it and the outline is the wall: a top read alone stands
         // on a flat foot, and Savoyvilla's wall beside the ramp, cut from below by it, came 7.7 m³ for 3.6, 24-10.)
-        const hosted = [...shapes!.elements.values()].some((o) => o.host === record.item.guid && !/^IFCOPENINGELEMENT$/i.test(o.ifcClass));
-        const whole = !hosted ? wallTopOf(shapes!, record.item.guid!, f, e, true) : null;
+        const hostedIn = [...shapes!.elements.values()].filter((o) => o.host === record.item.guid && !/^IFCOPENINGELEMENT$/i.test(o.ifcClass));
+        let whole = wallTopOf(shapes!, record.item.guid!, f, e, true);
+        // 🔴 (Something hosted in it — Savoyvilla 24-10: the wall the ramp runs through, and a window in it — its outline all
+        // the same, without the holes its hosted things fill: each of those cuts its own.)
+        if (hostedIn.length && whole?.outline) {
+          const L0 = Math.hypot(e[0] - f[0], e[1] - f[1]), d0 = [(e[0] - f[0]) / L0, (e[1] - f[1]) / L0];
+          const boxes = hostedIn.map((o) => {
+            const q = shapePoints(shapes!, o.gid).map((p) => [(p[0] - f[0]) * d0[0] + (p[1] - f[1]) * d0[1], p[2]]);
+            return q.length ? [Math.min(...q.map((x) => x[0])), Math.max(...q.map((x) => x[0])), Math.min(...q.map((x) => x[1])), Math.max(...q.map((x) => x[1]))] : null;
+          }).filter((b): b is number[] => b !== null);
+          const filled = (hole: [number, number][]) => {
+            const a0 = Math.min(...hole.map((h) => h[0])), a1 = Math.max(...hole.map((h) => h[0])), z0 = Math.min(...hole.map((h) => h[1])), z1 = Math.max(...hole.map((h) => h[1]));
+            return boxes.some((b) => Math.min(a1, b[1]) - Math.max(a0, b[0]) > 0.5 * (a1 - a0) && Math.min(z1, b[3]) - Math.max(z0, b[2]) > 0.5 * (z1 - z0));
+          };
+          const free = (whole.holes ?? []).filter((h) => !filled(h));
+          // (And with none left: its outline still says a notch its top cannot — Savoyvilla's lintel wall, 2.4 m³ for 1.5.)
+          whole = !whole.pieces?.length && (free.length || whole.outline.length > 4) ? { ...whole, holes: free } : null;
+          if (whole && typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[wall-outline] ${record.item.guid}: ${hostedIn.length} hosted, ${free.length} empty hole(s) kept`);
+        }
         const top = whole?.outline ? null : wallTopOf(shapes!, record.item.guid!, f, e);
         if (top) {
           if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[wall-top] ${record.item.guid} ${record.item.name ?? ''}: ${top.chain.map(([a, z]) => `${a.toFixed(2)}/${z.toFixed(2)}`).join(' ')}`);
@@ -806,6 +823,39 @@ function sharedRun(to: 'frag' | 'ifc') {
             if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[wall-holes] ${record.item.guid} ${record.item.name ?? ''}: ${whole.holes.length} hole(s) added to the converter's profile`);
           } catch { /* a profile not in loops: as it came */ }
         }
+      }
+      // 🔴 CUT BY THE PLANES THE FILE CUTS IT BY (Savoyvilla 24-10: the wall beside the ramp, cut from below by its slope,
+      // something hosted in it so read by its top alone, its foot flat: 7.7 m³ for 3.6): its outline clipped by each
+      // plane that is not upright (an upright one is an end, which its line already says).
+      const clips = ((body as { clippedBy?: { through: number[]; keep: number[] }[] }).clippedBy ?? []).filter((c) => Array.isArray(c.through) && Array.isArray(c.keep) && Math.abs(c.keep[2]) > 0.05);
+      if (!sg.arcMid && clips.length && !attrs.AttachTop) {
+        try {
+          const L = Math.hypot(e[0] - f[0], e[1] - f[1]);
+          const z0 = level.at + base;
+          const loops: number[][] = attrs.Profile ? JSON.parse(attrs.Profile)
+            : [[f[0] * s, f[1] * s, z0 * s, e[0] * s, e[1] * s, z0 * s, e[0] * s, e[1] * s, (z0 + height) * s, f[0] * s, f[1] * s, (z0 + height) * s]];
+          let pts = [] as number[][];
+          for (let i = 0; i + 2 < loops[0].length; i += 3) pts.push([loops[0][i] / s, loops[0][i + 1] / s, loops[0][i + 2] / s]);
+          const areaOf = (q: number[][]) => { const d = [(e[0] - f[0]) / L, (e[1] - f[1]) / L]; let a = 0; for (let i = 0; i < q.length; i++) { const p = q[i], r = q[(i + 1) % q.length]; a += (p[0] * d[0] + p[1] * d[1]) * r[2] - (r[0] * d[0] + r[1] * d[1]) * p[2]; } return Math.abs(a) / 2; };
+          const before = areaOf(pts);
+          for (const c of clips) {
+            const side = (p: number[]) => (p[0] - c.through[0]) * c.keep[0] + (p[1] - c.through[1]) * c.keep[1] + (p[2] - c.through[2]) * c.keep[2];
+            const out: number[][] = [];
+            for (let i = 0; i < pts.length; i++) {
+              const p = pts[i], q = pts[(i + 1) % pts.length], sp = side(p), sq = side(q);
+              if (sp >= 0) out.push(p);
+              if ((sp >= 0) !== (sq >= 0)) { const r = sp / (sp - sq); out.push([0, 1, 2].map((k) => p[k] + r * (q[k] - p[k]))); }
+            }
+            pts = out;
+          }
+          const after = pts.length >= 3 ? areaOf(pts) : 0;
+          if (after > 0.05 && before - after > 0.05) {
+            if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[wall-clip] ${record.item.guid} ${record.item.name ?? ''}: ${clips.length} plane(s), ${before.toFixed(2)} → ${after.toFixed(2)} m²`);
+            attrs.Profile = JSON.stringify([pts.flatMap((p) => [p[0] * s, p[1] * s, p[2] * s]), ...loops.slice(1)]);
+            delete attrs.TopLevel;
+            delete attrs.TopOffset;
+          }
+        } catch { /* a profile not in loops: as it came */ }
       }
       // 🔴 AN ARC, WHERE ITS SHAPE BOWS (cims 24-10: curved partitions the converter gives as the chord, 12 cm off at
       // their middle): the middle of its shape across its line against its ends'; bowed over 2 cm, the point its arc
