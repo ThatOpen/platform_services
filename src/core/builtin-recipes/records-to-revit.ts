@@ -681,7 +681,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       // Not said by the converter: read off the file's own shape (a top the roof cut).
       const attachTo = typeof attachedTo === 'string' ? attachedTo
         : shapes && record.item.guid ? roofOverWall(shapes, record.item.guid, roofGids) : undefined;
-      if (attachTo && !attrs.Profile) { attrs.AttachTop = key(attachTo); const before = made.get(key(attachTo))?.id; if (before) attrs.AttachTopMade = before; }
+      if (attachTo && !attrs.Profile) { attrs.AttachTop = key(attachTo); const before = made.get(key(attachTo)); if (before) attrs.AttachTopMade = before; }
       if (attachTo && typeof attachedTo !== 'string' && typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[attach] ${record.item.guid} ${record.item.name ?? ''} → ${attachTo}`);
       // 🔴 ITS TOP AS ITS SHAPE DRAWS IT, when nothing above said it (an edited profile Revit exported as polygonal
       // openings with nothing in them: racbasic's 530178, 6.3 m³ for 1.2; see `wallTopOf`).
@@ -1318,7 +1318,7 @@ function sharedRun(to: 'frag' | 'ifc') {
     let shapeCount = 0;
     for (const one of shaped) {
       if (
-        add(one.key, one.host && made.get(one.host)?.id ? { ...one.attrs, HostMade: made.get(one.host)!.id } : one.attrs, {
+        add(one.key, one.host && made.get(one.host) ? { ...one.attrs, HostMade: made.get(one.host)! } : one.attrs, {
           position: [one.at[0] * s, one.at[1] * s, (one.at[2] - shapeDz) * s],
           rotationDeg: one.rotationDeg,
           ...(one.host ? { host: one.host } : {}),
@@ -1330,7 +1330,7 @@ function sharedRun(to: 'frag' | 'ifc') {
     // timber wall twice the IFC's volume (21-10).
     if (shapes) {
       for (const o of openingsFromShapes(shapes, seen, picked.fileId)) {
-        add(o.key, { WallOpening: o.box.map((v, i) => num((i % 3 === 2 ? v - shapeDz : v) * s)).join(','), ...(made.get(o.host)?.id ? { HostMade: made.get(o.host)!.id } : {}) }, { host: o.host });
+        add(o.key, { WallOpening: o.box.map((v, i) => num((i % 3 === 2 ? v - shapeDz : v) * s)).join(','), ...(made.get(o.host) ? { HostMade: made.get(o.host)! } : {}) }, { host: o.host });
       }
     }
     // The rooms, last: each where its space's floor is, bounded by the walls as Revit bounds a room (21-10: the
