@@ -869,6 +869,9 @@ function sharedRun(to: 'frag' | 'ifc') {
       if (record.kind !== 'extrusion' || (of !== 'slab' && of !== 'roof' && of !== 'covering')) continue;
       const kind = of === 'covering' ? 'ceiling' : of === 'roof' ? 'roof' : slabKind(record);
       if (kind === 'other') continue;
+      // 🔴 A RAMP IS NO FLOOR: Revit makes no ramp through its API, and a ramp's sloped flight as a floor came to nothing
+      // (Savoyvilla 24-10: its 4 flights missing, BLOXHUB's made from their shapes all twins). Left to its shape.
+      if (shapes && record.item.guid && /^IFCRAMP(FLIGHT)?$/i.test(shapes.elements.get(record.item.guid)?.ifcClass ?? '')) continue;
       slabRead[kind]++;
       const body = innerJson<ExtrusionBody>(record, 'extrusion');
       const base =
