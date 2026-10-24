@@ -734,7 +734,10 @@ function sharedRun(to: 'frag' | 'ifc') {
       if (!body?.start || !body.end || !(Number(body.rise) > 0) || !level || !style) continue;
       const n = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0);
       const rise = Number(body.rise);
-      const risers = Math.max(1, Math.ceil(rise / n(style.maxRiser) - 1e-6));
+      // (A style with no maximum riser: as many as the sketch draws, else Revit's 18 cm. BLOXHUB 24-10: rise / 0, an
+      // Infinity that went as null, «could not be converted to Int32», a stair of nothing.)
+      const maxRiser = n(style.maxRiser) > 0 ? n(style.maxRiser) : body.sketch?.risers?.length ? rise / (body.sketch.risers.length + 1) : 0.18;
+      const risers = Math.max(1, Math.ceil(rise / maxRiser - 1e-6));
       const tread = n(style.tread);
       const p = (q: [number, number]) => [q[0] * s, q[1] * s];
       const spec: Record<string, unknown> = {
