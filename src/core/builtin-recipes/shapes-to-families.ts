@@ -316,6 +316,14 @@ function canonicalPrism(prism: { axis: number; loops: [number, number][][] }): {
     const r = q.map(([a, b]) => Math.hypot(a, b));
     const mean = r.reduce((x, y) => x + y, 0) / r.length;
     if (q.length < 8 || mean <= 0 || r.some((x) => Math.abs(x - mean) > 0.02 * mean)) return q;
+    // 🔴 And evenly spaced round it (BLOXHUB's 85 «WC Ceiling Slot», a 150 x 100 U of 2 mm, its 8 corners all near one
+    // radius, were made solid octagons, 30 times their volume, 24-10): each step a 1/n turn, to a tenth of it.
+    const step = (2 * Math.PI) / q.length;
+    for (let i = 0; i < q.length; i++) {
+      const a = Math.atan2(q[i][1], q[i][0]), b = Math.atan2(q[(i + 1) % q.length][1], q[(i + 1) % q.length][0]);
+      const d = Math.abs(Math.atan2(Math.sin(b - a), Math.cos(b - a)));
+      if (Math.abs(d - step) > 0.1 * step) return q;
+    }
     const area = q.reduce((sum, p, i) => { const n = q[(i + 1) % q.length]; return sum + p[0] * n[1] - n[0] * p[1]; }, 0);
     const dir = area >= 0 ? 1 : -1;
     return q.map((_, k) => [mean * Math.cos((dir * 2 * Math.PI * k) / q.length), mean * Math.sin((dir * 2 * Math.PI * k) / q.length)] as [number, number]);
