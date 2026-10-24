@@ -475,6 +475,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       /** Its other pieces' profiles, when the file cut it through (see `wallTopOf`). */
       let pieceProfiles: string[] = [];
       const body = innerJson<RunBody>(record, 'run')!;
+      if (typeof process !== 'undefined' && process.env?.RECIPE_WALL === record.item.guid) console.error(`[wall] ${record.item.guid}: params ${JSON.stringify(record.params).slice(0, 800)} seg ${JSON.stringify({ from: sg.from, to: sg.to, i: sg.i })}`);
       const base = typeof body.base === 'number' ? body.base : 0;
       const height = body.height!;
       const level = levels.get(String(body.level ?? record.params.level ?? ''))!;
@@ -656,6 +657,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         attrs['Type.Layers'] = JSON.stringify([...declared.layers].reverse().map((l) => [+num(l.thickness * s), l.material ?? '', l.function ?? '']));
         if (declared.layersFlipped) attrs.FlipLayers = '1';
       }
+      if (typeof process !== 'undefined' && process.env?.RECIPE_WALL === record.item.guid) console.error(`[wall-attrs] ${JSON.stringify(attrs).slice(0, 1500)}`);
       if (add(`${key(record.id)}#${sg.i}`, attrs)) wallCount++;
       // Its other pieces (a wall the file cut through, top to bottom), each a wall of the same type by its outline.
       pieceProfiles.forEach((profile, k) => { if (add(`${key(record.id)}#${sg.i}p${k + 1}`, { ...attrs, Profile: profile })) wallCount++; });
