@@ -585,6 +585,20 @@ function sharedRun(to: 'frag' | 'ifc') {
           delete attrs.TopLevel;
           delete attrs.TopOffset;
         }
+        // Else its whole outline when nothing is hosted in it (a notch at its end; see `wallTopOf`): where a door or
+        // window is, its own opening cuts it.
+        const hosted = [...shapes!.elements.values()].some((o) => o.host === record.item.guid);
+        const whole = !top && !hosted ? wallTopOf(shapes!, record.item.guid!, f, e, true) : null;
+        if (whole?.outline) {
+          if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[wall-outline] ${record.item.guid} ${record.item.name ?? ''}: ${whole.outline.length} corners`);
+          const L = Math.hypot(e[0] - f[0], e[1] - f[1]);
+          const dir = [(e[0] - f[0]) / L, (e[1] - f[1]) / L];
+          const flat: number[] = [];
+          for (const [along, z] of whole.outline) flat.push((f[0] + along * dir[0]) * s, (f[1] + along * dir[1]) * s, (z - shapeDz) * s);
+          attrs.Profile = JSON.stringify([flat]);
+          delete attrs.TopLevel;
+          delete attrs.TopOffset;
+        }
       }
       const width = thicknessOf(lookRef);
       if (width) attrs['Type.Width'] = num(width);

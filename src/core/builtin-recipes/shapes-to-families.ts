@@ -626,7 +626,7 @@ export function shapedPanelsOf(shapes: SourceShapes, curtainGid: string, sheet: 
  * highest point at one end to its highest at the other. Null when that top is flat and level (a box's), or the shape
  * says nothing clear. Bottom notches (doors) and holes (windows) are not read: they cut their own openings.
  */
-export function wallTopOf(shapes: SourceShapes, gid: string, from: number[], to: number[]): { lo: number; hi: number; bottom: number; chain: [number, number][] } | null {
+export function wallTopOf(shapes: SourceShapes, gid: string, from: number[], to: number[], wholeOutline = false): { lo: number; hi: number; bottom: number; chain: [number, number][]; outline?: [number, number][] } | null {
   const el = shapes.elements.get(gid);
   if (!el) return null;
   const L = Math.hypot(to[0] - from[0], to[1] - from[1]);
@@ -706,6 +706,16 @@ export function wallTopOf(shapes: SourceShapes, gid: string, from: number[], to:
   const lo = Math.min(...best.map((p) => p[0])), hi = Math.max(...best.map((p) => p[0]));
   const bottom = Math.min(...best.map((p) => p[1])), topZ = Math.max(...best.map((p) => p[1]));
   if (!(hi - lo > 0.1) || !(topZ - bottom > 0.1)) return null;
+  // 🔴 OR ITS WHOLE OUTLINE, asked for a wall nothing is hosted in (BLOXHUB 24-10: K102 walls with a notch at their
+  // end half way up, made whole boxes, 0.91 m³ for 0.52): the outline as it is, its straight-through corners left out;
+  // null when it is a plain rectangle.
+  if (wholeOutline) {
+    const clean = best.filter((p, k, all) => {
+      const a = all[(k - 1 + all.length) % all.length], b = all[(k + 1) % all.length];
+      return Math.abs((b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])) > 1e-4 * Math.hypot(b[0] - a[0], b[1] - a[1]);
+    });
+    return clean.length > 4 && clean.length <= 200 ? { lo, hi, bottom, chain: [], outline: clean } : null;
+  }
   // Its two ends' highest points, and the chain between them that runs over the top.
   const atEnd = (x: number) => best!.map((p, i) => ({ p, i })).filter(({ p }) => Math.abs(p[0] - x) < 0.003).sort((u, v) => v.p[1] - u.p[1])[0];
   const A = atEnd(lo), Bp = atEnd(hi);
