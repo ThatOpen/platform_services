@@ -34,7 +34,7 @@ import {
   whatItMadeBefore,
   type PickedFile,
 } from './shared';
-import { familiesFromShapes, openingsFromShapes, pointsOf as shapePoints, roofOverWall, roomsFromShapes } from './shapes-to-families';
+import { familiesFromShapes, openingsFromShapes, pointsOf as shapePoints, roofOverWall, roomsFromShapes, wallTopOf } from './shapes-to-families';
 
 /** Revit's own category ids, printed from RevitAPI.dll - never guessed. */
 const CATEGORY = {
@@ -543,6 +543,24 @@ function sharedRun(to: 'frag' | 'ifc') {
       const attachTo = typeof attachedTo === 'string' ? attachedTo
         : shapes && record.item.guid ? roofOverWall(shapes, record.item.guid, roofGids) : undefined;
       if (attachTo && !attrs.Profile) attrs.AttachTop = key(attachTo);
+      // 🔴 ITS TOP AS ITS SHAPE DRAWS IT, when nothing above said it (an edited profile Revit exported as polygonal
+      // openings with nothing in them: racbasic's 530178, 6.3 m³ for 1.2; see `wallTopOf`).
+      if (!attrs.Profile && !attrs.AttachTop && shapeOfWall) {
+        const top = wallTopOf(shapes!, record.item.guid!, f, e);
+        if (top) {
+          if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[wall-top] ${record.item.guid} ${record.item.name ?? ''}: ${top.chain.map(([a, z]) => `${a.toFixed(2)}/${z.toFixed(2)}`).join(' ')}`);
+          const L = Math.hypot(e[0] - f[0], e[1] - f[1]);
+          const dir = [(e[0] - f[0]) / L, (e[1] - f[1]) / L];
+          const flat: number[] = [];
+          const corner = (along: number, z: number) => { flat.push((f[0] + along * dir[0]) * s, (f[1] + along * dir[1]) * s, z * s); };
+          corner(top.lo, top.bottom);
+          corner(top.hi, top.bottom);
+          for (const [along, z] of [...top.chain].reverse()) corner(along, z);
+          attrs.Profile = JSON.stringify([flat]);
+          delete attrs.TopLevel;
+          delete attrs.TopOffset;
+        }
+      }
       const width = thicknessOf(lookRef);
       if (width) attrs['Type.Width'] = num(width);
       // ITS LAYERS, as the file declares them (the original's compound wall: a face between each two, which a

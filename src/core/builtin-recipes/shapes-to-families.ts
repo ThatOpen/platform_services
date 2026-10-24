@@ -557,6 +557,124 @@ export function pointsOf(shapes: SourceShapes, gid: string, only?: number): numb
 }
 
 /**
+ * 🔴 A WALL'S TOP AS ITS SHAPE DRAWS IT (24-10: Revit exports an edited profile as the wall's box less polygonal
+ * openings with nothing in them, which the converter does not read as an elevation; racbasic's 530178 came out 6.3 m³
+ * for 1.2, Savoyvilla's walls twice their volume). Read off the wall's own mesh, its holes already cut: the face that
+ * looks out along its normal, outermost, flattened onto [along, z] from `from`; its outline's upper chain, from its
+ * highest point at one end to its highest at the other. Null when that top is flat and level (a box's), or the shape
+ * says nothing clear. Bottom notches (doors) and holes (windows) are not read: they cut their own openings.
+ */
+export function wallTopOf(shapes: SourceShapes, gid: string, from: number[], to: number[]): { lo: number; hi: number; bottom: number; chain: [number, number][] } | null {
+  const el = shapes.elements.get(gid);
+  if (!el) return null;
+  const L = Math.hypot(to[0] - from[0], to[1] - from[1]);
+  if (!(L > 0.1)) return null;
+  const d = [(to[0] - from[0]) / L, (to[1] - from[1]) / L];
+  const nrm = [-d[1], d[0]];
+  type Tri = { a: number[]; b: number[]; c: number[]; across: number };
+  const facing: Tri[] = [];
+  for (const piece of el.pieces) {
+    const g = shapes.geometries.get(piece.geometry);
+    if (!g) continue;
+    const m = piece.matrix;
+    const W = (i: number) => {
+      const x = g.verts[i * 3], y = g.verts[i * 3 + 1], z = g.verts[i * 3 + 2];
+      return [m[0] * x + m[4] * y + m[8] * z + m[12], m[1] * x + m[5] * y + m[9] * z + m[13], m[2] * x + m[6] * y + m[10] * z + m[14]];
+    };
+    for (let i = 0; i + 2 < g.tris.length; i += 3) {
+      const a = W(g.tris[i]), b = W(g.tris[i + 1]), c = W(g.tris[i + 2]);
+      const n = cross([b[0] - a[0], b[1] - a[1], b[2] - a[2]], [c[0] - a[0], c[1] - a[1], c[2] - a[2]]);
+      const len = Math.hypot(n[0], n[1], n[2]);
+      if (len < 1e-9) continue;
+      if (Math.abs((n[0] * nrm[0] + n[1] * nrm[1]) / len) < 0.995) continue;
+      const across = ((a[0] + b[0] + c[0]) / 3 - from[0]) * nrm[0] + ((a[1] + b[1] + c[1]) / 3 - from[1]) * nrm[1];
+      facing.push({ a, b, c, across });
+    }
+  }
+  if (facing.length < 2) return null;
+  // The outermost face only (a layered wall has a face between each two).
+  const outer = Math.max(...facing.map((t) => t.across));
+  const face = facing.filter((t) => t.across > outer - 0.005);
+  // Flattened, welded at a millimetre; an edge used once is the outline's.
+  const key = (p: number[]) => {
+    const along = (p[0] - from[0]) * d[0] + (p[1] - from[1]) * d[1];
+    return `${Math.round(along * 1000)},${Math.round(p[2] * 1000)}`;
+  };
+  const edges = new Map<string, number>();
+  const edgeKey = (u: string, v: string) => (u < v ? `${u}|${v}` : `${v}|${u}`);
+  for (const t of face) {
+    const ks = [key(t.a), key(t.b), key(t.c)];
+    for (let k = 0; k < 3; k++) {
+      const u = ks[k], v = ks[(k + 1) % 3];
+      if (u === v) continue;
+      const e = edgeKey(u, v);
+      edges.set(e, (edges.get(e) ?? 0) + 1);
+    }
+  }
+  const next = new Map<string, string[]>();
+  for (const [e, n] of edges) {
+    if (n !== 1) continue;
+    const [u, v] = e.split('|');
+    (next.get(u) ?? next.set(u, []).get(u)!).push(v);
+    (next.get(v) ?? next.set(v, []).get(v)!).push(u);
+  }
+  if (next.size < 3 || next.size > 4000) return null;
+  // Its loops; the outline is the one of largest area.
+  const pt = (k: string) => k.split(',').map((n) => Number(n) / 1000) as [number, number];
+  const seen = new Set<string>();
+  let best: [number, number][] | null = null;
+  let bestArea = 0;
+  for (const start of next.keys()) {
+    if (seen.has(start)) continue;
+    const loop: string[] = [start];
+    seen.add(start);
+    let prev = '', cur = start;
+    for (let guard = 0; guard < 5000; guard++) {
+      const nb = (next.get(cur) ?? []).find((v) => v !== prev && !seen.has(v)) ?? null;
+      if (!nb) break;
+      loop.push(nb); seen.add(nb); prev = cur; cur = nb;
+    }
+    if (loop.length < 3) continue;
+    const pts = loop.map(pt);
+    let area = 0;
+    for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[(i + 1) % pts.length]; area += p[0] * q[1] - q[0] * p[1]; }
+    if (Math.abs(area) / 2 > bestArea) { bestArea = Math.abs(area) / 2; best = pts; }
+  }
+  if (!best || best.length < 3) return null;
+  const lo = Math.min(...best.map((p) => p[0])), hi = Math.max(...best.map((p) => p[0]));
+  const bottom = Math.min(...best.map((p) => p[1])), topZ = Math.max(...best.map((p) => p[1]));
+  if (!(hi - lo > 0.1) || !(topZ - bottom > 0.1)) return null;
+  // Its two ends' highest points, and the chain between them that runs over the top.
+  const atEnd = (x: number) => best!.map((p, i) => ({ p, i })).filter(({ p }) => Math.abs(p[0] - x) < 0.003).sort((u, v) => v.p[1] - u.p[1])[0];
+  const A = atEnd(lo), Bp = atEnd(hi);
+  if (!A || !Bp) return null;
+  const walk = (step: 1 | -1) => {
+    const out: [number, number][] = [];
+    for (let i = A.i, guard = 0; guard <= best!.length; i = (i + step + best!.length) % best!.length, guard++) {
+      out.push(best![i]);
+      if (i === Bp.i) return out;
+    }
+    return null;
+  };
+  const one = walk(1), other = walk(-1);
+  const mean = (c: [number, number][] | null) => (c ? c.reduce((t, p) => t + p[1], 0) / c.length : -Infinity);
+  let chain = mean(one) >= mean(other) ? one : other;
+  if (!chain || chain.length < 2) return null;
+  // Points on a straight line between their neighbours, left out.
+  chain = chain.filter((p, k, all) => {
+    if (k === 0 || k === all.length - 1) return true;
+    const a = all[k - 1], b = all[k + 1];
+    return Math.abs((b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])) > 1e-4 * Math.hypot(b[0] - a[0], b[1] - a[1]);
+  });
+  // A top flat and level is a box's: nothing to say.
+  if (chain.every((p) => Math.abs(p[1] - topZ) < 0.005)) return null;
+  // (And the chain must run forward along the wall, over its top: a loop read wrong says nothing.)
+  for (let k = 1; k < chain.length; k++) if (chain[k][0] < chain[k - 1][0] - 0.003) return null;
+  if (chain.length > 200) return null;
+  return { lo, hi, bottom, chain };
+}
+
+/**
  * 🔴 A WALL WHOSE TOP THE FILE SHOWS CUT BY A ROOF, ATTACHED TO IT (21-10: racbasic's partitions under its roof stood
  * flat-topped, 6-30 % more wall than the IFC, because the converter had not said they were attached). The wall's top
  * in the file is not level (its two ends' tops differ, or its middle stands above them), and a roof covers it from
