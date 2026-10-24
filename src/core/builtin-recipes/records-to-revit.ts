@@ -699,7 +699,15 @@ function sharedRun(to: 'frag' | 'ifc') {
       // base, laid in the wall's vertical plane. Its first and last stations go where the ends
       // went, so an end extended to a meeting carries the outline with it.
       const given = (body as { profile?: [number, number][] }).profile;
-      const profile = Array.isArray(given) ? withoutSlivers(given) : given;
+      let profile = Array.isArray(given) ? withoutSlivers(given) : given;
+      // 🔴 (A rectangle over its whole line and height says nothing a plain wall does not — and a wall by its outline is
+      // one Revit will not mitre nor join: Schependomlaan 24-10, 40 «HSB-element» walls squared at their mitred ends.)
+      if (Array.isArray(profile) && profile.length === 4) {
+        const L0 = Math.hypot(sg.to[0] - sg.from[0], sg.to[1] - sg.from[1]), h0 = body.height!;
+        const at = (v: number, end: number) => (Math.abs(v) < 1e-4 ? 'lo' : Math.abs(v - end) < 1e-3 ? 'hi' : null);
+        const corners = profile.map(([a, z]) => [at(a, L0), at(z, h0)]);
+        if (corners.every(([a, z]) => a && z) && new Set(corners.map(([a, z]) => `${a}${z}`)).size === 4) profile = undefined;
+      }
       if (!sg.arcMid && Array.isArray(profile) && profile.length >= 3 && sg.i === 0 && !segs.some((o) => o !== sg && o.record === record)) {
         const L = Math.hypot(sg.to[0] - sg.from[0], sg.to[1] - sg.from[1]);
         const dir = [(sg.to[0] - sg.from[0]) / L, (sg.to[1] - sg.from[1]) / L];
@@ -762,6 +770,18 @@ function sharedRun(to: 'frag' | 'ifc') {
         // on a flat foot, and Savoyvilla's wall beside the ramp, cut from below by it, came 7.7 m³ for 3.6, 24-10.)
         const hostedIn = [...shapes!.elements.values()].filter((o) => o.host === record.item.guid && !/^IFCOPENINGELEMENT$/i.test(o.ifcClass));
         let whole = wallTopOf(shapes!, record.item.guid!, f, e, true);
+        // (Never an edge of millimetres — Schependomlaan's balcony upstands, «la línea es demasiado corta», and Revit
+        // deleted them: corners nearer than 2 cm to the last kept one merged; a hole left with less than three, gone.)
+        const merged = (loop: [number, number][]) => {
+          const out: [number, number][] = [];
+          for (const p of loop) if (!out.length || Math.hypot(p[0] - out[out.length - 1][0], p[1] - out[out.length - 1][1]) >= 0.02) out.push(p);
+          while (out.length > 1 && Math.hypot(out[0][0] - out[out.length - 1][0], out[0][1] - out[out.length - 1][1]) < 0.02) out.pop();
+          return out;
+        };
+        if (whole?.outline) {
+          const outline = merged(whole.outline);
+          whole = outline.length >= 3 ? { ...whole, outline, holes: (whole.holes ?? []).map(merged).filter((h) => h.length >= 3) } : null;
+        }
         // 🔴 (Something hosted in it — Savoyvilla 24-10: the wall the ramp runs through, and a window in it — its outline all
         // the same, without the holes its hosted things fill: each of those cuts its own.)
         if (hostedIn.length && whole?.outline) {
