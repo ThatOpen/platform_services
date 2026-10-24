@@ -923,7 +923,7 @@ function sharedRun(to: 'frag' | 'ifc') {
           let far = -Infinity, pick = -1;
           for (let k = 1; k < b.length; k++) {
             const e = [b[(k + 1) % b.length][0] - b[k][0], b[(k + 1) % b.length][1] - b[k][1]], el = Math.hypot(e[0], e[1]);
-            if (!(el > 0) || Math.abs((e[0] * ld[1] - e[1] * ld[0]) / (el * ll)) > 0.02) continue;
+            if (!(el > 0) || Math.abs((e[0] * ld[1] - e[1] * ld[0]) / (el * ll)) > 0.06) continue; // (about 3°: DACH's end edge is 1.7° off its riser)
             const m = mid([b[k], b[(k + 1) % b.length]]);
             const dist = Math.hypot(m[0] - fm[0], m[1] - fm[1]);
             if (dist > far + 1e-6) { far = dist; pick = k; }
