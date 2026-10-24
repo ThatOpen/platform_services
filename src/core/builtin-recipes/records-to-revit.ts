@@ -587,15 +587,16 @@ function sharedRun(to: 'frag' | 'ifc') {
         }
         // Else its whole outline when nothing is hosted in it (a notch at its end; see `wallTopOf`): where a door or
         // window is, its own opening cuts it.
-        const hosted = [...shapes!.elements.values()].some((o) => o.host === record.item.guid);
+        // (Its openings with nothing in them are its outline's holes: only a door or a window hosted keeps it a box.)
+        const hosted = [...shapes!.elements.values()].some((o) => o.host === record.item.guid && !/^IFCOPENINGELEMENT$/i.test(o.ifcClass));
         const whole = !top && !hosted ? wallTopOf(shapes!, record.item.guid!, f, e, true) : null;
         if (whole?.outline) {
           if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[wall-outline] ${record.item.guid} ${record.item.name ?? ''}: ${whole.outline.length} corners`);
           const L = Math.hypot(e[0] - f[0], e[1] - f[1]);
           const dir = [(e[0] - f[0]) / L, (e[1] - f[1]) / L];
           const flat: number[] = [];
-          for (const [along, z] of whole.outline) flat.push((f[0] + along * dir[0]) * s, (f[1] + along * dir[1]) * s, (z - shapeDz) * s);
-          attrs.Profile = JSON.stringify([flat]);
+          const loopOf = (loop: [number, number][]) => loop.flatMap(([along, z]) => [(f[0] + along * dir[0]) * s, (f[1] + along * dir[1]) * s, (z - shapeDz) * s]);
+          attrs.Profile = JSON.stringify([loopOf(whole.outline), ...(whole.holes ?? []).map(loopOf)]);
           delete attrs.TopLevel;
           delete attrs.TopOffset;
         }

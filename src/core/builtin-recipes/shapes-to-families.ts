@@ -626,7 +626,7 @@ export function shapedPanelsOf(shapes: SourceShapes, curtainGid: string, sheet: 
  * highest point at one end to its highest at the other. Null when that top is flat and level (a box's), or the shape
  * says nothing clear. Bottom notches (doors) and holes (windows) are not read: they cut their own openings.
  */
-export function wallTopOf(shapes: SourceShapes, gid: string, from: number[], to: number[], wholeOutline = false): { lo: number; hi: number; bottom: number; chain: [number, number][]; outline?: [number, number][] } | null {
+export function wallTopOf(shapes: SourceShapes, gid: string, from: number[], to: number[], wholeOutline = false): { lo: number; hi: number; bottom: number; chain: [number, number][]; outline?: [number, number][]; holes?: [number, number][][] } | null {
   const el = shapes.elements.get(gid);
   if (!el) return null;
   const L = Math.hypot(to[0] - from[0], to[1] - from[1]);
@@ -686,6 +686,7 @@ export function wallTopOf(shapes: SourceShapes, gid: string, from: number[], to:
   const seen = new Set<string>();
   let best: [number, number][] | null = null;
   let bestArea = 0;
+  const allLoops: { pts: [number, number][]; area: number }[] = [];
   for (const start of next.keys()) {
     if (seen.has(start)) continue;
     const loop: string[] = [start];
@@ -700,6 +701,7 @@ export function wallTopOf(shapes: SourceShapes, gid: string, from: number[], to:
     const pts = loop.map(pt);
     let area = 0;
     for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[(i + 1) % pts.length]; area += p[0] * q[1] - q[0] * p[1]; }
+    allLoops.push({ pts, area: Math.abs(area) / 2 });
     if (Math.abs(area) / 2 > bestArea) { bestArea = Math.abs(area) / 2; best = pts; }
   }
   if (!best || best.length < 3) return null;
@@ -714,7 +716,9 @@ export function wallTopOf(shapes: SourceShapes, gid: string, from: number[], to:
       const a = all[(k - 1 + all.length) % all.length], b = all[(k + 1) % all.length];
       return Math.abs((b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])) > 1e-4 * Math.hypot(b[0] - a[0], b[1] - a[1]);
     });
-    return clean.length > 4 && clean.length <= 200 ? { lo, hi, bottom, chain: [], outline: clean } : null;
+    // (And its holes, the outline's other loops of a tenth of a square metre or more: the openings the file cut.)
+    const holes = allLoops.filter((l) => l.pts !== best && l.area >= 0.1 && l.pts.length <= 200).map((l) => l.pts);
+    return (clean.length > 4 || holes.length) && clean.length <= 200 ? { lo, hi, bottom, chain: [], outline: clean, holes } : null;
   }
   // Its two ends' highest points, and the chain between them that runs over the top.
   const atEnd = (x: number) => best!.map((p, i) => ({ p, i })).filter(({ p }) => Math.abs(p[0] - x) < 0.003).sort((u, v) => v.p[1] - u.p[1])[0];
