@@ -349,6 +349,8 @@ function sharedRun(to: 'frag' | 'ifc') {
     // ---- 2. Walls: one add per straight segment of each wall run. ----
     let wallCount = 0;
     let wallSkipped = 0;
+    /** Each wall type's width, as the first wall of it said it (see «one type, one width» below). */
+    const wallTypeWidths = new Map<string, number>();
     interface Seg {
       record: (typeof records)[number];
       i: number;
@@ -468,6 +470,28 @@ function sharedRun(to: 'frag' | 'ifc') {
       each.sort((a, b) => a - b);
       if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[glass] ${curtainGid}: ${each.length} panel(s), median ${(each[Math.floor(each.length / 2)] * 1000).toFixed(1)} mm`);
       return each[Math.floor(each.length / 2)] * s;
+    };
+    // 🔴 ITS MULLIONS AS THE FILE HAS THEM, when its type says none (Conference Center 24-10: every curtain wall's
+    // upright width read 0, so Revit drew no mullion, and 397 of its 1245 members had nothing to be): the median bar
+    // of its own members, its face (the narrower of along and up) and its depth (across the wall).
+    const mullionOf = (curtainGid: string | undefined, d: number[]): { width: number; depth: number } | null => {
+      if (!shapes || !curtainGid) return null;
+      const nrm = [-d[1], d[0]];
+      const faces: number[] = [], depths: number[] = [];
+      for (const el of shapes.elements.values()) {
+        if (el.parent !== curtainGid || !/^IFCMEMBER$/i.test(el.ifcClass)) continue;
+        const pts = shapePoints(shapes, el.gid);
+        if (pts.length < 4) continue;
+        const along = pts.map((p) => p[0] * d[0] + p[1] * d[1]), across = pts.map((p) => p[0] * nrm[0] + p[1] * nrm[1]), up = pts.map((p) => p[2]);
+        const span = (v: number[]) => Math.max(...v) - Math.min(...v);
+        const face = Math.min(span(along), span(up)), depth = span(across);
+        if (face > 0.005 && face < 0.5 && depth > 0.005 && depth < 1) { faces.push(face); depths.push(depth); }
+      }
+      if (!faces.length) return null;
+      faces.sort((a, b) => a - b); depths.sort((a, b) => a - b);
+      const m = { width: faces[Math.floor(faces.length / 2)], depth: depths[Math.floor(depths.length / 2)] };
+      if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[mullion] ${curtainGid}: ${faces.length} member(s), median ${(m.width * 1000).toFixed(1)} × ${(m.depth * 1000).toFixed(1)} mm`);
+      return { width: m.width * s, depth: m.depth * s };
     };
     const shapeDz = (() => {
       if (!shapes) return 0;
@@ -621,7 +645,11 @@ function sharedRun(to: 'frag' | 'ifc') {
       // 🔴 ITS TOP AS ITS SHAPE DRAWS IT, when nothing above said it (an edited profile Revit exported as polygonal
       // openings with nothing in them: racbasic's 530178, 6.3 m³ for 1.2; see `wallTopOf`).
       if (!attrs.Profile && !attrs.AttachTop && shapeOfWall) {
-        const top = wallTopOf(shapes!, record.item.guid!, f, e);
+        // (Its whole outline first, when nothing is hosted in it and the outline is the wall: a top read alone stands
+        // on a flat foot, and Savoyvilla's wall beside the ramp, cut from below by it, came 7.7 m³ for 3.6, 24-10.)
+        const hosted = [...shapes!.elements.values()].some((o) => o.host === record.item.guid && !/^IFCOPENINGELEMENT$/i.test(o.ifcClass));
+        const whole = !hosted ? wallTopOf(shapes!, record.item.guid!, f, e, true) : null;
+        const top = whole?.outline ? null : wallTopOf(shapes!, record.item.guid!, f, e);
         if (top) {
           if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[wall-top] ${record.item.guid} ${record.item.name ?? ''}: ${top.chain.map(([a, z]) => `${a.toFixed(2)}/${z.toFixed(2)}`).join(' ')}`);
           const L = Math.hypot(e[0] - f[0], e[1] - f[1]);
@@ -638,8 +666,6 @@ function sharedRun(to: 'frag' | 'ifc') {
         // Else its whole outline when nothing is hosted in it (a notch at its end; see `wallTopOf`): where a door or
         // window is, its own opening cuts it.
         // (Its openings with nothing in them are its outline's holes: only a door or a window hosted keeps it a box.)
-        const hosted = [...shapes!.elements.values()].some((o) => o.host === record.item.guid && !/^IFCOPENINGELEMENT$/i.test(o.ifcClass));
-        const whole = !top && !hosted ? wallTopOf(shapes!, record.item.guid!, f, e, true) : null;
         if (whole?.outline) {
           if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[wall-outline] ${record.item.guid} ${record.item.name ?? ''}: ${whole.outline.length} corners`);
           const L = Math.hypot(e[0] - f[0], e[1] - f[1]);
@@ -670,6 +696,14 @@ function sharedRun(to: 'frag' | 'ifc') {
       }
       const width = thicknessOf(lookRef);
       if (width) attrs['Type.Width'] = num(width);
+      // 🔴 ONE TYPE, ONE WIDTH: a type name the file uses at another thickness is a variant of its own, «name · N mm»
+      // (Savoyvilla 24-10: «萨伏伊别墅内墙（墙饰条）» at 260 mm and at 120; the type was made by the first, and the 120 mm
+      // walls came out 260, twice their volume).
+      if (width) {
+        const seen = wallTypeWidths.get(attrs.Type);
+        if (seen === undefined) wallTypeWidths.set(attrs.Type, width);
+        else if (Math.abs(seen - width) > 0.001) attrs.Type = `${attrs.Type} · ${Math.round((width / s) * 1000)} mm`;
+      }
       // ITS LAYERS, as the file declares them (the original's compound wall: a face between each two, which a
       // one-layer type has not; racbasic's partitions 6 cm off the original everywhere, 21-10). Revit lists them
       // from the exterior, the side left of the line; the file stacks them from the line's right, and a usage
@@ -761,7 +795,7 @@ function sharedRun(to: 'frag' | 'ifc') {
           up: up.map((u) => (u + halfAcross) * s),
           omit,
           empty,
-          mullion: { width: n(style.uprightWidth) * s, depth: n(style.depth) * s },
+          mullion: n(style.uprightWidth) > 0 ? { width: n(style.uprightWidth) * s, depth: n(style.depth) * s } : mullionOf(record.item.guid, d) ?? { width: 0, depth: n(style.depth) * s },
           // The glass off the bars' middle: the converter counts it toward the wall's inside,
           // Revit's panel offset toward its outside (measured: racbasic's glass 0.032 m off,
           // on the other side, with the sign as it was).
