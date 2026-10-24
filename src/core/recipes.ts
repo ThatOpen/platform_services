@@ -201,6 +201,8 @@ export interface SourceShapes {
       typeName: string | null;
       parent: string | null;
       host: string | null;
+      /** A column the file says bears load (Pset_ColumnCommon.LoadBearing). */
+      loadBearing?: boolean;
       opening?: string | null;
       pieces: { geometry: number; matrix: number[] }[];
       /** Its layer stack as the file declares it, metres, in the file's order; flipped: laid against its axis. */

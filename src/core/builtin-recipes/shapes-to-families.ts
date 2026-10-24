@@ -84,7 +84,8 @@ export function familiesFromShapes(shapes: SourceShapes, written: ReadonlySet<st
     if (el.pieces.length === 0) continue;
     // A column its file calls structural is a structural column: an architectural one is merged into the walls it stands
     // in (Savoyvilla's «结构柱» pilotis: 27 of 39 lost their part inside the walls, 23-10).
-    const structural = /^IFCCOLUMN$/i.test(el.ifcClass) && /structural|estructural|结构柱|tragend|tragwerk/i.test(`${el.typeName ?? ''} ${el.objectType ?? ''} ${el.name ?? ''}`);
+    // (Or bears load, as the file says: racbasic's L-angles, made architectural, joined to the roof and cut 30 cm short.)
+    const structural = /^IFCCOLUMN$/i.test(el.ifcClass) && (el.loadBearing || /structural|estructural|结构柱|tragend|tragwerk/i.test(`${el.typeName ?? ''} ${el.objectType ?? ''} ${el.name ?? ''}`));
     const category = structural ? 'OST_StructuralColumns' : SHAPE_CATEGORY[el.ifcClass.toUpperCase()] ?? GENERIC;
 
     // The frame: the first piece's placement, if it is upright and unmirrored only its turn about Z.
