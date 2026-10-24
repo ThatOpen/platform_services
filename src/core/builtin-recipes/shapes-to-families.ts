@@ -718,6 +718,16 @@ export function wallTopOf(shapes: SourceShapes, gid: string, from: number[], to:
     });
     // (And its holes, the outline's other loops of a tenth of a square metre or more: the openings the file cut.)
     const holes = allLoops.filter((l) => l.pts !== best && l.area >= 0.1 && l.pts.length <= 200).map((l) => l.pts);
+    // 🔴 A loop not inside the outline is another piece of the wall, not a hole (Schependomlaan 24-10: a partition cut
+    // through by a full-height opening, made of its larger piece alone, 0.50 m³ for 0.77): then no outline.
+    const inside = (p: [number, number], poly: [number, number][]) => {
+      let c = false;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++)
+        if ((poly[i][1] > p[1]) !== (poly[j][1] > p[1]) && p[0] < ((poly[j][0] - poly[i][0]) * (p[1] - poly[i][1])) / (poly[j][1] - poly[i][1]) + poly[i][0]) c = !c;
+      return c;
+    };
+    const centre = (l: [number, number][]) => [l.reduce((t, p) => t + p[0], 0) / l.length, l.reduce((t, p) => t + p[1], 0) / l.length] as [number, number];
+    if (holes.some((h) => !inside(centre(h), best!))) return null;
     return (clean.length > 4 || holes.length) && clean.length <= 200 ? { lo, hi, bottom, chain: [], outline: clean, holes } : null;
   }
   // Its two ends' highest points, and the chain between them that runs over the top.
