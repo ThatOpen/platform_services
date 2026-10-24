@@ -159,8 +159,8 @@ export function familiesFromShapes(shapes: SourceShapes, written: ReadonlySet<st
       let pf = familyOfShape.get(pkey);
       if (!pf) {
         const label = clean(el.typeName ?? el.objectType ?? el.name ?? el.ifcClass);
-        const n = (namesTaken.get(label) ?? 0) + 1;
-        namesTaken.set(label, n);
+        const n = (namesTaken.get(label.toLowerCase()) ?? 0) + 1;
+        namesTaken.set(label.toLowerCase(), n);
         const name = n === 1 ? label : `${label} (${n})`;
         pf = { family: name, type: name, first: true, key: hash(pkey) };
         familyOfShape.set(pkey, pf);
@@ -196,8 +196,8 @@ export function familiesFromShapes(shapes: SourceShapes, written: ReadonlySet<st
     }
     if (!family) {
       const label = clean(el.typeName ?? el.objectType ?? el.name ?? el.ifcClass);
-      const n = (namesTaken.get(label) ?? 0) + 1;
-      namesTaken.set(label, n);
+      const n = (namesTaken.get(label.toLowerCase()) ?? 0) + 1;
+      namesTaken.set(label.toLowerCase(), n);
       const name = n === 1 ? label : `${label} (${n})`;
       family = { family: name, type: name, first: true, key: hash(shapeKey) };
       familyOfShape.set(shapeKey, family);
