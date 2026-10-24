@@ -628,6 +628,22 @@ function sharedRun(to: 'frag' | 'ifc') {
           delete attrs.TopOffset;
           pieceProfiles = (whole.pieces ?? []).map((p) => JSON.stringify([loopOf(p)]));
         }
+      } else if (attrs.Profile && shapeOfWall && !attrs.AttachTop) {
+        // 🔴 A PROFILE THE CONVERTER GAVE, AND THE HOLES ITS FACE SHOWS (racbasic 24-10: a SIP gable wall that is mostly
+        // one pentagonal window, 6.3 m³ for 1.2: the gable came, the window, a non-rectangular opening, never did).
+        // Only for a wall whose hosted things are empty openings; the applier cuts what Revit's outline will not take.
+        const hosted = [...shapes!.elements.values()].some((o) => o.host === record.item.guid && !/^IFCOPENINGELEMENT$/i.test(o.ifcClass));
+        const whole = !hosted ? wallTopOf(shapes!, record.item.guid!, f, e, true) : null;
+        if (whole?.holes?.length && !whole.pieces?.length) {
+          const L = Math.hypot(e[0] - f[0], e[1] - f[1]);
+          const dir = [(e[0] - f[0]) / L, (e[1] - f[1]) / L];
+          const loopOf = (loop: [number, number][]) => loop.flatMap(([along, z]) => [(f[0] + along * dir[0]) * s, (f[1] + along * dir[1]) * s, (z - shapeDz) * s]);
+          try {
+            const given = JSON.parse(attrs.Profile) as number[][];
+            attrs.Profile = JSON.stringify([...given, ...whole.holes.map(loopOf)]);
+            if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[wall-holes] ${record.item.guid} ${record.item.name ?? ''}: ${whole.holes.length} hole(s) added to the converter's profile`);
+          } catch { /* a profile not in loops: as it came */ }
+        }
       }
       const width = thicknessOf(lookRef);
       if (width) attrs['Type.Width'] = num(width);
