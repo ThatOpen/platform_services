@@ -626,7 +626,7 @@ export function shapedPanelsOf(shapes: SourceShapes, curtainGid: string, sheet: 
  * highest point at one end to its highest at the other. Null when that top is flat and level (a box's), or the shape
  * says nothing clear. Bottom notches (doors) and holes (windows) are not read: they cut their own openings.
  */
-export function wallTopOf(shapes: SourceShapes, gid: string, from: number[], to: number[], wholeOutline = false): { lo: number; hi: number; bottom: number; chain: [number, number][]; outline?: [number, number][]; holes?: [number, number][][] } | null {
+export function wallTopOf(shapes: SourceShapes, gid: string, from: number[], to: number[], wholeOutline = false): { lo: number; hi: number; bottom: number; chain: [number, number][]; outline?: [number, number][]; holes?: [number, number][][]; pieces?: [number, number][][] } | null {
   const el = shapes.elements.get(gid);
   if (!el) return null;
   const L = Math.hypot(to[0] - from[0], to[1] - from[1]);
@@ -727,7 +727,9 @@ export function wallTopOf(shapes: SourceShapes, gid: string, from: number[], to:
       return c;
     };
     const centre = (l: [number, number][]) => [l.reduce((t, p) => t + p[0], 0) / l.length, l.reduce((t, p) => t + p[1], 0) / l.length] as [number, number];
-    if (holes.some((h) => !inside(centre(h), best!))) return null;
+    // (Each such piece its own outline, made a wall of its own beside the largest.)
+    const pieces = holes.filter((h) => !inside(centre(h), best!));
+    if (pieces.length) return { lo, hi, bottom, chain: [], outline: clean, holes: holes.filter((h) => !pieces.includes(h)), pieces };
     return (clean.length > 4 || holes.length) && clean.length <= 200 ? { lo, hi, bottom, chain: [], outline: clean, holes } : null;
   }
   // Its two ends' highest points, and the chain between them that runs over the top.

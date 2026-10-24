@@ -472,6 +472,8 @@ function sharedRun(to: 'frag' | 'ifc') {
     })();
     for (const sg of segs) {
       const { record } = sg;
+      /** Its other pieces' profiles, when the file cut it through (see `wallTopOf`). */
+      let pieceProfiles: string[] = [];
       const body = innerJson<RunBody>(record, 'run')!;
       const base = typeof body.base === 'number' ? body.base : 0;
       const height = body.height!;
@@ -623,6 +625,7 @@ function sharedRun(to: 'frag' | 'ifc') {
           attrs.Profile = JSON.stringify([loopOf(whole.outline), ...(whole.holes ?? []).map(loopOf)]);
           delete attrs.TopLevel;
           delete attrs.TopOffset;
+          pieceProfiles = (whole.pieces ?? []).map((p) => JSON.stringify([loopOf(p)]));
         }
       }
       const width = thicknessOf(lookRef);
@@ -637,6 +640,8 @@ function sharedRun(to: 'frag' | 'ifc') {
         if (declared.layersFlipped) attrs.FlipLayers = '1';
       }
       if (add(`${key(record.id)}#${sg.i}`, attrs)) wallCount++;
+      // Its other pieces (a wall the file cut through, top to bottom), each a wall of the same type by its outline.
+      pieceProfiles.forEach((profile, k) => { if (add(`${key(record.id)}#${sg.i}p${k + 1}`, { ...attrs, Profile: profile })) wallCount++; });
     }
 
     // ---- 2b. Curtain walls: Revit's own system, its grid line by line. ----
