@@ -300,6 +300,13 @@ function sharedRun(to: 'frag' | 'ifc') {
       for (const i of [...kept].sort((x, y) => x - y)) operation.add(pending[i].attrs, { ...pending[i].placement, source: pending[i].sourceKey });
       if (typeof process !== 'undefined') console.error(`[focus] ${focus.size} asked, ${kept.size} of ${pending.length} change(s) written`);
     };
+    /** Whether `add` would keep what it made before for this change (made, and its print the same). */
+    const wouldKeep = (sourceKey: string, attrs: Record<string, string>, placement?: { position?: [number, number, number]; rotationDeg?: number; host?: string }) => {
+      if (!made.has(sourceKey)) return false;
+      const before = prints.get(sourceKey);
+      const framed = sharedFrame ? { ...attrs, Frame: 'shared', ...(sharedAt ? { SharedAt: sharedAt } : {}) } : attrs;
+      return !before || before === printOf({ attrs: framed, placement: placement ?? {} });
+    };
     const add = (
       sourceKey: string,
       attrs: Record<string, string>,
@@ -1316,9 +1323,32 @@ function sharedRun(to: 'frag' | 'ifc') {
     if (typeof process !== 'undefined' && process.env?.RECIPE_GID)
       for (const one of shaped.filter((x) => x.key.includes(process.env!.RECIPE_GID!))) console.error(`[shaped] ${one.key} at ${one.at} turn ${one.rotationDeg} host ${one.host} ${JSON.stringify({ ...one.attrs, Shape: one.attrs.Shape ? '…' : undefined })}`);
     let shapeCount = 0;
+    // 🔴 A FAMILY'S SHAPE GOES WITH ITS FIRST INSTANCE ONLY; when that one is kept (a rerun, a checkpoint), the shape
+    // goes with whichever of its others are written (Conference's checkpoint 24-10: «family '36" x 84" (7)': not in
+    // this model, and its shape did not come», 4 doors missing).
+    const definition = new Map<string, Record<string, string>>();
     for (const one of shaped) {
+      if (!one.attrs.Family || definition.has(one.attrs.Family)) continue;
+      const def: Record<string, string> = {};
+      for (const k of ['Shape', 'Prism']) if (one.attrs[k]) def[k] = one.attrs[k];
+      if (Object.keys(def).length) definition.set(one.attrs.Family, def);
+    }
+    const firstKept = new Set<string>();
+    for (const one of shaped) {
+      const fam = one.attrs.Family;
+      if (!fam || !definition.has(fam) || !(one.attrs.Shape || one.attrs.Prism)) continue;
+      if (wouldKeep(one.key, one.host && made.get(one.host) ? { ...one.attrs, HostMade: made.get(one.host)! } : one.attrs, {
+        position: [one.at[0] * s, one.at[1] * s, (one.at[2] - shapeDz) * s], rotationDeg: one.rotationDeg, ...(one.host ? { host: one.host } : {}),
+      })) firstKept.add(fam);
+    }
+    for (const one of shaped) {
+      const fam = one.attrs.Family;
+      const placed = { position: [one.at[0] * s, one.at[1] * s, (one.at[2] - shapeDz) * s] as [number, number, number], rotationDeg: one.rotationDeg, ...(one.host ? { host: one.host } : {}) };
+      const plain = one.host && made.get(one.host) ? { ...one.attrs, HostMade: made.get(one.host)! } : one.attrs;
+      // (Only on one written anyway: a kept one keeps its print.)
+      const withDef = fam && firstKept.has(fam) && !(one.attrs.Shape || one.attrs.Prism) && !wouldKeep(one.key, plain, placed) ? { ...one.attrs, ...definition.get(fam)! } : one.attrs;
       if (
-        add(one.key, one.host && made.get(one.host) ? { ...one.attrs, HostMade: made.get(one.host)! } : one.attrs, {
+        add(one.key, one.host && made.get(one.host) ? { ...withDef, HostMade: made.get(one.host)! } : withDef, {
           position: [one.at[0] * s, one.at[1] * s, (one.at[2] - shapeDz) * s],
           rotationDeg: one.rotationDeg,
           ...(one.host ? { host: one.host } : {}),
