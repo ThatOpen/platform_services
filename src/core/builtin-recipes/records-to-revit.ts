@@ -910,7 +910,14 @@ function sharedRun(to: 'frag' | 'ifc') {
         Profile: JSON.stringify(loops),
         Level: level.name,
       };
-      const width = thicknessOf(lookRef);
+      let width = thicknessOf(lookRef);
+      // 🔴 A ROOF AS THICK AS ITS LAYERS SAY, where the file declares them (DACH 24-10: a 40 mm board at 72°, «VS_Dach
+      // GK 40», came as «Roof 2780 mm», its height for its thickness: four roofs 24 to 70 times their volume).
+      if (kind === 'roof' && shapes && record.item.guid) {
+        const layers = shapes.elements.get(record.item.guid)?.layers;
+        const sum = layers?.reduce((t, l) => t + (l.thickness > 0 ? l.thickness : 0), 0) ?? 0;
+        if (sum > 0 && (!width || Math.abs(sum * s - width) > 0.2 * width)) width = sum * s;
+      }
       if (width) attrs['Type.Width'] = num(width);
       if (kind === 'roof' || kind === 'ceiling') {
         // A footprint roof and a ceiling are placed by their BOTTOM face: the record's base as
@@ -931,6 +938,7 @@ function sharedRun(to: 'frag' | 'ifc') {
           // down by its thickness measured plumb, t·√(1+p²) (DACH: all 15 sloped roofs 0.17 m off their slope, 23-10).
           const p = Math.max(...slopes.filter((x): x is number => typeof x === 'number').map((x) => Math.abs(x)));
           if (width && p > 0) attrs.BaseOffset = num(base * s - width * Math.sqrt(1 + p * p));
+          if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[roof] ${record.item.guid} ${lookRef}: slopes ${JSON.stringify(slopes)} base ${base} width ${width} edges ${loops[0] ? loops[0].length / 3 : 0} profile ${JSON.stringify(loops[0]?.map((v) => +v.toFixed(2)))}`);
         }
         // A GABLE - four edges, two opposite ones sloping - is Revit's ROOF BY EXTRUSION: its
         // ridge profile drawn across, pushed along the eaves. A footprint roof cannot be it: its
