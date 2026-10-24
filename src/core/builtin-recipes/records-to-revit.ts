@@ -915,12 +915,28 @@ function sharedRun(to: 'frag' | 'ifc') {
           const d = Math.abs(Math.hypot(m[0] - lm[0], m[1] - lm[1]) - tread);
           if (d < best) { best = d; endEdge = k; }
         }
+        // (Better, the edge parallel to the last riser that lies farthest past it: a style's tread is not the run's
+        // last one, DACH's two-riser run, 0.81 m in its style, took a side for its end, 24-10.)
+        {
+          const ld = [last[1][0] - last[0][0], last[1][1] - last[0][1]], ll = Math.hypot(ld[0], ld[1]);
+          const fm = mid(sketch.risers[0]);
+          let far = -Infinity, pick = -1;
+          for (let k = 1; k < b.length; k++) {
+            const e = [b[(k + 1) % b.length][0] - b[k][0], b[(k + 1) % b.length][1] - b[k][1]], el = Math.hypot(e[0], e[1]);
+            if (!(el > 0) || Math.abs((e[0] * ld[1] - e[1] * ld[0]) / (el * ll)) > 0.02) continue;
+            const m = mid([b[k], b[(k + 1) % b.length]]);
+            const dist = Math.hypot(m[0] - fm[0], m[1] - fm[1]);
+            if (dist > far + 1e-6) { far = dist; pick = k; }
+          }
+          if (pick > 0) endEdge = pick;
+        }
         const chain = (from: number, to: number) => {
           const out: number[][][] = [];
           for (let k = from; k !== to; k = (k + 1) % b.length) out.push([p(b[k]), p(b[(k + 1) % b.length])]);
           return out;
         };
         const sides = [...chain(1, endEdge), ...chain((endEdge + 1) % b.length, 0)];
+        if (typeof process !== "undefined" && process.env?.RECIPE_STAIR === record.item.guid) console.error(`[stair-sketch] end edge ${endEdge} of ${b.length}`);
         // Revit counts every riser line as a riser: the end edge is not one (the run ends on a
         // tread), so it goes as the walk line's end only (measured: with it, 17 risers, 3.19 m).
         const riserLines = sketch.risers.map(([a, c]) => [p(a), p(c)]);
