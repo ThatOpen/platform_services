@@ -139,7 +139,10 @@ export function familiesFromShapes(shapes: SourceShapes, written: ReadonlySet<st
       const o = toFamily([m[12], m[13], m[14]]);
       const relX = [c * m[0] - sn * m[1], sn * m[0] + c * m[1], m[2]];
       const relY = [c * m[4] - sn * m[5], sn * m[4] + c * m[5], m[6]];
-      keyParts.push(`${piece.geometry}@${[...o, ...relX, ...relY].map((v) => round(v, 1e-4).toFixed(4)).join(',')}`);
+      // (And its Z axis: a placement scaled or mirrored along Z alone is another shape — the Conference Center's 82
+      // eccentric transitions, one map scaled per size, were 14 families each of one size, 24-10.)
+      const relZ = [c * m[8] - sn * m[9], sn * m[8] + c * m[9], m[10]];
+      keyParts.push(`${piece.geometry}@${[...o, ...relX, ...relY, ...relZ].map((v) => round(v, 1e-4).toFixed(4)).join(',')}`);
     }
     if (pieces.length === 0) continue;
     // 🔴 A PRISM IS A PROFILE AND A LENGTH (a beam, a mullion, a member, a panel): one family per profile with its
@@ -422,9 +425,20 @@ export function prismOf(piece: { v: number[]; t: number[] }): { axis: number; fr
     }
     if (loops.length === 0 || loops.some((l) => l.length < 3)) continue;
     // The cap and the far end the same outline: each cap point has its twin at the other end.
-    let twins = 0;
-    for (let i = 0; i < n; i++) if (Math.abs(piece.v[i * 3 + axis] - hi) <= tol) twins++;
-    if (twins < 3) continue;
+    // 🔴 EVERY point's twin, both ways (the Conference Center's 82 eccentric duct transitions, a big circle to a small
+    // one, were taken for cylinders of the big one: 3 points at the far end were enough, 24-10). To a millimetre.
+    const endKeys = (at: number) => {
+      const keys = new Set<string>();
+      for (let i = 0; i < n; i++) if (Math.abs(piece.v[i * 3 + axis] - at) <= tol) keys.add(`${Math.round(piece.v[i * 3 + u] * 304.8)},${Math.round(piece.v[i * 3 + w] * 304.8)}`);
+      return keys;
+    };
+    const near = (keys: Set<string>, k: string) => {
+      const [a, b] = k.split(',').map(Number);
+      for (let da = -1; da <= 1; da++) for (let db = -1; db <= 1; db++) if (keys.has(`${a + da},${b + db}`)) return true;
+      return false;
+    };
+    const loKeys = endKeys(lo), hiKeys = endKeys(hi);
+    if (hiKeys.size < 3 || [...loKeys].some((k) => !near(hiKeys, k)) || [...hiKeys].some((k) => !near(loKeys, k))) continue;
     return { axis, from: lo, length: hi - lo, loops };
   }
   return null;
