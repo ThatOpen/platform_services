@@ -735,6 +735,40 @@ function sharedRun(to: 'frag' | 'ifc') {
           } catch { /* a profile not in loops: as it came */ }
         }
       }
+      // 🔴 AN ARC, WHERE ITS SHAPE BOWS (cims 24-10: curved partitions the converter gives as the chord, 12 cm off at
+      // their middle): the middle of its shape across its line against its ends'; bowed over 2 cm, the point its arc
+      // passes through, for the applier to bend its line there.
+      if (!attrs.Profile && shapeOfWall) {
+        const pts = shapePoints(shapes!, record.item.guid!);
+        const L = Math.hypot(e[0] - f[0], e[1] - f[1]);
+        if (pts.length >= 8 && L > 0.5) {
+          const d = [(e[0] - f[0]) / L, (e[1] - f[1]) / L], nrm = [-d[1], d[0]];
+          const band = (lo: number, hi: number) => {
+            const u = pts.filter((q) => { const t = (q[0] - f[0]) * d[0] + (q[1] - f[1]) * d[1]; return t >= lo * L && t <= hi * L; }).map((q) => (q[0] - f[0]) * nrm[0] + (q[1] - f[1]) * nrm[1]);
+            return u.length >= 2 ? { c: (Math.max(...u) + Math.min(...u)) / 2, w: Math.max(...u) - Math.min(...u) } : null;
+          };
+          const b0 = band(-0.02, 0.06), b1 = band(0.94, 1.02), bm = band(0.45, 0.55);
+          if (b0 && b1 && bm) {
+            const base = (b0.c + b1.c) / 2, sag = bm.c - base;
+            // (An arc, not a jog: every point, the arc taken away, lies within its thickness — Savoyvilla's and racbasic's
+            // straight walls with a step or a sweep read 6 cm, and spread wider once a bow they have not is taken off.)
+            const residual = pts.map((q) => {
+              const t = Math.min(Math.max(((q[0] - f[0]) * d[0] + (q[1] - f[1]) * d[1]) / L, 0), 1);
+              return (q[0] - f[0]) * nrm[0] + (q[1] - f[1]) * nrm[1] - base - 4 * sag * t * (1 - t);
+            });
+            const spread = Math.max(...residual) - Math.min(...residual);
+            // (And its middle seen on both faces: racbasic's straight partitions have one face's
+            // vertex alone there, a «bow» of half their thickness.)
+            const arcLike = spread < (b0.w + b1.w) / 2 + 0.01 && bm.w > 0.5 * Math.min(b0.w, b1.w);
+            if (process.env?.RECIPE_WALL?.split(",").includes(record.item.guid ?? "")) console.error(`[arc-bands] ${JSON.stringify({ b0, bm, b1, sag, spread })}`);
+            if (arcLike && Math.abs(sag) > 0.02 && Math.abs(sag) < L / 2) {
+              const m = [(f[0] + e[0]) / 2 + nrm[0] * sag, (f[1] + e[1]) / 2 + nrm[1] * sag];
+              attrs.LocationArc = `${num(m[0] * s)},${num(m[1] * s)},${num(z)}`;
+              if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[wall-arc] ${record.item.guid} ${record.item.name ?? ''}: bows ${(sag * 100).toFixed(1)} cm over ${L.toFixed(2)} m`);
+            }
+          }
+        }
+      }
       const width = thicknessOf(lookRef);
       if (width) attrs['Type.Width'] = num(width);
       // 🔴 ONE TYPE, ONE WIDTH: a type name the file uses at another thickness is a variant of its own, «name · N mm»
@@ -934,6 +968,15 @@ function sharedRun(to: 'frag' | 'ifc') {
         risers,
         tread: tread * s,
         width: (n(style.width) > 0 ? n(style.width) : widthOfStair(record.item.guid, body.start, body.end) ?? 0) * s,
+        // 🔴 ENDING ON A RISER, when its own shape stops a riser under its rise (DACH 24-10: two flights and a landing,
+        // the first a tread too long and a riser too high — the landing is that tread).
+        endsWithRiser: (() => {
+          if (!shapes || !record.item.guid) return false;
+          const pts = shapePoints(shapes, record.item.guid);
+          if (pts.length < 4) return false;
+          const top = Math.max(...pts.map((q) => q[2])) - shapeDz, full = level.at + n(record.params.base) + rise;
+          return full - top > 0.5 * (rise / risers) && full - top < 1.5 * (rise / risers);
+        })(),
         // Its type's sizes, as the style has them: Revit keeps the risers under the type's
         // maximum (racbasic: a 180 mm template type gave a 3.0 m stair a riser more, 3.22 m).
         sizes: {
@@ -946,6 +989,7 @@ function sharedRun(to: 'frag' | 'ifc') {
           notchThickness: n(style.notchThickness) * s,
         },
       };
+      if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[stair-end] ${record.item.guid} ${record.item.name ?? ''}: ${risers} risers, ends with riser ${spec.endsWithRiser}`);
       const sketch = body.sketch;
       if (sketch?.boundary && sketch.boundary.length >= 4 && sketch.risers && sketch.risers.length >= 2) {
         // The outline: its first edge is the first riser; the edge opposite, one tread past the
