@@ -594,6 +594,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       const attachTo = typeof attachedTo === 'string' ? attachedTo
         : shapes && record.item.guid ? roofOverWall(shapes, record.item.guid, roofGids) : undefined;
       if (attachTo && !attrs.Profile) attrs.AttachTop = key(attachTo);
+      if (attachTo && typeof attachedTo !== 'string' && typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[attach] ${record.item.guid} ${record.item.name ?? ''} → ${attachTo}`);
       // 🔴 ITS TOP AS ITS SHAPE DRAWS IT, when nothing above said it (an edited profile Revit exported as polygonal
       // openings with nothing in them: racbasic's 530178, 6.3 m³ for 1.2; see `wallTopOf`).
       if (!attrs.Profile && !attrs.AttachTop && shapeOfWall) {
