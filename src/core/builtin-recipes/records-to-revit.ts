@@ -481,6 +481,9 @@ function sharedRun(to: 'frag' | 'ifc') {
       const level = levels.get(String(body.level ?? record.params.level ?? ''))!;
       const lookRef = record.params.lookRef as string;
       let { from: f, to: e } = extended.get(sg)!;
+      // (A stub its joins trimmed to nothing — Savoyvilla 24-10: two 12 cm walls, both ends cut back by half their
+      // 12 cm, «LocationLine is missing or not two points» — keeps its own line.)
+      if (Math.hypot(e[0] - f[0], e[1] - f[1]) < 0.01) ({ from: f, to: e } = sg);
       // 🔴 A SQUARE END WHERE THE FILE'S SHAPE ENDS, UNJOINED. Which wall runs through a corner is Revit's join order,
       // which the API cannot set (13-10): racbasic's corner walls came out the other way round, 0.2 m long and short.
       // The file's own shape says where each end is; a square end goes exactly there and is left unjoined, so the
