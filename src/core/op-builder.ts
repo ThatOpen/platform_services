@@ -53,6 +53,8 @@ const OP_KEY = 'flow:op';
 const SOURCE_KEY = 'flow:source';
 /** What an added item is placed in (the applier's `flow:host`). */
 const HOST_KEY = 'flow:host';
+/** What an added item was made from, as the recipe fingerprints it: read back so a rerun keeps or remakes it. */
+const PRINT_KEY = 'flow:print';
 
 /** The schema this writes. An applier that speaks a different one must refuse rather than guess. */
 export const OP_SCHEMA = 'revitflow/op@2';
@@ -219,7 +221,9 @@ export class OperationBuilder {
     const out: Record<string, string> = {};
     for (const [k, v] of Object.entries(attrs ?? {})) {
       // The protocol's namespace is ours, not the data's: nobody sets it through attributes.
-      if (k.startsWith(RESERVED)) continue;
+      // 🔴 Save the fingerprint a recipe stamps on what it adds (24-10: dropped here, it never reached the target, every
+      // print read back was null, and a rerun kept everything as «made before prints» — a changed wall never remade).
+      if (k.startsWith(RESERVED) && k !== PRINT_KEY) continue;
       out[k] = String(v);
     }
     if (placement.position) out.Position = placement.position.map(num).join(',');

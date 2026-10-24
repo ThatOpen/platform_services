@@ -702,7 +702,10 @@ function sharedRun(to: 'frag' | 'ifc') {
       let profile = Array.isArray(given) ? withoutSlivers(given) : given;
       // 🔴 (A rectangle over its whole line and height says nothing a plain wall does not — and a wall by its outline is
       // one Revit will not mitre nor join: Schependomlaan 24-10, 40 «HSB-element» walls squared at their mitred ends.)
-      if (Array.isArray(profile) && profile.length === 4) {
+      // (Only where it wants a mitre: elsewhere its outline keeps its ends where the file has them, and as a plain wall
+      // Revit trimmed Conference's partitions a thickness short at their joins, 12 walls off, r35.)
+      const mitred = record.params.wantedAtStart === 'mitre' || record.params.wantedAtEnd === 'mitre';
+      if (mitred && Array.isArray(profile) && profile.length === 4) {
         const L0 = Math.hypot(sg.to[0] - sg.from[0], sg.to[1] - sg.from[1]), h0 = body.height!;
         const at = (v: number, end: number) => (Math.abs(v) < 1e-4 ? 'lo' : Math.abs(v - end) < 1e-3 ? 'hi' : null);
         const corners = profile.map(([a, z]) => [at(a, L0), at(z, h0)]);
@@ -792,7 +795,9 @@ function sharedRun(to: 'frag' | 'ifc') {
           }).filter((b): b is number[] => b !== null);
           const filled = (hole: [number, number][]) => {
             const a0 = Math.min(...hole.map((h) => h[0])), a1 = Math.max(...hole.map((h) => h[0])), z0 = Math.min(...hole.map((h) => h[1])), z1 = Math.max(...hole.map((h) => h[1]));
-            return boxes.some((b) => Math.min(a1, b[1]) - Math.max(a0, b[0]) > 0.5 * (a1 - a0) && Math.min(z1, b[3]) - Math.max(z0, b[2]) > 0.5 * (z1 - z0));
+            // (Any of them in it at all: a hole two windows share, cut as a rectangle, and Revit deleted both — racbasic
+            // and Savoyvilla r36, 5 windows missing.)
+            return boxes.some((b) => Math.min(a1, b[1]) - Math.max(a0, b[0]) > 0.01 && Math.min(z1, b[3]) - Math.max(z0, b[2]) > 0.01);
           };
           const free = (whole.holes ?? []).filter((h) => !filled(h));
           // (And with none left: its outline still says a notch its top cannot — Savoyvilla's lintel wall, 2.4 m³ for 1.5.)
@@ -1056,8 +1061,12 @@ function sharedRun(to: 'frag' | 'ifc') {
       // «MaxSpacing» walls has no members, mullion 0, so the type came with no border bars for the ten that have them,
       // 160 members with nothing to be).
       {
-        const m = JSON.parse(attrs.Curtain).mullion as { width: number; depth: number };
-        const sig = `${Math.round((m.width / s) * 1000)} x ${Math.round((m.depth / s) * 1000)}`;
+        // (And one glass: a wall of it with thinner panels, its own too — Conference 24-10, 79 «Glazed Centered» panels
+        // 26 mm for the file's 13, the type made by a wall with thicker ones.)
+        const c = JSON.parse(attrs.Curtain) as { mullion: { width: number; depth: number }; panel?: { thickness?: number } };
+        const m = c.mullion;
+        const glass = c.panel?.thickness ? `, ${Math.round((c.panel.thickness / s) * 1000)} mm glass` : '';
+        const sig = `${Math.round((m.width / s) * 1000)} x ${Math.round((m.depth / s) * 1000)}${glass}`;
         const seen = curtainTypeMullions.get(attrs.Type);
         if (seen === undefined) curtainTypeMullions.set(attrs.Type, sig);
         else if (seen !== sig) { if (typeof process !== "undefined" && process.env?.RECIPE_TRACE) console.error(`[curtain-type] ${record.item.guid}: ${attrs.Type} first made with ${seen}, this one ${sig}`); attrs.Type = `${attrs.Type} · ${sig}`; }
@@ -1297,6 +1306,29 @@ function sharedRun(to: 'frag' | 'ifc') {
         if (inner && holeGable)
           for (let k = 0; k + 2 < inner.length; k += 3) inner[k + 2] = holeGable.zAt(inner[k] / s, inner[k + 1] / s) * s;
         if (inner) loops.push(inner);
+      }
+      // 🔴 THE OPENINGS THAT VOID IT (the converter since 24-10, `extrusion.cuts`: shafts and stair wells, lost before):
+      // each cut straight down through it a hole of its loop, its outline's plan; one at a slant is not a hole.
+      const cuts = (body as { cuts?: { outline?: number[][]; through?: number[] }[] } | null)?.cuts ?? [];
+      for (const cut of cuts) {
+        const t = cut.through, o = cut.outline;
+        if (!Array.isArray(o) || o.length < 3 || !Array.isArray(t) || Math.abs(t[2]) < 0.99 * Math.hypot(t[0], t[1], t[2])) continue;
+        const pts = o.filter((p, k) => k === 0 || Math.hypot(p[0] - o[k - 1][0], p[1] - o[k - 1][1]) > 1e-4);
+        if (pts.length > 3 && Math.hypot(pts[0][0] - pts[pts.length - 1][0], pts[0][1] - pts[pts.length - 1][1]) < 1e-4) pts.pop();
+        if (pts.length < 3) continue;
+        // (Only one wholly inside its outline: a hole across its edge, and Revit refuses the whole floor.)
+        const inside = (x: number, y: number) => {
+          let c = false;
+          for (let i = 0, j = outer.length / 3 - 1; i < outer.length / 3; j = i++) {
+            const xi = outer[3 * i] / s, yi = outer[3 * i + 1] / s, xj = outer[3 * j] / s, yj = outer[3 * j + 1] / s;
+            if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c;
+          }
+          return c;
+        };
+        if (!pts.every((p) => inside(p[0], p[1]))) { if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[slab-cut] ${record.item.guid}: a cut across its edge, left`); continue; }
+        const inner = pts.flatMap((p) => [p[0] * s, p[1] * s, (holeGable ? holeGable.zAt(p[0], p[1]) : base) * s]);
+        loops.push(inner);
+        if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[slab-cut] ${record.item.guid} ${record.item.name ?? ''}: a hole of ${pts.length} corners`);
       }
       const attrs: Record<string, string> = {
         CategoryId:
