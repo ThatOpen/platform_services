@@ -427,6 +427,30 @@ function sharedRun(to: 'frag' | 'ifc') {
     // shapes where the file has them: DACH stands 500 m up, and every family, opening and room came in 500 m above its
     // building (21-10). The offset is measured on the walls (their shape's bottom against their record's), and only
     // a large one (a site's elevation, not a wall standing below its base) is taken off.
+    /**
+     * 🔴 A CURTAIN WALL'S GLASS AS THICK AS ITS FILE DRAWS IT (the Conference Center's 160 «Glazed Centered» panels
+     * 37 % thicker than their glass, 24-10): the median, across the wall (`d` its direction), of its plain panels'
+     * thickness, feet; null when it has none.
+     */
+    const glassOf = (curtainGid: string | undefined, d: number[]): number | null => {
+      if (!shapes || !curtainGid) return null;
+      const nrm = [-d[1], d[0]];
+      const each: number[] = [];
+      for (const el of shapes.elements.values()) {
+        if (el.parent !== curtainGid || !/^IFCPLATE$/i.test(el.ifcClass) || el.pieces.length !== 1) continue;
+        const g = shapes.geometries.get(el.pieces[0].geometry);
+        if (!g || g.tris.length / 3 > 12) continue;
+        const pts = shapePoints(shapes, el.gid);
+        if (pts.length < 4) continue;
+        const across = pts.map((p) => p[0] * nrm[0] + p[1] * nrm[1]);
+        const t = Math.max(...across) - Math.min(...across);
+        if (t > 0.002 && t < 0.2) each.push(t);
+      }
+      if (!each.length) return null;
+      each.sort((a, b) => a - b);
+      if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[glass] ${curtainGid}: ${each.length} panel(s), median ${(each[Math.floor(each.length / 2)] * 1000).toFixed(1)} mm`);
+      return each[Math.floor(each.length / 2)] * s;
+    };
     const shapeDz = (() => {
       if (!shapes) return 0;
       const d: number[] = [];
@@ -695,7 +719,7 @@ function sharedRun(to: 'frag' | 'ifc') {
           // The glass off the bars' middle: the converter counts it toward the wall's inside,
           // Revit's panel offset toward its outside (measured: racbasic's glass 0.032 m off,
           // on the other side, with the sign as it was).
-          panel: { thickness: n(style.panelDepth) * s, offset: -n(style.panelOffset) * s },
+          panel: { thickness: glassOf(record.item.guid, d) ?? n(style.panelDepth) * s, offset: -n(style.panelOffset) * s },
         }),
       };
       // ITS OUTLINE, where it is not its rectangle (a gable under a roof): the record's, inside
