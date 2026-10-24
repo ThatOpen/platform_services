@@ -260,6 +260,46 @@ function sharedRun(to: 'frag' | 'ifc') {
      */
     let kept = 0;
     let changed = 0;
+    // A FOCUSED RUN (the bench, 24-10, Antonio's idea): only what `settings.focus` names (element gids) and what it
+    // touches is written: its type's every other element (a type is made by its first), its host and what it
+    // hosts, the walls its ends meet, what its top is attached to. Each change waits in `pending` until all are
+    // known, then those kept go (see `flushFocus`).
+    const focus = Array.isArray((context.settings as { focus?: unknown }).focus) ? new Set((context.settings as { focus: string[] }).focus) : null;
+    const pending: { sourceKey: string; attrs: Record<string, string>; placement?: { position?: [number, number, number]; rotationDeg?: number; host?: string } }[] = [];
+    const flushFocus = () => {
+      if (!focus) return;
+      const gidOf = (k: string | undefined) => (k ? k.split(':')[1] : undefined);
+      const kept = new Set<number>();
+      const ends = (a: Record<string, string>) => (a.LocationLine ?? '').split(';').map((p) => p.split(',').map(Number)).filter((p) => p.length >= 2 && p.every(Number.isFinite));
+      const keep = (i: number) => { if (!kept.has(i)) { kept.add(i); grew = true; } };
+      let grew = true;
+      pending.forEach((p, i) => { if (focus.has(gidOf(p.sourceKey) ?? '')) keep(i); });
+      // Grown until nothing more joins (a focused wall's type brings its other walls, not their neighbours' types).
+      for (let round = 0; grew && round < 2; round++) {
+        grew = false;
+        const types = new Set([...kept].map((i) => `${pending[i].attrs.CategoryId}|${pending[i].attrs.Type ?? ''}`));
+        const gids = new Set([...kept].map((i) => gidOf(pending[i].sourceKey)));
+        const keys = new Set([...kept].map((i) => pending[i].sourceKey));
+        const keptEnds = [...kept].flatMap((i) => ends(pending[i].attrs));
+        pending.forEach((p, i) => {
+          if (kept.has(i)) return;
+          const a = p.attrs;
+          if (a.Type && types.has(`${a.CategoryId}|${a.Type}`)) return keep(i);
+          if (p.placement?.host && (keys.has(p.placement.host) || gids.has(gidOf(p.placement.host)))) return keep(i);
+          if (a.AttachTop && keys.has(a.AttachTop)) return keep(i);
+          if (round === 0 && ends(a).some((q) => keptEnds.some((r) => Math.hypot(q[0] - r[0], q[1] - r[1]) < 1))) return keep(i);
+        });
+        // And what the kept are hosted in or attached to.
+        for (const i of [...kept]) {
+          const host = pending[i].placement?.host, top = pending[i].attrs.AttachTop;
+          pending.forEach((q, j) => { if (q.sourceKey === host || q.sourceKey === top) keep(j); });
+        }
+      }
+      // Levels and anything without an element of its own (no gid) always go.
+      pending.forEach((p, i) => { if (!/^[0-9A-Za-z_$]{22}$/.test(gidOf(p.sourceKey) ?? '')) kept.add(i); });
+      for (const i of [...kept].sort((x, y) => x - y)) operation.add(pending[i].attrs, { ...pending[i].placement, source: pending[i].sourceKey });
+      if (typeof process !== 'undefined') console.error(`[focus] ${focus.size} asked, ${kept.size} of ${pending.length} change(s) written`);
+    };
     const add = (
       sourceKey: string,
       attrs: Record<string, string>,
@@ -280,6 +320,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         changed++;
         return false;
       }
+      if (focus) { pending.push({ sourceKey, attrs: { ...framed, 'flow:print': print }, placement }); return true; }
       operation.add({ ...framed, 'flow:print': print }, { ...placement, source: sourceKey });
       return true;
     };
@@ -736,6 +777,8 @@ function sharedRun(to: 'frag' | 'ifc') {
     };
     let curtainCount = 0;
     let curtainRead = 0;
+    /** Each curtain wall type's mullion, as its first wall said it (see «one curtain type, one mullion» below). */
+    const curtainTypeMullions = new Map<string, string>();
     for (const record of records) {
       if (record.kind !== 'run' || record.params.of !== 'curtainWall') continue;
       curtainRead++;
@@ -831,6 +874,17 @@ function sharedRun(to: 'frag' | 'ifc') {
           flat.push((seg.from[0] + d[0] * a) * s, (seg.from[1] + d[1] * a) * s, (level.at + base + halfAcross + up) * s);
         }
         attrs.Profile = JSON.stringify([flat]);
+      }
+      // 🔴 ONE CURTAIN TYPE, ONE MULLION: the type is made by its first wall, its borders with that wall's mullion; a
+      // wall of the same name with another is a variant, «name · W x D» (Conference Center 24-10: the first of its
+      // «MaxSpacing» walls has no members, mullion 0, so the type came with no border bars for the ten that have them,
+      // 160 members with nothing to be).
+      {
+        const m = JSON.parse(attrs.Curtain).mullion as { width: number; depth: number };
+        const sig = `${Math.round((m.width / s) * 1000)} x ${Math.round((m.depth / s) * 1000)}`;
+        const seen = curtainTypeMullions.get(attrs.Type);
+        if (seen === undefined) curtainTypeMullions.set(attrs.Type, sig);
+        else if (seen !== sig) { if (typeof process !== "undefined" && process.env?.RECIPE_TRACE) console.error(`[curtain-type] ${record.item.guid}: ${attrs.Type} first made with ${seen}, this one ${sig}`); attrs.Type = `${attrs.Type} · ${sig}`; }
       }
       if (add(key(record.id), attrs)) curtainCount++;
     }
@@ -966,6 +1020,13 @@ function sharedRun(to: 'frag' | 'ifc') {
         }
       } else {
         spec.path = [p([body.start[0], body.start[1]]), p([body.end[0], body.end[1]])];
+        // (A style with no tread: its path by its risers. Conference's grand stair, «7" max riser 11" tread», came
+        // with tread 0, its riser lines on one another, «curve too short»: 5.588 m / 20 = 0.2794 m, its 11".)
+        if (!(tread > 0)) {
+          const going = Math.hypot(body.end[0] - body.start[0], body.end[1] - body.start[1]) / risers;
+          spec.tread = going * s;
+          (spec.sizes as Record<string, number>).minTread = going * s;
+        }
         if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[stair] ${record.item.guid} ${record.item.name ?? ''}: straight, ${Math.hypot(body.end[0] - body.start[0], body.end[1] - body.start[1]).toFixed(3)} m, rise ${rise}, ${risers} risers, width ${n(style.width)}, measured ${widthOfStair(record.item.guid, body.start, body.end)}`);
       }
       // ITS LANDINGS: the slabs the file names after this stair ("…:725045 Landing 1" for
@@ -1006,6 +1067,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         Level: level.name,
         Stairs: JSON.stringify(spec),
       };
+      if (typeof process !== 'undefined' && process.env?.RECIPE_STAIR === record.item.guid) console.error(`[stair-spec] ${attrs.Stairs}`);
       if (add(key(record.id), attrs)) stairCount++;
     }
 
@@ -1256,6 +1318,8 @@ function sharedRun(to: 'frag' | 'ifc') {
       )
         bodiesWaiting++;
     }
+
+    flushFocus();
 
     // ---- 7. What this recipe made before and whose record is gone now. ----
     let removed = 0;
