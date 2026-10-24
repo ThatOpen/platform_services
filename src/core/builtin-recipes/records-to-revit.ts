@@ -485,7 +485,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         const p = a[end];
         let best: Seg | null = null, bd = Infinity;
         for (const b of segs) {
-          if (b === a || !sameLevel(a, b)) continue;
+          if (b === a || b.arcMid || !sameLevel(a, b)) continue; // (not to an arc's chord)
           const d = distToSeg(p, b);
           if (d < bd) { bd = d; best = b; }
         }
@@ -585,7 +585,9 @@ function sharedRun(to: 'frag' | 'ifc') {
       const height = body.height!;
       const level = levels.get(String(body.level ?? record.params.level ?? ''))!;
       const lookRef = record.params.lookRef as string;
-      let { from: f, to: e } = extended.get(sg)!;
+      // (An arc keeps the ends the converter gave it, unjoined: the extension to a meeting is along its chord, and
+      // Revit, joining it, trimmed its ends and moved its neighbours — Savoyvilla's 13 arcs, twins as families, off.)
+      let { from: f, to: e } = sg.arcMid ? { from: sg.from, to: sg.to } : extended.get(sg)!;
       // (A stub its joins trimmed to nothing — Savoyvilla 24-10: two 12 cm walls, both ends cut back by half their
       // 12 cm, «LocationLine is missing or not two points» — keeps its own line.)
       if (Math.hypot(e[0] - f[0], e[1] - f[1]) < 0.01) ({ from: f, to: e } = sg);
@@ -633,7 +635,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       // Which ends Revit may join: only those that meet another wall where it was authored.
       // Every end the record says meets another wall may join it, moved or not: Revit's cleanup
       // there is part of the wall (racbasic's foundation wall reaches 0.101 m past its line).
-      const joins = [f !== sg.from || sg.joinStart ? 'start' : '', e !== sg.to || sg.joinEnd ? 'end' : ''].filter((end) => Boolean(end) && !exact.has(end));
+      const joins = sg.arcMid ? [] : [f !== sg.from || sg.joinStart ? 'start' : '', e !== sg.to || sg.joinEnd ? 'end' : ''].filter((end) => Boolean(end) && !exact.has(end));
       if (joins.length) attrs.JoinEnds = joins.join(',');
       // How each joined end meets: a mitre where the record wants one (Revit's Wall Joins).
       const mitres = joins.filter((end) => record.params[end === 'start' ? 'wantedAtStart' : 'wantedAtEnd'] === 'mitre');
@@ -653,7 +655,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       // went, so an end extended to a meeting carries the outline with it.
       const given = (body as { profile?: [number, number][] }).profile;
       const profile = Array.isArray(given) ? withoutSlivers(given) : given;
-      if (Array.isArray(profile) && profile.length >= 3 && sg.i === 0 && !segs.some((o) => o !== sg && o.record === record)) {
+      if (!sg.arcMid && Array.isArray(profile) && profile.length >= 3 && sg.i === 0 && !segs.some((o) => o !== sg && o.record === record)) {
         const L = Math.hypot(sg.to[0] - sg.from[0], sg.to[1] - sg.from[1]);
         const dir = [(sg.to[0] - sg.from[0]) / L, (sg.to[1] - sg.from[1]) / L];
         const flat: number[] = [];
@@ -684,7 +686,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       // the original is that wall with its profile edited to the gable. So is this one: its
       // outline is the roof's top over its line - each eave, the ridge where the line crosses it.
       const onTop = record.params.topAttachedAt === 'top' || (body as { topAttachedAt?: string }).topAttachedAt === 'top';
-      const gable = typeof attachedTo === 'string' && onTop && !attrs.Profile && roofRecords.has(attachedTo) ? gableOf(roofRecords.get(attachedTo)!) : null;
+      const gable = !sg.arcMid && typeof attachedTo === 'string' && onTop && !attrs.Profile && roofRecords.has(attachedTo) ? gableOf(roofRecords.get(attachedTo)!) : null;
       if (gable) {
         const L = Math.hypot(e[0] - f[0], e[1] - f[1]);
         const at = (t: number) => [f[0] + ((e[0] - f[0]) * t) / L, f[1] + ((e[1] - f[1]) * t) / L];
