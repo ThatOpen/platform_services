@@ -34,7 +34,7 @@ import {
   whatItMadeBefore,
   type PickedFile,
 } from './shared';
-import { familiesFromShapes, openingsFromShapes, pointsOf as shapePoints, roofOverWall, roomsFromShapes, shapedPanelsOf, wallTopOf } from './shapes-to-families';
+import { extentAcross, familiesFromShapes, openingsFromShapes, pointsOf as shapePoints, roofOverWall, roomsFromShapes, shapedPanelsOf, wallTopOf } from './shapes-to-families';
 
 /** Revit's own category ids, printed from RevitAPI.dll - never guessed. */
 const CATEGORY = {
@@ -287,12 +287,13 @@ function sharedRun(to: 'frag' | 'ifc') {
           if (a.Type && types.has(`${a.CategoryId}|${a.Type}`)) return keep(i);
           if (p.placement?.host && (keys.has(p.placement.host) || gids.has(gidOf(p.placement.host)))) return keep(i);
           if (a.AttachTop && keys.has(a.AttachTop)) return keep(i);
+          if (a.CutBy && a.CutBy.split('|').some((k) => keys.has(k))) return keep(i);
           if (round === 0 && ends(a).some((q) => keptEnds.some((r) => Math.hypot(q[0] - r[0], q[1] - r[1]) < 1))) return keep(i);
         });
         // And what the kept are hosted in or attached to.
         for (const i of [...kept]) {
-          const host = pending[i].placement?.host, top = pending[i].attrs.AttachTop;
-          pending.forEach((q, j) => { if (q.sourceKey === host || q.sourceKey === top) keep(j); });
+          const host = pending[i].placement?.host, top = pending[i].attrs.AttachTop, cutters = (pending[i].attrs.CutBy ?? '').split('|');
+          pending.forEach((q, j) => { if (q.sourceKey === host || q.sourceKey === top || cutters.includes(q.sourceKey)) keep(j); });
         }
       }
       // Levels and anything without an element of its own (no gid) always go.
@@ -506,6 +507,47 @@ function sharedRun(to: 'frag' | 'ifc') {
       extended.set(a, out);
     }
 
+    // 🔴 A WALL ANOTHER CUTS WHERE THEY OVERLAP (Duplex 24-10: four party walls, 550 mm by their type, a 152 mm furring
+    // wall laid 57 mm into them; the file's shape of each is cut there, ours were whole, 12 % over): two parallel walls
+    // whose thicknesses overlap, the one whose shape is thinner than its type there cut by the other (Join Geometry).
+    const cutBy = new Map<Seg, Seg[]>();
+    if (shapes) {
+      const across = (sg: Seg) => {
+        const L = Math.hypot(sg.to[0] - sg.from[0], sg.to[1] - sg.from[1]);
+        return { L, d: [(sg.to[0] - sg.from[0]) / L, (sg.to[1] - sg.from[1]) / L] };
+      };
+      const thickAt = (sg: Seg, lo: number, hi: number) => {
+        const g = sg.record.item.guid;
+        if (!g || segs.filter((o) => o.record === sg.record).length !== 1) return null;
+        const { d } = across(sg);
+        // (Its section half way along the overlap, half way up its shape: a notch's corners say its whole thickness.)
+        const zs = shapePoints(shapes, g).map((p) => p[2]);
+        if (!zs.length) return null;
+        const x = extentAcross(shapes, g, sg.from, d, (lo + hi) / 2, (Math.min(...zs) + Math.max(...zs)) / 2);
+        return x ? x.hi - x.lo : null;
+      };
+      for (const a of segs) {
+        if (a.arcMid || !(a.width > 0)) continue;
+        const A = across(a);
+        if (A.L < 0.3) continue;
+        for (const b of segs) {
+          if (b === a || b.arcMid || !(b.width > 0) || !sameLevel(a, b)) continue;
+          const B = across(b);
+          if (B.L < 0.3 || Math.abs(A.d[0] * B.d[1] - A.d[1] * B.d[0]) > 0.02) continue;
+          const off = Math.abs(-(b.from[0] - a.from[0]) * A.d[1] + (b.from[1] - a.from[1]) * A.d[0]);
+          if (off > (a.width + b.width) / 2 - 0.01) continue;
+          const tb = [b.from, b.to].map((p) => (p[0] - a.from[0]) * A.d[0] + (p[1] - a.from[1]) * A.d[1]);
+          const lo = Math.max(0, Math.min(...tb)), hi = Math.min(A.L, Math.max(...tb));
+          if (hi - lo < 0.3) continue;
+          const ta = thickAt(a, lo, hi);
+          if (process.env?.RECIPE_WALL?.split(",").includes(a.record.item.guid ?? "")) console.error(`[cut-by?] ${a.record.item.guid} by ${b.record.item.guid}: off ${off.toFixed(3)}, along ${lo.toFixed(2)}..${hi.toFixed(2)}, shape ${ta}`);
+          if (ta === null || ta > a.width - 0.01) continue;
+          if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[cut-by] ${a.record.item.guid} (${(a.width * 1000).toFixed(0)} mm, its shape ${(ta * 1000).toFixed(0)}) cut by ${b.record.item.guid} over ${(hi - lo).toFixed(2)} m`);
+          cutBy.set(a, [...(cutBy.get(a) ?? []), b]);
+        }
+      }
+    }
+
     // 🔴 THE SHAPES AT THE RECORDS' HEIGHT. The records are read at the project's height (`atTheProjectsHeight`), the
     // shapes where the file has them: DACH stands 500 m up, and every family, opening and room came in 500 m above its
     // building (21-10). The offset is measured on the walls (their shape's bottom against their record's), and only
@@ -632,6 +674,9 @@ function sharedRun(to: 'frag' | 'ifc') {
         // (An arc: bent through its middle by the applier, its ends where the line's are.)
         ...(sg.arcMid ? { LocationArc: `${num(sg.arcMid[0] * s)},${num(sg.arcMid[1] * s)},${num(z)}` } : {}),
       };
+      // (Cut by: each cutter's source key, and the id of the one made before — a checkpoint's kept wall.)
+      const cutters = cutBy.get(sg);
+      if (cutters) attrs.CutBy = cutters.flatMap((b) => { const k = `${key(b.record.id)}#${b.i}`; const before = made.get(k); return before ? [k, before] : [k]; }).join('|');
       // Which ends Revit may join: only those that meet another wall where it was authored.
       // Every end the record says meets another wall may join it, moved or not: Revit's cleanup
       // there is part of the wall (racbasic's foundation wall reaches 0.101 m past its line).

@@ -564,6 +564,45 @@ export function volumeOf(shapes: SourceShapes, gid: string, only?: number): numb
   return v;
 }
 
+/**
+ * Its shape's extent ACROSS a line at one spot: cut by the vertical plane `t` along `d` from `origin` (plan, metres), at
+ * height `z`, the least and most it reaches along the line's normal (left of `d`). Null where the plane misses it. What a
+ * box's corners cannot say: a wall notched over part of its length is as thick as its type at the notch's ends.
+ */
+export function extentAcross(shapes: SourceShapes, gid: string, origin: number[], d: number[], t: number, z: number): { lo: number; hi: number } | null {
+  const el = shapes.elements.get(gid);
+  if (!el) return null;
+  const along = (p: number[]) => (p[0] - origin[0]) * d[0] + (p[1] - origin[1]) * d[1];
+  const acr = (p: number[]) => -(p[0] - origin[0]) * d[1] + (p[1] - origin[1]) * d[0];
+  let lo = Infinity, hi = -Infinity;
+  for (const piece of el.pieces) {
+    const g = shapes.geometries.get(piece.geometry);
+    if (!g) continue;
+    const m = piece.matrix;
+    const W = (i: number) => {
+      const x = g.verts[i * 3], y = g.verts[i * 3 + 1], zz = g.verts[i * 3 + 2];
+      return [m[0] * x + m[4] * y + m[8] * zz + m[12], m[1] * x + m[5] * y + m[9] * zz + m[13], m[2] * x + m[6] * y + m[10] * zz + m[14]];
+    };
+    for (let i = 0; i + 2 < g.tris.length; i += 3) {
+      const tri = [W(g.tris[i]), W(g.tris[i + 1]), W(g.tris[i + 2])];
+      // The triangle's crossing of the plane: a segment in (across, z).
+      const cut: number[][] = [];
+      for (let k = 0; k < 3; k++) {
+        const p = tri[k], q = tri[(k + 1) % 3], sp = along(p) - t, sq = along(q) - t;
+        if ((sp < 0) === (sq < 0) || sp === sq) continue;
+        const r = sp / (sp - sq);
+        cut.push([acr(p) + r * (acr(q) - acr(p)), p[2] + r * (q[2] - p[2])]);
+      }
+      if (cut.length !== 2) continue;
+      const [a, b] = cut;
+      if ((a[1] - z) * (b[1] - z) > 0 || a[1] === b[1]) continue;
+      const u = a[0] + ((z - a[1]) / (b[1] - a[1])) * (b[0] - a[0]);
+      lo = Math.min(lo, u); hi = Math.max(hi, u);
+    }
+  }
+  return Number.isFinite(lo) ? { lo, hi } : null;
+}
+
 export function pointsOf(shapes: SourceShapes, gid: string, only?: number): number[][] {
   const el = shapes.elements.get(gid);
   const out: number[][] = [];
