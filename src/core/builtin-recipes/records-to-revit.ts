@@ -407,6 +407,8 @@ function sharedRun(to: 'frag' | 'ifc') {
       width: number;
       joinStart: boolean;
       joinEnd: boolean;
+      /** An arc's point half way round (its from/to are its chord's ends). */
+      arcMid?: [number, number];
     }
     const segs: Seg[] = [];
     for (const record of records) {
@@ -420,13 +422,26 @@ function sharedRun(to: 'frag' | 'ifc') {
         continue;
       }
       const width = (thicknessOf(lookRef) ?? 0) / s;
-      const segments = curves.filter((curve) => curve.kind === 'segment' && curve.from && curve.to);
+      // 🔴 AN ARC (the converter since 24-10: {kind: 'arc', centre, radius, from, sweep}, radians, sweep signed): its
+      // chord as its line, and the point half way round, for the applier to bend it through (LocationArc).
+      type Arc = { kind: string; centre?: [number, number]; radius?: number; from?: number | [number, number]; sweep?: number; to?: [number, number] };
+      const asSegment = (curve: Arc) => {
+        if (curve.kind === 'segment' && Array.isArray(curve.from) && curve.to) return { from: [...curve.from] as [number, number], to: [...curve.to] as [number, number] };
+        if (curve.kind === 'arc' && curve.centre && typeof curve.radius === 'number' && typeof curve.from === 'number' && typeof curve.sweep === 'number') {
+          const at = (a: number) => [curve.centre![0] + curve.radius! * Math.cos(a), curve.centre![1] + curve.radius! * Math.sin(a)] as [number, number];
+          if (typeof process !== "undefined" && process.env?.RECIPE_TRACE) console.error(`[wall-arc] ${record.item.guid}: radius ${curve.radius.toFixed(2)}, sweep ${(curve.sweep * 180 / Math.PI).toFixed(1)}°`);
+          return { from: at(curve.from), to: at(curve.from + curve.sweep), arcMid: at(curve.from + curve.sweep / 2) };
+        }
+        return null;
+      };
+      const segments = (curves as Arc[]).map(asSegment).filter((x): x is NonNullable<ReturnType<typeof asSegment>> => x !== null);
       wallSkipped += curves.length - segments.length;
       segments.forEach((curve, i) =>
         segs.push({
           record, i, width,
-          from: [...curve.from!] as [number, number],
-          to: [...curve.to!] as [number, number],
+          from: curve.from,
+          to: curve.to,
+          ...('arcMid' in curve ? { arcMid: curve.arcMid } : {}),
           // A run's own ends meet only at its first and last segment; inside, the run continues.
           joinStart: i === 0 && String(record.params.meetsAtStart) === 'true',
           joinEnd: i === segments.length - 1 && String(record.params.meetsAtEnd) === 'true',
@@ -579,7 +594,8 @@ function sharedRun(to: 'frag' | 'ifc') {
       // The file's own shape says where each end is; a square end goes exactly there and is left unjoined, so the
       // corner is the file's whatever Revit would choose. A slanted end (a mitre) keeps Revit's join.
       const exact = new Set<string>();
-      const shapeOfWall = shapes && record.item.guid && segs.filter((o) => o.record === record).length === 1 ? shapes.elements.get(record.item.guid) : undefined;
+      // (Not for an arc: what is read off its shape below assumes a straight wall.)
+      const shapeOfWall = !sg.arcMid && shapes && record.item.guid && segs.filter((o) => o.record === record).length === 1 ? shapes.elements.get(record.item.guid) : undefined;
       if (shapeOfWall) {
         const pts = shapePoints(shapes!, record.item.guid!);
         const L = Math.hypot(e[0] - f[0], e[1] - f[1]);
@@ -611,6 +627,8 @@ function sharedRun(to: 'frag' | 'ifc') {
         Level: level.name,
         BaseOffset: num(base * s),
         Height: num(height * s),
+        // (An arc: bent through its middle by the applier, its ends where the line's are.)
+        ...(sg.arcMid ? { LocationArc: `${num(sg.arcMid[0] * s)},${num(sg.arcMid[1] * s)},${num(z)}` } : {}),
       };
       // Which ends Revit may join: only those that meet another wall where it was authored.
       // Every end the record says meets another wall may join it, moved or not: Revit's cleanup
