@@ -970,13 +970,45 @@ function sharedRun(to: 'frag' | 'ifc') {
       const style = typeof lookRef === 'string' ? styles.get(lookRef)?.params : undefined;
       if (!seg?.from || !seg.to || typeof body?.height !== 'number' || !level || !style) continue;
       const n = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0);
-      const halfUp = n(style.uprightWidth) / 2, halfAcross = n(style.horizontalWidth) / 2;
       const L = Math.hypot(seg.to[0] - seg.from[0], seg.to[1] - seg.from[1]);
       const d = [(seg.to[0] - seg.from[0]) / L, (seg.to[1] - seg.from[1]) / L];
-      const f = [seg.from[0] - d[0] * halfUp, seg.from[1] - d[1] * halfUp];
-      const e = [seg.to[0] + d[0] * halfUp, seg.to[1] + d[1] * halfUp];
-      const base = (typeof body.base === 'number' ? body.base : 0) - halfAcross;
-      const height = body.height + 2 * halfAcross;
+      // 🔴 Half a bar of the bars it HAS (Conference r38: its «MaxSpacing» walls' style says 0, their members are 38 mm,
+      // and every grid line and the wall's ends sat 19 mm off — 135 members and 49 panels): its measured mullion when
+      // its style says none.
+      const measured = n(style.uprightWidth) > 0 ? null : mullionOf(record.item.guid, d);
+      const halfUp = (n(style.uprightWidth) || (measured ? measured.width / s : 0)) / 2;
+      const halfAcross = (n(style.horizontalWidth) || (measured ? measured.width / s : 0)) / 2;
+      // 🔴 A SIDE WITH NO BAR (Savoyvilla 24-10: its entrance glass has none at its foot, Revit's type a bar on every
+      // side: the panels 25 mm high, the uprights 25 mm low): the sides whose border the file's own members do not run
+      // along, not grown by half a bar and their border bars taken away. Only for a wall the file gives members for,
+      // and not one by its outline.
+      const bare = { start: false, end: false, bottom: false, top: false };
+      if (shapes && record.item.guid && !Array.isArray((body as { profile?: unknown }).profile)) {
+        const kids = [...shapes.elements.values()].filter((el) => el.parent === record.item.guid);
+        const boxOf = (gid: string) => {
+          const pts = shapePoints(shapes, gid);
+          if (!pts.length) return null;
+          const t = pts.map((p) => (p[0] - seg.from![0]) * d[0] + (p[1] - seg.from![1]) * d[1]), zz = pts.map((p) => p[2]);
+          return { t0: Math.min(...t), t1: Math.max(...t), z0: Math.min(...zz), z1: Math.max(...zz) };
+        };
+        const all = kids.map((k) => boxOf(k.gid)).filter((b): b is NonNullable<typeof b> => b !== null);
+        const bars = kids.filter((k) => /^IFCMEMBER$/i.test(k.ifcClass)).map((k) => boxOf(k.gid)).filter((b): b is NonNullable<typeof b> => b !== null);
+        if (bars.length && all.length) {
+          const T0 = Math.min(...all.map((b) => b.t0)), T1 = Math.max(...all.map((b) => b.t1)), Z0 = Math.min(...all.map((b) => b.z0)), Z1 = Math.max(...all.map((b) => b.z1));
+          const flat = (b: typeof bars[number]) => b.t1 - b.t0 > b.z1 - b.z0;
+          bare.bottom = !bars.some((b) => flat(b) && Math.abs(b.z0 - Z0) < 0.01);
+          bare.top = !bars.some((b) => flat(b) && Math.abs(b.z1 - Z1) < 0.01);
+          bare.start = !bars.some((b) => !flat(b) && Math.abs(b.t0 - T0) < 0.01);
+          bare.end = !bars.some((b) => !flat(b) && Math.abs(b.t1 - T1) < 0.01);
+          if (Object.values(bare).some(Boolean) && typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[curtain-bare] ${record.item.guid}: no bar at its ${Object.entries(bare).filter(([, v]) => v).map(([k]) => k).join(', ')}`);
+        }
+      }
+      // The half bar each side grows by: none where it has no bar.
+      const g0 = bare.start ? 0 : halfUp, g1 = bare.end ? 0 : halfUp, b0 = bare.bottom ? 0 : halfAcross, b1 = bare.top ? 0 : halfAcross;
+      const f = [seg.from[0] - d[0] * g0, seg.from[1] - d[1] * g0];
+      const e = [seg.to[0] + d[0] * g1, seg.to[1] + d[1] * g1];
+      const base = (typeof body.base === 'number' ? body.base : 0) - b0;
+      const height = body.height + b0 + b1;
       const z = (level.at + base) * s;
       const along = body.lines?.along ?? ruled(L, n(style.alongSpacing), style.alongJustify);
       const up = body.lines?.up ?? ruled(body.height, n(style.upSpacing), style.upJustify);
@@ -985,14 +1017,23 @@ function sharedRun(to: 'frag' | 'ifc') {
         const m = /^(horizontal|vertical)@(-?[\d.]+):(-?[\d.]+)$/.exec(one);
         if (!m) return [];
         const horizontal = m[1] === 'horizontal';
-        const at = Number(m[2]) / 1000 + (horizontal ? halfAcross : halfUp);
-        const from = Number(m[3]) / 1000 + (horizontal ? halfUp : halfAcross);
+        const at = Number(m[2]) / 1000 + (horizontal ? b0 : g0);
+        const from = Number(m[3]) / 1000 + (horizontal ? g0 : b0);
         return [{ horizontal, at: at * s, from: from * s }];
       });
+      // (Its bare sides' border bars, one station per bay along each: the applier takes the type's bar there away.)
+      {
+        const alongs = [0, ...along.map((a) => a + g0)], ups = [0, ...up.map((u) => u + b0)];
+        const Lg = L + g0 + g1;
+        if (bare.bottom) for (const x of alongs) omit.push({ horizontal: true, at: 0, from: x * s });
+        if (bare.top) for (const x of alongs) omit.push({ horizontal: true, at: height * s, from: x * s });
+        if (bare.start) for (const y of ups) omit.push({ horizontal: false, at: 0, from: y * s });
+        if (bare.end) for (const y of ups) omit.push({ horizontal: false, at: Lg * s, from: y * s });
+      }
       // «panel@<along mm>,<up mm>»: that cell is no glass (a door stands in it).
       const empty = (body.omitted ?? []).flatMap((one) => {
         const m = /^panel@(-?[\d.]+),(-?[\d.]+)$/.exec(one);
-        return m ? [{ along: (Number(m[1]) / 1000 + halfUp) * s, up: (Number(m[2]) / 1000 + halfAcross) * s }] : [];
+        return m ? [{ along: (Number(m[1]) / 1000 + g0) * s, up: (Number(m[2]) / 1000 + b0) * s }] : [];
       });
       // 🔴 ITS PANELS THAT ARE NO PLAIN SHEET (louvres, grilles: `shapedPanelsOf`): their cells empty, and each made as a
       // family of its own shape where the file has it.
@@ -1003,7 +1044,7 @@ function sharedRun(to: 'frag' | 'ifc') {
           if (a < -0.01 || a > L + 0.01 || u < -0.01 || u > body.height + 0.01) continue;
           const cellAlong = Math.max(0, ...along.filter((x) => x <= a + 1e-6));
           const cellUp = Math.max(0, ...up.filter((x) => x <= u + 1e-6));
-          empty.push({ along: (cellAlong + halfUp) * s, up: (cellUp + halfAcross) * s });
+          empty.push({ along: (cellAlong + g0) * s, up: (cellUp + b0) * s });
           shapedPanels.add(panel.gid);
         }
       }
@@ -1015,11 +1056,11 @@ function sharedRun(to: 'frag' | 'ifc') {
         BaseOffset: num(base * s),
         Height: num(height * s),
         Curtain: JSON.stringify({
-          along: along.map((a) => (a + halfUp) * s),
-          up: up.map((u) => (u + halfAcross) * s),
+          along: along.map((a) => (a + g0) * s),
+          up: up.map((u) => (u + b0) * s),
           omit,
           empty,
-          mullion: n(style.uprightWidth) > 0 ? { width: n(style.uprightWidth) * s, depth: n(style.depth) * s } : mullionOf(record.item.guid, d) ?? { width: 0, depth: n(style.depth) * s },
+          mullion: n(style.uprightWidth) > 0 ? { width: n(style.uprightWidth) * s, depth: n(style.depth) * s } : measured ?? { width: 0, depth: n(style.depth) * s },
           // The glass off the bars' middle: the converter counts it toward the wall's inside,
           // Revit's panel offset toward its outside (measured: racbasic's glass 0.032 m off,
           // on the other side, with the sign as it was).
