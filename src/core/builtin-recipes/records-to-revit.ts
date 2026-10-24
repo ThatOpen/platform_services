@@ -155,6 +155,24 @@ function familyAndType(lookRef: unknown): { family: string; type: string } | nul
 
 const num = (v: number) => String(v);
 
+// A wall outline without its crumbs: a corner whose triangle with its neighbours is under 2 cm²
+// and that sits on an edge under 2 cm goes (Schependomlaan's 5 «balkonopstand» carry a notch 1 cm
+// high and 6 to 34 mm wide at their foot, and Revit deletes each wall as «line too short»).
+// Straight-through corners left behind go too.
+function withoutSlivers(loop: [number, number][]): [number, number][] {
+  const pts = loop.slice();
+  const tri = (a: number[], b: number[], c: number[]) => Math.abs((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])) / 2;
+  for (let changed = true; changed && pts.length > 3;) {
+    changed = false;
+    for (let k = 0; k < pts.length && pts.length > 3; k++) {
+      const a = pts[(k - 1 + pts.length) % pts.length], b = pts[k], c = pts[(k + 1) % pts.length];
+      const short = Math.min(Math.hypot(b[0] - a[0], b[1] - a[1]), Math.hypot(c[0] - b[0], c[1] - b[1])) < 0.02;
+      if (tri(a, b, c) < 1e-8 || (short && tri(a, b, c) < 2e-4)) { pts.splice(k, 1); changed = true; k--; }
+    }
+  }
+  return pts;
+}
+
 function sharedRun(to: 'frag' | 'ifc') {
   return async (context: RecipeContext<Settings>) => {
     const { picked, contents, site, shapes } = await readPickedFrag(
@@ -475,7 +493,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       /** Its other pieces' profiles, when the file cut it through (see `wallTopOf`). */
       let pieceProfiles: string[] = [];
       const body = innerJson<RunBody>(record, 'run')!;
-      if (typeof process !== 'undefined' && process.env?.RECIPE_WALL === record.item.guid) console.error(`[wall] ${record.item.guid}: params ${JSON.stringify(record.params).slice(0, 800)} seg ${JSON.stringify({ from: sg.from, to: sg.to, i: sg.i })}`);
+      if (typeof process !== 'undefined' && process.env?.RECIPE_WALL?.split(",").includes(record.item.guid ?? "")) console.error(`[wall] ${record.item.guid}: params ${JSON.stringify(record.params).slice(0, 800)} seg ${JSON.stringify({ from: sg.from, to: sg.to, i: sg.i })}`);
       const base = typeof body.base === 'number' ? body.base : 0;
       const height = body.height!;
       const level = levels.get(String(body.level ?? record.params.level ?? ''))!;
@@ -543,7 +561,8 @@ function sharedRun(to: 'frag' | 'ifc') {
       // converter already folded in): the outline, [along, up] from the line's start and the
       // base, laid in the wall's vertical plane. Its first and last stations go where the ends
       // went, so an end extended to a meeting carries the outline with it.
-      const profile = (body as { profile?: [number, number][] }).profile;
+      const given = (body as { profile?: [number, number][] }).profile;
+      const profile = Array.isArray(given) ? withoutSlivers(given) : given;
       if (Array.isArray(profile) && profile.length >= 3 && sg.i === 0 && !segs.some((o) => o !== sg && o.record === record)) {
         const L = Math.hypot(sg.to[0] - sg.from[0], sg.to[1] - sg.from[1]);
         const dir = [(sg.to[0] - sg.from[0]) / L, (sg.to[1] - sg.from[1]) / L];
@@ -660,7 +679,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         attrs['Type.Layers'] = JSON.stringify([...declared.layers].reverse().map((l) => [+num(l.thickness * s), l.material ?? '', l.function ?? '']));
         if (declared.layersFlipped) attrs.FlipLayers = '1';
       }
-      if (typeof process !== 'undefined' && process.env?.RECIPE_WALL === record.item.guid) console.error(`[wall-attrs] ${JSON.stringify(attrs).slice(0, 1500)}`);
+      if (typeof process !== 'undefined' && process.env?.RECIPE_WALL?.split(",").includes(record.item.guid ?? "")) console.error(`[wall-attrs] ${JSON.stringify(attrs).slice(0, 1500)}`);
       if (add(`${key(record.id)}#${sg.i}`, attrs)) wallCount++;
       // Its other pieces (a wall the file cut through, top to bottom), each a wall of the same type by its outline.
       pieceProfiles.forEach((profile, k) => { if (add(`${key(record.id)}#${sg.i}p${k + 1}`, { ...attrs, Profile: profile })) wallCount++; });
