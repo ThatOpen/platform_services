@@ -34,7 +34,7 @@ import {
   whatItMadeBefore,
   type PickedFile,
 } from './shared';
-import { familiesFromShapes, openingsFromShapes, pointsOf as shapePoints, roofOverWall, roomsFromShapes, wallTopOf } from './shapes-to-families';
+import { familiesFromShapes, openingsFromShapes, pointsOf as shapePoints, roofOverWall, roomsFromShapes, shapedPanelsOf, wallTopOf } from './shapes-to-families';
 
 /** Revit's own category ids, printed from RevitAPI.dll - never guessed. */
 const CATEGORY = {
@@ -231,6 +231,8 @@ function sharedRun(to: 'frag' | 'ifc') {
     }
     const key = (recordId: string) => stableKeys.get(recordId) ?? `${picked.fileId}:${recordId}`;
     const seen = new Set<string>();
+    /** A curtain wall's panels made as families of their own shape, their cells left empty (see 2b). */
+    const shapedPanels = new Set<string>();
 
     /**
      * Adds once per source key. One already made is KEPT when the source asks for the same thing it
@@ -421,6 +423,29 @@ function sharedRun(to: 'frag' | 'ifc') {
       extended.set(a, out);
     }
 
+    // 🔴 THE SHAPES AT THE RECORDS' HEIGHT. The records are read at the project's height (`atTheProjectsHeight`), the
+    // shapes where the file has them: DACH stands 500 m up, and every family, opening and room came in 500 m above its
+    // building (21-10). The offset is measured on the walls (their shape's bottom against their record's), and only
+    // a large one (a site's elevation, not a wall standing below its base) is taken off.
+    const shapeDz = (() => {
+      if (!shapes) return 0;
+      const d: number[] = [];
+      for (const sg of segs) {
+        const g = sg.record.item.guid;
+        if (!g || !shapes.elements.has(g)) continue;
+        const body = innerJson<RunBody>(sg.record, 'run');
+        const level = levels.get(String(body?.level ?? sg.record.params.level ?? ''));
+        if (!body || !level) continue;
+        const pts = shapePoints(shapes, g);
+        if (!pts.length) continue;
+        let low = Infinity;
+        for (const p of pts) low = Math.min(low, p[2]);
+        d.push(low - (level.at + (typeof body.base === 'number' ? body.base : 0)));
+      }
+      d.sort((a, b) => a - b);
+      const m = d.length ? d[Math.floor(d.length / 2)] : 0;
+      return Math.abs(m) > 0.5 ? m : 0;
+    })();
     for (const sg of segs) {
       const { record } = sg;
       const body = innerJson<RunBody>(record, 'run')!;
@@ -553,9 +578,9 @@ function sharedRun(to: 'frag' | 'ifc') {
           const dir = [(e[0] - f[0]) / L, (e[1] - f[1]) / L];
           const flat: number[] = [];
           const corner = (along: number, z: number) => { flat.push((f[0] + along * dir[0]) * s, (f[1] + along * dir[1]) * s, z * s); };
-          corner(top.lo, top.bottom);
-          corner(top.hi, top.bottom);
-          for (const [along, z] of [...top.chain].reverse()) corner(along, z);
+          corner(top.lo, top.bottom - shapeDz);
+          corner(top.hi, top.bottom - shapeDz);
+          for (const [along, z] of [...top.chain].reverse()) corner(along, z - shapeDz);
           attrs.Profile = JSON.stringify([flat]);
           delete attrs.TopLevel;
           delete attrs.TopOffset;
@@ -626,6 +651,19 @@ function sharedRun(to: 'frag' | 'ifc') {
         const m = /^panel@(-?[\d.]+),(-?[\d.]+)$/.exec(one);
         return m ? [{ along: (Number(m[1]) / 1000 + halfUp) * s, up: (Number(m[2]) / 1000 + halfAcross) * s }] : [];
       });
+      // 🔴 ITS PANELS THAT ARE NO PLAIN SHEET (louvres, grilles: `shapedPanelsOf`): their cells empty, and each made as a
+      // family of its own shape where the file has it.
+      if (shapes && record.item.guid) {
+        for (const panel of shapedPanelsOf(shapes, record.item.guid, n(style.panelDepth), [-d[1], d[0]])) {
+          const a = (panel.centre[0] - seg.from[0]) * d[0] + (panel.centre[1] - seg.from[1]) * d[1];
+          const u = panel.centre[2] - shapeDz - (level.at + (typeof body.base === 'number' ? body.base : 0));
+          if (a < -0.01 || a > L + 0.01 || u < -0.01 || u > body.height + 0.01) continue;
+          const cellAlong = Math.max(0, ...along.filter((x) => x <= a + 1e-6));
+          const cellUp = Math.max(0, ...up.filter((x) => x <= u + 1e-6));
+          empty.push({ along: (cellAlong + halfUp) * s, up: (cellUp + halfAcross) * s });
+          shapedPanels.add(panel.gid);
+        }
+      }
       const attrs: Record<string, string> = {
         CategoryId: CATEGORY.walls,
         Type: nativeOf(record)?.type ?? String(lookRef),
@@ -972,30 +1010,8 @@ function sharedRun(to: 'frag' | 'ifc') {
     // Whatever no step above builds natively (doors and windows, furniture, fixtures, proxies, columns, railings,
     // the parts of nothing written) is a family: one per shape, defined from the file's own geometry in the
     // element's frame, placed where the file has each. Doors and windows in the wall whose opening they fill.
-    // 🔴 THE SHAPES AT THE RECORDS' HEIGHT. The records are read at the project's height (`atTheProjectsHeight`), the
-    // shapes where the file has them: DACH stands 500 m up, and every family, opening and room came in 500 m above its
-    // building (21-10). The offset is measured on the walls (their shape's bottom against their record's), and only
-    // a large one (a site's elevation, not a wall standing below its base) is taken off.
-    const shapeDz = (() => {
-      if (!shapes) return 0;
-      const d: number[] = [];
-      for (const sg of segs) {
-        const g = sg.record.item.guid;
-        if (!g || !shapes.elements.has(g)) continue;
-        const body = innerJson<RunBody>(sg.record, 'run');
-        const level = levels.get(String(body?.level ?? sg.record.params.level ?? ''));
-        if (!body || !level) continue;
-        const pts = shapePoints(shapes, g);
-        if (!pts.length) continue;
-        let low = Infinity;
-        for (const p of pts) low = Math.min(low, p[2]);
-        d.push(low - (level.at + (typeof body.base === 'number' ? body.base : 0)));
-      }
-      d.sort((a, b) => a - b);
-      const m = d.length ? d[Math.floor(d.length / 2)] : 0;
-      return Math.abs(m) > 0.5 ? m : 0;
-    })();
-    const shaped = shapes ? familiesFromShapes(shapes, seen, picked.fileId) : [];
+    if (shapedPanels.size && typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[shaped-panels] ${shapedPanels.size} curtain panel(s) made as families of their shape`);
+    const shaped = shapes ? familiesFromShapes(shapes, seen, picked.fileId, shapedPanels) : [];
     let shapeCount = 0;
     for (const one of shaped) {
       if (

@@ -60,7 +60,7 @@ const cross = (a: number[], b: number[]) => [a[1] * b[2] - a[2] * b[1], a[2] * b
  * The family instances for every element of `shapes` that nothing in `written` (source keys of what other steps
  * build: `<file>:<gid>:<kind>`) builds, and that is not part of something written (a curtain wall's mullions).
  */
-export function familiesFromShapes(shapes: SourceShapes, written: ReadonlySet<string>, fileId: string): ShapedInstance[] {
+export function familiesFromShapes(shapes: SourceShapes, written: ReadonlySet<string>, fileId: string, alsoParts?: ReadonlySet<string>): ShapedInstance[] {
   const writtenGids = new Set<string>();
   const keyOfGid = new Map<string, string>();
   for (const key of written) {
@@ -79,7 +79,8 @@ export function familiesFromShapes(shapes: SourceShapes, written: ReadonlySet<st
     // A part of something written is that thing's (a curtain wall's mullions and panels), except a door or window
     // in it: Revit's curtain wall takes no door from the file, so it is made as the door it is (racbasic: 5 doors of
     // curtain walls missing, 21-10).
-    if (el.parent && writtenGids.has(el.parent) && !/^IFC(DOOR|WINDOW)$/i.test(el.ifcClass)) continue;
+    // (And a curtain wall's panel that is no plain sheet, its cell left empty: `alsoParts`, see `shapedPanelsOf`.)
+    if (el.parent && writtenGids.has(el.parent) && !/^IFC(DOOR|WINDOW)$/i.test(el.ifcClass) && !alsoParts?.has(el.gid)) continue;
     if (el.pieces.length === 0) continue;
     // A column its file calls structural is a structural column: an architectural one is merged into the walls it stands
     // in (Savoyvilla's «结构柱» pilotis: 27 of 39 lost their part inside the walls, 23-10).
@@ -552,6 +553,44 @@ export function pointsOf(shapes: SourceShapes, gid: string, only?: number): numb
       const x = g.verts[i], y = g.verts[i + 1], z = g.verts[i + 2];
       out.push([m[0] * x + m[4] * y + m[8] * z + m[12], m[1] * x + m[5] * y + m[9] * z + m[13], m[2] * x + m[6] * y + m[10] * z + m[14]]);
     }
+  }
+  return out;
+}
+
+/**
+ * 🔴 A CURTAIN WALL'S PANELS THAT ARE NO PLAIN SHEET (24-10: DACH's 155 louvre panels, «Lamellenelement», and the
+ * Conference Center's 158 came out as Revit's flat glass): each with the point its shape is centred on, for the
+ * curtain wall to leave its cell empty and the panel to be made as a family of its own shape. Plain: one box (12
+ * triangles); `sheet`, the panel's own thickness, kept for when one box is not enough to tell.
+ */
+export function shapedPanelsOf(shapes: SourceShapes, curtainGid: string, sheet: number, wallNormal?: number[]): { gid: string; centre: number[] }[] {
+  const out: { gid: string; centre: number[] }[] = [];
+  for (const el of shapes.elements.values()) {
+    if (el.parent !== curtainGid || !/^IFC(PLATE|COVERING|BUILDINGELEMENTPROXY)$/i.test(el.ifcClass) || el.pieces.length === 0) continue;
+    const pts = pointsOf(shapes, el.gid);
+    if (pts.length === 0) continue;
+    let tris = 0;
+    for (const piece of el.pieces) tris += (shapes.geometries.get(piece.geometry)?.tris.length ?? 0) / 3;
+    const mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+    for (const p of pts) for (let k = 0; k < 3; k++) { mn[k] = Math.min(mn[k], p[k]); mx[k] = Math.max(mx[k], p[k]); }
+    // (One box: what Revit's own system panel is; anything more drawn is the panel's own shape.)
+    const plain = el.pieces.length === 1 && tris <= 12;
+    // (Nor one box turned out of the wall's plane: a louvre's blade, DACH's «Lamellenelement», tilted.)
+    if (plain && wallNormal) {
+      const g = shapes.geometries.get(el.pieces[0].geometry);
+      const m = el.pieces[0].matrix;
+      let best = 0, bn: number[] | null = null;
+      if (g) for (let i = 0; i + 2 < g.tris.length; i += 3) {
+        const W = (k: number) => { const x = g.verts[k * 3], y = g.verts[k * 3 + 1], z = g.verts[k * 3 + 2]; return [m[0] * x + m[4] * y + m[8] * z, m[1] * x + m[5] * y + m[9] * z, m[2] * x + m[6] * y + m[10] * z]; };
+        const a = W(g.tris[i]), b = W(g.tris[i + 1]), c = W(g.tris[i + 2]);
+        const n = cross([b[0] - a[0], b[1] - a[1], b[2] - a[2]], [c[0] - a[0], c[1] - a[1], c[2] - a[2]]);
+        const area = Math.hypot(n[0], n[1], n[2]);
+        if (area > best) { best = area; bn = n.map((v) => v / area); }
+      }
+      if (bn && Math.abs(bn[0] * wallNormal[0] + bn[1] * wallNormal[1]) < 0.996) { out.push({ gid: el.gid, centre: [(mn[0] + mx[0]) / 2, (mn[1] + mx[1]) / 2, (mn[2] + mx[2]) / 2] }); continue; }
+    }
+    if (plain) continue;
+    out.push({ gid: el.gid, centre: [(mn[0] + mx[0]) / 2, (mn[1] + mx[1]) / 2, (mn[2] + mx[2]) / 2] });
   }
   return out;
 }
