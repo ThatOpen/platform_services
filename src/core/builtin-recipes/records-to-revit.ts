@@ -840,6 +840,20 @@ function sharedRun(to: 'frag' | 'ifc') {
     // cast in place), its risers as many as its rise needs at its type's riser at most.
     let stairCount = 0;
     let stairRead = 0;
+    // 🔴 ITS WIDTH OFF ITS SHAPE, when its style says none (Conference Center 24-10: the grand stair's two runs came
+    // with width 0, «Curve length is too small for Revit's tolerance», not made): the span of its own shape and its
+    // flights' across its path.
+    const widthOfStair = (gid: string | undefined, start: number[], end: number[]): number | null => {
+      if (!shapes || !gid) return null;
+      const L = Math.hypot(end[0] - start[0], end[1] - start[1]);
+      if (!(L > 0)) return null;
+      const across = [-(end[1] - start[1]) / L, (end[0] - start[0]) / L];
+      const pts = [gid, ...[...shapes.elements.values()].filter((el) => el.parent === gid).map((el) => el.gid)].flatMap((g) => shapePoints(shapes, g));
+      if (pts.length < 4) return null;
+      const t = pts.map((q) => (q[0] - start[0]) * across[0] + (q[1] - start[1]) * across[1]);
+      const w = Math.max(...t) - Math.min(...t);
+      return w > 0.3 && w < 10 ? w : null;
+    };
     for (const record of records) {
       if (record.kind !== 'stair' || record.params.of !== 'stair') continue;
       stairRead++;
@@ -865,7 +879,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         height: rise * s,
         risers,
         tread: tread * s,
-        width: n(style.width) * s,
+        width: (n(style.width) > 0 ? n(style.width) : widthOfStair(record.item.guid, body.start, body.end) ?? 0) * s,
         // Its type's sizes, as the style has them: Revit keeps the risers under the type's
         // maximum (racbasic: a 180 mm template type gave a 3.0 m stair a riser more, 3.22 m).
         sizes: {
@@ -882,7 +896,16 @@ function sharedRun(to: 'frag' | 'ifc') {
       if (sketch?.boundary && sketch.boundary.length >= 4 && sketch.risers && sketch.risers.length >= 2) {
         // The outline: its first edge is the first riser; the edge opposite, one tread past the
         // last riser, is the run's end; the edges between are its two sides.
-        const b = sketch.boundary;
+        // (Turned to start at the edge that IS the first riser: DACH's sketched runs start at a side, so their «sides»
+        // were the first riser and the end, «stairs require at least two boundaries», 3 not made, 24-10.)
+        const first = sketch.risers[0];
+        const near = (u: [number, number], v: [number, number]) => Math.hypot(u[0] - v[0], u[1] - v[1]) < 0.01;
+        const at = sketch.boundary.findIndex((q, k, all) => {
+          const r = all[(k + 1) % all.length];
+          return (near(q, first[0]) && near(r, first[1])) || (near(q, first[1]) && near(r, first[0]));
+        });
+        const b = at > 0 ? [...sketch.boundary.slice(at), ...sketch.boundary.slice(0, at)] : sketch.boundary;
+        if (typeof process !== "undefined" && process.env?.RECIPE_STAIR === record.item.guid) console.error(`[stair-sketch] boundary ${JSON.stringify(b)} (turned by ${at}) risers ${JSON.stringify(sketch.risers)} tread ${tread}`);
         const last = sketch.risers[sketch.risers.length - 1];
         const mid = (q: [number, number][]) => [(q[0][0] + q[1][0]) / 2, (q[0][1] + q[1][1]) / 2];
         const lm = mid(last);
@@ -907,6 +930,10 @@ function sharedRun(to: 'frag' | 'ifc') {
         void endLine;
         const walk = riserLines.map(([a, c]) => [(a[0] + c[0]) / 2, (a[1] + c[1]) / 2]);
         spec.sketch = { boundary: sides, risers: riserLines, path: walk };
+        if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) {
+          const len = (q: number[][]) => Math.hypot(q[1][0] - q[0][0], q[1][1] - q[0][1]) / s;
+          console.error(`[stair] ${record.item.guid} ${record.item.name ?? ''}: ${sides.length} sides (shortest ${(Math.min(...sides.map(len)) * 1000).toFixed(2)} mm), ${riserLines.length} risers (shortest ${(Math.min(...riserLines.map(len)) * 1000).toFixed(2)} mm), walk ${walk.length} points (shortest step ${(Math.min(...walk.slice(1).map((q, k) => len([walk[k], q]))) * 1000).toFixed(2)} mm)`);
+        }
         // Its going is what the riser lines say, the shortest between two in a row that are
         // parallel; the style's (racbasic: 0.375 against Revit's 0.25) is the winders' too.
         let going = Infinity;
@@ -923,6 +950,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         }
       } else {
         spec.path = [p([body.start[0], body.start[1]]), p([body.end[0], body.end[1]])];
+        if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[stair] ${record.item.guid} ${record.item.name ?? ''}: straight, ${Math.hypot(body.end[0] - body.start[0], body.end[1] - body.start[1]).toFixed(3)} m, rise ${rise}, ${risers} risers, width ${n(style.width)}, measured ${widthOfStair(record.item.guid, body.start, body.end)}`);
       }
       // ITS LANDINGS: the slabs the file names after this stair ("…:725045 Landing 1" for
       // "…:725045 Run 1"). The converter has each as its cross-section on a vertical plane pushed
