@@ -939,7 +939,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         attrs['Type.Layers'] = JSON.stringify([...declared.layers].reverse().map((l) => [+num(l.thickness * s), l.material ?? '', l.function ?? '']));
         if (declared.layersFlipped) attrs.FlipLayers = '1';
       }
-      if (typeof process !== 'undefined' && process.env?.RECIPE_WALL?.split(",").includes(record.item.guid ?? "")) console.error(`[wall-attrs] ${JSON.stringify(attrs).slice(0, 1500)}`);
+      if (typeof process !== 'undefined' && process.env?.RECIPE_WALL?.split(",").includes(record.item.guid ?? "")) console.error(`[wall-attrs] ${JSON.stringify(attrs).slice(0, 1500)} style ${JSON.stringify(styles.get(lookRef)?.params ?? null).slice(0, 800)}`);
       if (add(`${key(record.id)}#${sg.i}`, attrs)) wallCount++;
       // Its other pieces (a wall the file cut through, top to bottom), each a wall of the same type by its outline.
       pieceProfiles.forEach((profile, k) => { if (add(`${key(record.id)}#${sg.i}p${k + 1}`, { ...attrs, Profile: profile })) wallCount++; });
@@ -1511,6 +1511,15 @@ function sharedRun(to: 'frag' | 'ifc') {
             attrs.Slope = num(rise);
             attrs.SlopeArrow = JSON.stringify([tail[0] * s, tail[1] * s, (tail[0] + d[0] * (hi - lo)) * s, (tail[1] + d[1] * (hi - lo)) * s]);
             attrs.HeightOffset = num(base * s + width - rise * (hi - lo) * s);
+            // 🔴 ITS TOP AT ITS LOW CORNER FROM ITS SHAPE, where there is one: `base` is its bottom at its low side in
+            // some files and at its high side in others (GNI model_54 25-10: «Roof_metal» at 7.6°, 0.40 m low, the
+            // rise taken off a base that was already the low one). Its lowest point and its thickness, plumb.
+            const body3 = shapes && record.item.guid ? shapePoints(shapes, record.item.guid) : [];
+            if (body3.length >= 4) {
+              const lowest = Math.min(...body3.map((q) => q[2])) - shapeDz;
+              attrs.HeightOffset = num((lowest - level.at) * s + width * Math.sqrt(1 + rise * rise));
+              if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[slab-slope] ${record.item.guid} ${lookRef}: lowest ${lowest.toFixed(3)} level ${level.at.toFixed(3)} base ${base.toFixed(3)} rise ${(rise * (hi - lo)).toFixed(3)}: top at its low corner ${(lowest + width * Math.sqrt(1 + rise * rise) / s).toFixed(3)} (by base ${(level.at + base + width / s - rise * (hi - lo)).toFixed(3)})`);
+            }
           }
         }
       }

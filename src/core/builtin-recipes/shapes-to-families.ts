@@ -330,6 +330,14 @@ export function openingsFromShapes(shapes: SourceShapes, written: ReadonlySet<st
     const span = (v: number[]) => Math.max(...v) - Math.min(...v);
     const box = span(along) * span(across) * span(pts.map((p) => p[2]));
     if (!(box > 0) || Math.abs(part.volume) < 0.75 * box) { if (trace) console.error(`[opening] ${el.gid}: not a box (${part.volume.toFixed(3)} of ${box.toFixed(3)}: ${span(along).toFixed(3)} along ${span(across).toFixed(3)} across ${span(pts.map((p) => p[2])).toFixed(3)} up, axis ${JSON.stringify(axis.u.map((v) => +v.toFixed(3)))})`); continue; } // boxes measured 0.81..0.92, the others 0.42..0.62
+    // 🔴 THROUGH IT, or not a hole to cut (Savoyvilla r52: a 15 cm band under a partition's top taken out of 11 of its
+    // 12 cm, its 1 cm render left on one face, cut right through by the rectangle): from face to face of its wall,
+    // to 5 mm.
+    const hostAcross = pointsOf(shapes, el.host).map((p) => -(p[0] - axis.a[0]) * axis.u[1] + (p[1] - axis.a[1]) * axis.u[0]);
+    if (hostAcross.length && (Math.min(...across) > Math.min(...hostAcross) + 0.005 || Math.max(...across) < Math.max(...hostAcross) - 0.005)) {
+      if (trace) console.error(`[opening] ${el.gid}: not through its wall (across ${Math.min(...across).toFixed(3)}..${Math.max(...across).toFixed(3)}, its wall ${Math.min(...hostAcross).toFixed(3)}..${Math.max(...hostAcross).toFixed(3)})`);
+      continue;
+    }
     if (trace && process.env?.RECIPE_GID === el.gid) console.error(`[opening] ${el.gid} part ${part.index}/${part.of}: a box (${part.volume.toFixed(4)} of ${box.toFixed(4)}: ${span(along).toFixed(3)} along ${span(across).toFixed(3)} across ${span(pts.map((p) => p[2])).toFixed(3)} up, ${pts.length} points)`);
     // Its points, not a box: the wall may run at any angle, and the applier takes their extent along it.
     out.push({ key: `${fileId}:${el.gid}:opening${part.index === 0 && part.of === 1 ? '' : `#${part.index}`}`, host, box: pts.flat() });
