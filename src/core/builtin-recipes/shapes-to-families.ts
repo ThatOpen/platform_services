@@ -64,8 +64,11 @@ export function familiesFromShapes(shapes: SourceShapes, written: ReadonlySet<st
   const writtenGids = new Set<string>();
   const keyOfGid = new Map<string, string>();
   for (const key of written) {
-    const gid = key.split(':')[1];
+    const [, gid, kind] = key.split(':');
     if (!gid) continue;
+    // 🔴 NOT A LEVEL'S KEY: a level's key carries the gid of some element on it (`local:<gid>:datum`), and Savoyvilla's
+    // ribbon windows were hosted in a level, unhosted, their wall uncut (r39, 24-10: 7.3 m³ for 6.3).
+    if (/^datum/.test(kind ?? '')) continue;
     writtenGids.add(gid);
     // A host is the change that made the element: its first key (a wall's run).
     if (!keyOfGid.has(gid)) keyOfGid.set(gid, key);

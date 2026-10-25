@@ -217,6 +217,7 @@ function sharedRun(to: 'frag' | 'ifc') {
 
     const levels = levelsOf(records);
     const styles = stylesOf(records);
+    if (typeof process !== 'undefined' && process.env?.RECIPE_STYLE) for (const [k, v] of styles) if (k.includes(process.env.RECIPE_STYLE)) console.error(`[style] ${k}: ${JSON.stringify(v).slice(0, 1500)}`);
     const author = `recipe:${to}-to-revit`;
     const prints = new Map<string, string>();
     const made = whatItMadeBefore(context, prints);
@@ -1021,8 +1022,10 @@ function sharedRun(to: 'frag' | 'ifc') {
         const from = Number(m[3]) / 1000 + (horizontal ? g0 : b0);
         return [{ horizontal, at: at * s, from: from * s }];
       });
-      // (Its bare sides' border bars, one station per bay along each: the applier takes the type's bar there away.)
-      {
+      // (Its bare sides' border bars, one station per bay along each: the applier takes the type's bar there away. With no
+      // bar on any side, a type with no border bars instead — Savoyvilla's entrance glass, r41: its bars would not go.)
+      const noBorders = bare.start && bare.end && bare.bottom && bare.top;
+      if (!noBorders) {
         const alongs = [0, ...along.map((a) => a + g0)], ups = [0, ...up.map((u) => u + b0)];
         const Lg = L + g0 + g1;
         if (bare.bottom) for (const x of alongs) omit.push({ horizontal: true, at: 0, from: x * s });
@@ -1060,6 +1063,7 @@ function sharedRun(to: 'frag' | 'ifc') {
           up: up.map((u) => (u + b0) * s),
           omit,
           empty,
+          ...(noBorders ? { noBorders: true } : {}),
           mullion: n(style.uprightWidth) > 0 ? { width: n(style.uprightWidth) * s, depth: n(style.depth) * s } : measured ?? { width: 0, depth: n(style.depth) * s },
           // The glass off the bars' middle: the converter counts it toward the wall's inside,
           // Revit's panel offset toward its outside (measured: racbasic's glass 0.032 m off,
@@ -1104,10 +1108,10 @@ function sharedRun(to: 'frag' | 'ifc') {
       {
         // (And one glass: a wall of it with thinner panels, its own too — Conference 24-10, 79 «Glazed Centered» panels
         // 26 mm for the file's 13, the type made by a wall with thicker ones.)
-        const c = JSON.parse(attrs.Curtain) as { mullion: { width: number; depth: number }; panel?: { thickness?: number } };
+        const c = JSON.parse(attrs.Curtain) as { mullion: { width: number; depth: number }; panel?: { thickness?: number }; noBorders?: boolean };
         const m = c.mullion;
         const glass = c.panel?.thickness ? `, ${Math.round((c.panel.thickness / s) * 1000)} mm glass` : '';
-        const sig = `${Math.round((m.width / s) * 1000)} x ${Math.round((m.depth / s) * 1000)}${glass}`;
+        const sig = `${Math.round((m.width / s) * 1000)} x ${Math.round((m.depth / s) * 1000)}${glass}${c.noBorders ? ', no borders' : ''}`;
         const seen = curtainTypeMullions.get(attrs.Type);
         if (seen === undefined) curtainTypeMullions.set(attrs.Type, sig);
         else if (seen !== sig) { if (typeof process !== "undefined" && process.env?.RECIPE_TRACE) console.error(`[curtain-type] ${record.item.guid}: ${attrs.Type} first made with ${seen}, this one ${sig}`); attrs.Type = `${attrs.Type} · ${sig}`; }
@@ -1367,6 +1371,19 @@ function sharedRun(to: 'frag' | 'ifc') {
           return c;
         };
         if (!pts.every((p) => inside(p[0], p[1]))) { if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[slab-cut] ${record.item.guid}: a cut across its edge, left`); continue; }
+        // 🔴 (Nor one that touches its edge or another hole, by box, 1 cm to spare — DACH r39: 13 floors «the input curve
+        // loops cannot compose a valid boundary», their cuts over the holes they already had, all 13 missing.)
+        const box = (q: number[][]) => [Math.min(...q.map((p) => p[0])), Math.min(...q.map((p) => p[1])), Math.max(...q.map((p) => p[0])), Math.max(...q.map((p) => p[1]))];
+        const flatPts = (l: number[]) => { const q: number[][] = []; for (let k = 0; k + 2 < l.length; k += 3) q.push([l[k] / s, l[k + 1] / s]); return q; };
+        const mine = box(pts);
+        const clashes = loops.slice(1).some((l) => { const b = box(flatPts(l)); return mine[0] < b[2] + 0.01 && b[0] < mine[2] + 0.01 && mine[1] < b[3] + 0.01 && b[1] < mine[3] + 0.01; });
+        const outerPts = flatPts(outer);
+        const nearEdge = pts.some((p) => outerPts.some((a, k) => {
+          const b = outerPts[(k + 1) % outerPts.length], dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy || 1;
+          const u = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L2));
+          return Math.hypot(p[0] - (a[0] + u * dx), p[1] - (a[1] + u * dy)) < 0.01;
+        }));
+        if (clashes || nearEdge) { if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[slab-cut] ${record.item.guid}: a cut ${clashes ? 'over another hole' : 'at its edge'}, left`); continue; }
         const inner = pts.flatMap((p) => [p[0] * s, p[1] * s, (holeGable ? holeGable.zAt(p[0], p[1]) : base) * s]);
         loops.push(inner);
         if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[slab-cut] ${record.item.guid} ${record.item.name ?? ''}: a hole of ${pts.length} corners`);
