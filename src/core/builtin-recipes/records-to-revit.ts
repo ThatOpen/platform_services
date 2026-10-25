@@ -637,11 +637,37 @@ function sharedRun(to: 'frag' | 'ifc') {
       // (A stub its joins trimmed to nothing — Savoyvilla 24-10: two 12 cm walls, both ends cut back by half their
       // 12 cm, «LocationLine is missing or not two points» — keeps its own line.)
       if (Math.hypot(e[0] - f[0], e[1] - f[1]) < 0.01) ({ from: f, to: e } = sg);
+      // 🔴 A SQUARE END BACK TO ITS CUT: where the record wants it square and says the plane it is cut by (`asCut`), and
+      // the meeting carried the line past that plane, the line ends at the plane, unjoined. (Not on OUT to it: GNI model_51
+      // r54, 80 walls carried up to 10 cm on and joined there, 95.0 → 88.1, its corners no better.)
+      const cutBack = new Set<string>();
+      if (!sg.arcMid && segs.filter((o) => o.record === record).length === 1) {
+        const cuts = (body as { asCut?: { start?: { through?: number[]; keep?: number[] }[]; end?: { through?: number[]; keep?: number[] }[] } }).asCut;
+        const L = Math.hypot(e[0] - f[0], e[1] - f[1]);
+        if (cuts && L > 0.05) {
+          const d = [(e[0] - f[0]) / L, (e[1] - f[1]) / L];
+          const onTo = (p: number[], plane?: { through?: number[]; keep?: number[] }) => {
+            const t = plane?.through, k = plane?.keep;
+            if (!t || !k) return null;
+            const dn = d[0] * k[0] + d[1] * k[1];
+            if (Math.abs(dn) < 0.5) return null; // (a slanted cut is a mitre's: Revit's join makes it)
+            return ((t[0] - p[0]) * k[0] + (t[1] - p[1]) * k[1]) / dn;
+          };
+          const ts = record.params.wantedAtStart === 'square' ? onTo(f, cuts.start?.[0]) : null;
+          const te = record.params.wantedAtEnd === 'square' ? onTo(e, cuts.end?.[0]) : null;
+          // (And back to it, square and unjoined, where its meeting carried it past: GNI model_182 r54, an «Exterior
+          // Wall» of layers run 7 cm into its neighbour and joined there, a twin before as an exact square end.)
+          if (ts !== null && ts > 0.005 && ts < Math.min(1, L / 2)) { f = [f[0] + d[0] * ts, f[1] + d[1] * ts]; cutBack.add('start'); }
+          if (te !== null && te < -0.005 && te > -Math.min(1, L / 2)) { e = [e[0] + d[0] * te, e[1] + d[1] * te]; cutBack.add('end'); }
+          if (typeof process !== "undefined" && process.env?.RECIPE_TRACE && ((ts !== null && Math.abs(ts) > 0.005 && Math.abs(ts) < 1) || (te !== null && Math.abs(te) > 0.005 && Math.abs(te) < 1))) console.error(`[wall-to-cut] ${record.item.guid} ${lookRef}: start ${ts?.toFixed(3)} end ${te?.toFixed(3)}`);
+          if (typeof process !== 'undefined' && process.env?.RECIPE_WALL?.split(",").includes(record.item.guid ?? "")) console.error(`[wall-cut] ${record.item.guid}: start ${ts?.toFixed(3)} end ${te?.toFixed(3)}`);
+        }
+      }
       // 🔴 A SQUARE END WHERE THE FILE'S SHAPE ENDS, UNJOINED. Which wall runs through a corner is Revit's join order,
       // which the API cannot set (13-10): racbasic's corner walls came out the other way round, 0.2 m long and short.
       // The file's own shape says where each end is; a square end goes exactly there and is left unjoined, so the
       // corner is the file's whatever Revit would choose. A slanted end (a mitre) keeps Revit's join.
-      const exact = new Set<string>();
+      const exact = new Set<string>(cutBack);
       // (Not for an arc: what is read off its shape below assumes a straight wall.)
       const shapeOfWall = !sg.arcMid && shapes && record.item.guid && segs.filter((o) => o.record === record).length === 1 ? shapes.elements.get(record.item.guid) : undefined;
       if (shapeOfWall) {
