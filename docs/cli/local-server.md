@@ -6,6 +6,8 @@ description: "Start a local HTTP + Socket.IO server that replicates the platform
 
 Starts a local server that mimics the platform's cloud execution API. Runs esbuild in watch mode and rebuilds the component on every save.
 
+Each execution runs under Node's permission model, as in the cloud: the component can read its project folder and `node_modules`, but cannot write files, start child processes or worker threads, and it gets none of your shell's environment variables.
+
 Connect an app to it by passing `localServerUrl` to `EngineServicesClient`:
 
 ```ts
