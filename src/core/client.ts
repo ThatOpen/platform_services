@@ -1726,12 +1726,14 @@ export class EngineServicesClient {
     formData.append('file', file);
     formData.append('versionTag', versionTag);
     extraProps && formData.append('extraProps', JSON.stringify(extraProps));
-    metadata && formData.append('metadata', JSON.stringify(metadata));
-    return await this.#requestApi<ItemVersion>(
+    const version = await this.#requestApi<ItemVersion>(
       'POST',
       `${ITEM_PATH}/${itemId}/version`,
       { body: formData },
     );
+    // The platform takes no `metadata` with a new version (400, Planner 25-10): it is written after.
+    if (metadata) await this.updateFileVersionMetadata(itemId, version?.tag ?? versionTag, metadata);
+    return version;
   }
 
   /**
@@ -1945,7 +1947,6 @@ export class EngineServicesClient {
       formData.append('file', file);
       versionTag && formData.append('versionTag', versionTag);
       extraProps && formData.append('extraProps', JSON.stringify(extraProps));
-      metadata && formData.append('metadata', JSON.stringify(metadata));
       version = await this.#requestApi<ItemVersion>(
         'POST',
         `${ITEM_PATH}/${itemId}/version`,
@@ -1953,6 +1954,9 @@ export class EngineServicesClient {
           body: formData,
         },
       );
+      // The platform takes no `metadata` with a new version (400, Planner 25-10): it is written after.
+      const tag = version?.tag ?? versionTag;
+      if (metadata && tag) await this.updateFileVersionMetadata(itemId, tag, metadata);
     }
 
     if (name || parentFolderId) {

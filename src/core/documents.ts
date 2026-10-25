@@ -130,6 +130,8 @@ export interface DocumentDescriptor {
   native?: { fileId: string; format: string };
   /** The renderable representations, in no particular order. */
   views: DocumentView[];
+  /** The document this one is made from, when it is made from another (a drawing set's PDF). */
+  source?: { folderId: string };
 }
 
 export const DOCUMENT_SCHEMA = 'thatopen/document@1';
@@ -764,7 +766,13 @@ function normalize(parsed: unknown): DocumentDescriptor | null {
     typeof raw.type === 'string' && raw.type in DOCUMENT_TYPES
       ? (raw.type as DocumentType)
       : undefined;
+  // What it says besides (a PDF's `source`, a writer's own fields) is kept: dropped here, a document written with it
+  // came back without it, and the Planner's PDF export could not find its document again (25-10).
+  const rest = { ...raw };
+  delete rest.type;
+  delete rest.native;
   return {
+    ...rest,
     schema: DOCUMENT_SCHEMA,
     name: raw.name,
     ...(type ? { type } : {}),
