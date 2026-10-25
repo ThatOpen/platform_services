@@ -212,6 +212,8 @@ export interface FlowModelParts {
 /** What `sync` needs: the change list plus whatever the writer knows. */
 export interface SyncInput {
   author: string;
+  /** When it happened, ISO UTC, when not now (a tutorial's «Ana, yesterday»). */
+  timestamp?: string;
   /** Which application/tool is writing: 'revit', 'rhino', 'recipe'… */
   source: string;
   changes: FlowChange[];
@@ -763,7 +765,7 @@ export class FlowDoc {
       ...(head ? { parents: [head.guid] } : {}),
       author: input.author,
       source: input.source,
-      timestamp: new Date().toISOString(),
+      timestamp: input.timestamp ?? new Date().toISOString(),
       ...(input.message ? { message: input.message } : {}),
       ...(input.userId ? { userId: input.userId } : {}),
       ...(input.kind ? { kind: input.kind } : {}),
