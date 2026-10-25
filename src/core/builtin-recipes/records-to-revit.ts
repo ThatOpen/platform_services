@@ -309,12 +309,15 @@ function sharedRun(to: 'frag' | 'ifc') {
       const framed = sharedFrame ? { ...attrs, Frame: 'shared', ...(sharedAt ? { SharedAt: sharedAt } : {}) } : attrs;
       return !before || before === printOf({ attrs: framed, placement: placement ?? {} });
     };
+    // What each was written with, for what comes later to read (a wall's outline and its holes).
+    const written = new Map<string, Record<string, string>>();
     const add = (
       sourceKey: string,
       attrs: Record<string, string>,
       placement?: { position?: [number, number, number]; rotationDeg?: number; host?: string },
     ) => {
       seen.add(sourceKey);
+      written.set(sourceKey, attrs);
       const framed = sharedFrame ? { ...attrs, Frame: 'shared', ...(sharedAt ? { SharedAt: sharedAt } : {}) } : attrs;
       const print = printOf({ attrs: framed, placement: placement ?? {} });
       const madeId = made.get(sourceKey);
@@ -1183,10 +1186,37 @@ function sharedRun(to: 'frag' | 'ifc') {
           riserThickness: n(style.riserThickness) * s,
           notchExtension: n(style.notchExtension) * s,
           notchThickness: n(style.notchThickness) * s,
+          // (Its nosing, where the style says: Revit's template keeps 20 mm, GNI model_54's treads 2 cm off, 25-10.)
+          ...(style.nosing !== undefined && Number.isFinite(Number(style.nosing)) ? { nosing: Number(style.nosing) * s } : {}),
         },
       };
       if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[stair-end] ${record.item.guid} ${record.item.name ?? ''}: ${risers} risers, ends with riser ${spec.endsWithRiser}`);
       const sketch = body.sketch;
+      // 🔴 A RISER LINE TWICE, and the run's first edge none (GNI model_89 25-10: «Assembled Stair», its second riser line
+      // also given first, a walk with a step of 0 mm, «actualTreadDepth must be greater than 0», 3 stairs missing): the
+      // repeats go, and a first riser that is no edge of its outline is preceded by the outline's edge parallel to it on
+      // the side away from the next.
+      if (sketch?.boundary && sketch.risers && sketch.risers.length >= 2) {
+        const m2 = (q: [number, number][]) => [(q[0][0] + q[1][0]) / 2, (q[0][1] + q[1][1]) / 2];
+        const kept = sketch.risers.filter((r, k, all) => k === 0 || Math.hypot(m2(r)[0] - m2(all[k - 1])[0], m2(r)[1] - m2(all[k - 1])[1]) > 0.01);
+        const close = (u: [number, number], v: [number, number]) => Math.hypot(u[0] - v[0], u[1] - v[1]) < 0.01;
+        const bd = sketch.boundary;
+        const isEdge = (r: [number, number][]) => bd.some((q, k) => { const w = bd[(k + 1) % bd.length]; return (close(q, r[0]) && close(w, r[1])) || (close(q, r[1]) && close(w, r[0])); });
+        if (kept.length >= 2 && !isEdge(kept[0])) {
+          const [r0, r1] = [kept[0], kept[1]], d = [r0[1][0] - r0[0][0], r0[1][1] - r0[0][1]], dl = Math.hypot(d[0], d[1]);
+          const n0 = m2(r0), n1 = m2(r1), away = [n0[0] - n1[0], n0[1] - n1[1]];
+          let pick: [number, number][] | null = null, nearest = Infinity;
+          for (let k = 0; k < bd.length; k++) {
+            const q = bd[k], w = bd[(k + 1) % bd.length], e = [w[0] - q[0], w[1] - q[1]], el = Math.hypot(e[0], e[1]);
+            if (!(el > 0) || Math.abs((e[0] * d[1] - e[1] * d[0]) / (el * dl)) > 0.02) continue;
+            const m = m2([q, w]), off = (m[0] - n0[0]) * away[0] + (m[1] - n0[1]) * away[1];
+            if (off > 1e-4 && off < nearest) { nearest = off; pick = [q, w]; }
+          }
+          if (pick) kept.unshift(pick);
+        }
+        if (kept.length !== sketch.risers.length && typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[stair-sketch] ${record.item.guid}: riser lines ${sketch.risers.length} → ${kept.length}`);
+        sketch.risers = kept as [[number, number], [number, number]][];
+      }
       if (sketch?.boundary && sketch.boundary.length >= 4 && sketch.risers && sketch.risers.length >= 2) {
         // The outline: its first edge is the first riser; the edge opposite, one tread past the
         // last riser, is the run's end; the edges between are its two sides.
@@ -1307,7 +1337,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         Level: level.name,
         Stairs: JSON.stringify(spec),
       };
-      if (typeof process !== 'undefined' && process.env?.RECIPE_STAIR === record.item.guid) console.error(`[stair-spec] ${attrs.Stairs}`);
+      if (typeof process !== 'undefined' && (process.env?.RECIPE_STAIR === record.item.guid || process.env?.RECIPE_STAIR === "*")) console.error(`[stair-spec] ${attrs.Stairs}`);
       if (add(key(record.id), attrs)) stairCount++;
     }
 
@@ -1444,6 +1474,23 @@ function sharedRun(to: 'frag' | 'ifc') {
           });
           delete attrs.Slopes;
         }
+        // 🔴 A ROOF THAT IS ONE SLOPED SLAB (GNI model_18 25-10: «Titanzink - Eindeckung», 30°, its pieces as IfcSlab, made
+        // flat — the slope it said went unread): a mono-pitch, its slope on the edge at the low side, square to the slope.
+        // The record's `base` is its bottom there, where Revit's footprint stands; `by` is the angle, Revit wants rise/run.
+        const plane = (body as { slope?: { toward?: number; by?: number } } | null)?.slope;
+        const curves = body?.profile?.outline?.curves ?? [];
+        if (kind === 'roof' && !gable && !attrs.Slopes && plane && typeof plane.by === 'number' && Math.abs(plane.by) > 1e-3 && typeof plane.toward === 'number' && curves.length >= 3) {
+          const d = [Math.cos(plane.toward), Math.sin(plane.toward)];
+          const pts = curves.map((cv) => cv.from!).filter(Boolean);
+          const proj = pts.map((p) => p[0] * d[0] + p[1] * d[1]);
+          const lo = Math.min(...proj);
+          const eaves = pts.map((_, i) => Math.abs(proj[i] - lo) < 0.01 && Math.abs(proj[(i + 1) % pts.length] - lo) < 0.01);
+          if (pts.length === curves.length && eaves.some(Boolean)) {
+            attrs.Slopes = JSON.stringify(eaves.map((low) => (low ? Math.tan(Math.abs(plane.by!)) : null)));
+            attrs.BaseOffset = num(base * s);
+          }
+          if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[roof-plane] ${record.item.guid} ${lookRef}: ${(plane.by * 180 / Math.PI).toFixed(1)}° toward ${(plane.toward * 180 / Math.PI).toFixed(1)}°, eaves ${JSON.stringify(eaves)}`);
+        }
       } else if (width) {
         // A slab's `base` is its BOTTOM face, relative to its level; Revit places a floor by its
         // TOP face (height offset from level), and ignores the profile's z.
@@ -1458,10 +1505,12 @@ function sharedRun(to: 'frag' | 'ifc') {
           const proj = pts.map((p) => p[0] * d[0] + p[1] * d[1]);
           const lo = Math.min(...proj), hi = Math.max(...proj);
           const tail = pts[proj.indexOf(lo)];
+          // (`by` is the angle — model_18's 30° came as 0.5236 — and Revit's slope rise over run: alike at 5°, not at 30°.)
+          const rise = Math.tan(slope.by);
           if (hi - lo > 1e-3) {
-            attrs.Slope = num(slope.by);
+            attrs.Slope = num(rise);
             attrs.SlopeArrow = JSON.stringify([tail[0] * s, tail[1] * s, (tail[0] + d[0] * (hi - lo)) * s, (tail[1] + d[1] * (hi - lo)) * s]);
-            attrs.HeightOffset = num(base * s + width - slope.by * (hi - lo) * s);
+            attrs.HeightOffset = num(base * s + width - rise * (hi - lo) * s);
           }
         }
       }
@@ -1585,6 +1634,20 @@ function sharedRun(to: 'frag' | 'ifc') {
     // timber wall twice the IFC's volume (21-10).
     if (shapes) {
       for (const o of openingsFromShapes(shapes, seen, picked.fileId)) {
+        // 🔴 Not where its wall's outline has its holes already (racbasic r52: the SIP gable wall, its hole in its
+        // outline, cut again by the box of its opening once the wall's axis was right, 1.19 m³ → 0.88).
+        const outline = written.get(o.host)?.Profile;
+        if (outline) { try { const loops = JSON.parse(outline) as number[][];
+          const pts: number[][] = [];
+          for (let k = 0; k + 2 < o.box.length; k += 3) pts.push([o.box[k] * s, o.box[k + 1] * s, (o.box[k + 2] - shapeDz) * s]);
+          const range = (q: number[][], i: number) => [Math.min(...q.map((p) => p[i])), Math.max(...q.map((p) => p[i]))];
+          const mine = [0, 1, 2].map((i) => range(pts, i));
+          const onAHole = loops.slice(1).some((l) => {
+            const q: number[][] = [];
+            for (let k = 0; k + 2 < l.length; k += 3) q.push([l[k], l[k + 1], l[k + 2]]);
+            return q.length >= 3 && [0, 1, 2].every((i) => { const r = range(q, i); return r[0] < mine[i][1] + 0.03 && mine[i][0] < r[1] + 0.03; });
+          });
+          if (onAHole) { if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[opening] ${o.key}: its wall's outline has its holes`); continue; } } catch { /* read as none */ } }
         add(o.key, { WallOpening: o.box.map((v, i) => num((i % 3 === 2 ? v - shapeDz : v) * s)).join(','), ...(made.get(o.host) ? { HostMade: made.get(o.host)! } : {}) }, { host: o.host });
       }
     }

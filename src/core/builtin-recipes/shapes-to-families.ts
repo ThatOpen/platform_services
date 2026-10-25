@@ -234,6 +234,40 @@ export function familiesFromShapes(shapes: SourceShapes, written: ReadonlySet<st
           for (let k = 0; k < 3; k++) { mn[k] = Math.min(mn[k], f[k] * FEET); mx[k] = Math.max(mx[k], f[k] * FEET); }
         }
       }
+      // 🔴 A STEPPED OPENING (a rebate: GNI model_54 25-10, 35 walls 5 cm off around their windows): narrower at the
+      // face than inside; Revit's family cuts one rectangle, so that rectangle is the narrowest slice of it across the
+      // wall (the face's frame the window sits in), through it all across. A box: every slice the same.
+      {
+        const fam = openingParts(shapes, opening.gid).flatMap((part) => part.pts).map((p) => toFamily(p).map((v) => v * FEET));
+        const slices = new Map<number, number[][]>();
+        for (const f of fam) { const k = Math.round(f[1] * 200); slices.set(k, [...(slices.get(k) ?? []), f]); }
+        let best: number[] | null = null;
+        for (const pts of slices.values()) {
+          if (pts.length < 4) continue;
+          const r = [Math.min(...pts.map((p) => p[0])), Math.max(...pts.map((p) => p[0])), Math.min(...pts.map((p) => p[2])), Math.max(...pts.map((p) => p[2]))];
+          if (r[1] - r[0] < 0.1 || r[3] - r[2] < 0.1) continue;
+          if (!best || (r[1] - r[0]) * (r[3] - r[2]) < (best[1] - best[0]) * (best[3] - best[2]) - 1e-6) best = r;
+        }
+        if (best && slices.size > 2) { mn[0] = best[0]; mx[0] = best[1]; mn[2] = best[2]; mx[2] = best[3]; }
+        // …and the wider steps, each its own box between two slices (their rectangles' overlap: the step's own plane
+        // holds both), for the family to cut as voids of its own (r51: the narrowest alone left the rebates whole).
+        if (best && slices.size > 2) {
+          const planes = [...slices.entries()].sort((a, b) => a[0] - b[0]).map(([, pts]) => ({
+            y: pts[0][1],
+            r: [Math.min(...pts.map((p) => p[0])), Math.max(...pts.map((p) => p[0])), Math.min(...pts.map((p) => p[2])), Math.max(...pts.map((p) => p[2]))],
+          }));
+          const steps: number[][] = [];
+          for (let k = 0; k + 1 < planes.length; k++) {
+            const a = planes[k].r, b = planes[k + 1].r;
+            const r = [Math.max(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.min(a[3], b[3])];
+            if (r[1] - r[0] < 0.1 || r[3] - r[2] < 0.1 || planes[k + 1].y - planes[k].y < 0.01) continue;
+            if (r[0] < best[0] - 0.016 || r[1] > best[1] + 0.016 || r[2] < best[2] - 0.016 || r[3] > best[3] + 0.016)
+              steps.push([r[0], planes[k].y, r[2], r[1], planes[k + 1].y, r[3]].map((v) => round(v, 1e-5)));
+          }
+          if (steps.length) attrs.OpeningSteps = JSON.stringify(steps);
+          if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[opening-steps] ${el.gid}: ${planes.length} planes, narrowest ${JSON.stringify(best.map((v) => +v.toFixed(3)))}, steps ${JSON.stringify(steps)}`);
+        }
+      }
       if (Number.isFinite(mn[0])) attrs.Opening = [...mn, ...mx].map((v) => round(v, 1e-5)).join(',');
     }
     out.push({
@@ -278,7 +312,8 @@ export function openingsFromShapes(shapes: SourceShapes, written: ReadonlySet<st
   for (const el of shapes.elements.values()) {
     if (el.ifcClass.toUpperCase() !== 'IFCOPENINGELEMENT' || !el.host) continue;
     const host = wallKey.get(el.host);
-    if (!host) continue;
+    const trace = typeof process !== 'undefined' && process.env?.RECIPE_TRACE;
+    if (!host) { if (trace) console.error(`[opening] ${el.gid}: its wall ${el.host} not written as a run`); continue; }
     // 🔴 EACH PIECE ITS OWN OPENING: Revit writes a wall's edited profile as one opening of several extrusions
     // (Savoyvilla: walls twice the IFC's volume, their two-box openings failing the rectangle test as a whole, 23-10).
     // (And the pieces of one geometry that touch nothing of each other, apart: web-ifc may give the two as one.)
@@ -294,7 +329,8 @@ export function openingsFromShapes(shapes: SourceShapes, written: ReadonlySet<st
     const across = pts.map((p) => -(p[0] - axis.a[0]) * axis.u[1] + (p[1] - axis.a[1]) * axis.u[0]);
     const span = (v: number[]) => Math.max(...v) - Math.min(...v);
     const box = span(along) * span(across) * span(pts.map((p) => p[2]));
-    if (!(box > 0) || Math.abs(part.volume) < 0.75 * box) continue; // boxes measured 0.81..0.92, the others 0.42..0.62
+    if (!(box > 0) || Math.abs(part.volume) < 0.75 * box) { if (trace) console.error(`[opening] ${el.gid}: not a box (${part.volume.toFixed(3)} of ${box.toFixed(3)}: ${span(along).toFixed(3)} along ${span(across).toFixed(3)} across ${span(pts.map((p) => p[2])).toFixed(3)} up, axis ${JSON.stringify(axis.u.map((v) => +v.toFixed(3)))})`); continue; } // boxes measured 0.81..0.92, the others 0.42..0.62
+    if (trace && process.env?.RECIPE_GID === el.gid) console.error(`[opening] ${el.gid} part ${part.index}/${part.of}: a box (${part.volume.toFixed(4)} of ${box.toFixed(4)}: ${span(along).toFixed(3)} along ${span(across).toFixed(3)} across ${span(pts.map((p) => p[2])).toFixed(3)} up, ${pts.length} points)`);
     // Its points, not a box: the wall may run at any angle, and the applier takes their extent along it.
     out.push({ key: `${fileId}:${el.gid}:opening${part.index === 0 && part.of === 1 ? '' : `#${part.index}`}`, host, box: pts.flat() });
     }
@@ -507,6 +543,28 @@ function wallAxis(pts: number[][]): { a: number[]; u: number[] } | undefined {
   far = 0;
   for (const p of pts) { const d = Math.hypot(p[0] - b[0], p[1] - b[1]); if (d > far) { far = d; a = p; } }
   if (far < 0.1) return undefined;
+  // 🔴 ITS SIDES, NOT ITS DIAGONAL (GNI model_3_structure 25-10: a 1.7 m wall 0.2 thick, its farthest points corner to
+  // corner 6.7° off, its door-less openings measured as no box and left uncut): the smallest rectangle round its plan,
+  // along a side of its hull, its longer side the axis.
+  const flat = [...new Map(pts.map((p) => [`${Math.round(p[0] * 1e3)},${Math.round(p[1] * 1e3)}`, [p[0], p[1]]])).values()].sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+  const cross = (o: number[], p: number[], q: number[]) => (p[0] - o[0]) * (q[1] - o[1]) - (p[1] - o[1]) * (q[0] - o[0]);
+  const half = (list: number[][]) => { const h: number[][] = []; for (const p of list) { while (h.length >= 2 && cross(h[h.length - 2], h[h.length - 1], p) <= 0) h.pop(); h.push(p); } h.pop(); return h; };
+  const hull = flat.length >= 3 ? [...half(flat), ...half([...flat].reverse())] : flat;
+  let best: { area: number; u: number[] } | undefined;
+  for (let i = 0; i < hull.length; i++) {
+    const p = hull[i], q = hull[(i + 1) % hull.length], L = Math.hypot(q[0] - p[0], q[1] - p[1]);
+    if (L < 1e-3) continue;
+    const u = [(q[0] - p[0]) / L, (q[1] - p[1]) / L];
+    const al = hull.map((h) => h[0] * u[0] + h[1] * u[1]), ac = hull.map((h) => -h[0] * u[1] + h[1] * u[0]);
+    const la = Math.max(...al) - Math.min(...al), lc = Math.max(...ac) - Math.min(...ac);
+    const area = la * lc;
+    if (!best || area < best.area - 1e-9) best = { area, u: la >= lc ? u : [-u[1], u[0]] };
+  }
+  if (best) {
+    const u = best.u;
+    if (u[0] * (b[0] - a[0]) + u[1] * (b[1] - a[1]) < 0) { u[0] = -u[0]; u[1] = -u[1]; }
+    return { a, u };
+  }
   return { a, u: [(b[0] - a[0]) / far, (b[1] - a[1]) / far] };
 }
 
