@@ -1,8 +1,5 @@
 import { io } from 'socket.io-client';
-import {
-  EngineServicesClient,
-  EngineServicesClientProps,
-} from './client';
+import { EngineServicesClient, EngineServicesClientProps } from './client';
 import {
   Permission,
   Project,
@@ -13,6 +10,7 @@ import {
   ProjectRole,
   ProjectWithRole,
 } from '../types/projects';
+import { AccessToken, NewAccessToken } from '../types/tokens';
 import { ThatOpenContext } from '../types/context';
 import { ChannelClient, windowTransport } from './channel';
 import {
@@ -24,6 +22,7 @@ import {
 
 const PROJECT_PATH = 'project';
 const NOTIFICATION_PATH = 'notifications';
+const TOKENS_PATH = 'tokens';
 
 /**
  * What arrived on the socket. One callback for all three because a bell
@@ -79,9 +78,7 @@ export interface PermissionCheckEntry {
  * new PlatformClient(() => getAccessTokenSilently(), apiUrl)
  * ```
  */
-export type BearerTokenSource =
-  | string
-  | (() => string | Promise<string>);
+export type BearerTokenSource = string | (() => string | Promise<string>);
 
 /**
  * Client for apps, frontends, and any caller authenticating with a user JWT.
@@ -149,10 +146,9 @@ export class PlatformClient extends EngineServicesClient {
   static fromPlatformContext(
     props?: Omit<EngineServicesClientProps, 'useBearer'>,
   ): PlatformClient {
-    const ctx: ThatOpenContext =
-      (typeof window !== 'undefined'
-        ? window.__THATOPEN_CONTEXT__
-        : null) || { appId: '', projectId: '', accessToken: '', apiUrl: '' };
+    const ctx: ThatOpenContext = (typeof window !== 'undefined'
+      ? window.__THATOPEN_CONTEXT__
+      : null) || { appId: '', projectId: '', accessToken: '', apiUrl: '' };
     const client = new PlatformClient(ctx.accessToken, ctx.apiUrl, props);
     (client as { context: ThatOpenContext }).context = ctx;
     return client;
@@ -355,7 +351,11 @@ export class PlatformClient extends EngineServicesClient {
   /** Changes a role: its name, description or permissions (grants and revocations alike). */
   async updateRole(
     roleId: string,
-    changes: { name?: string; description?: string; permissions?: Permission[] },
+    changes: {
+      name?: string;
+      description?: string;
+      permissions?: Permission[];
+    },
   ) {
     return await this.request<ProjectRole>(
       'PUT',
@@ -391,6 +391,56 @@ export class PlatformClient extends EngineServicesClient {
         .filter((member) => String(member.role?._id) === String(role._id))
         .map((member) => member.user),
     }));
+  }
+
+  // ─── API tokens (JWT-only backend routes) ─────────────────────────
+  //
+  // The caller's own API tokens, as the dashboard's API Tokens card has them,
+  // so an integration can be given a credential of its own without leaving
+  // the product — limited to some projects (`projectIds`), split by
+  // permission, and revoked one by one (APOGEA 23-10, §2.5).
+
+  /** The caller's API tokens (without their secret). */
+  async listTokens() {
+    return await this.request<AccessToken[]>('GET', TOKENS_PATH);
+  }
+
+  /** A token's secret, to hand to the integration that will use it. */
+  async getTokenSecret(tokenId: string) {
+    // (The route answers the bare secret, not JSON.)
+    const secret = await this.request<Blob>(
+      'GET',
+      `${TOKENS_PATH}/${tokenId}/token`,
+      { responseType: 'blob' },
+    );
+    return await secret.text();
+  }
+
+  /**
+   * Creates an API token. `projectIds` limits it to those projects; without
+   * them it may act on every project its owner can reach.
+   */
+  async createToken(token: NewAccessToken) {
+    return await this.request<AccessToken>('POST', TOKENS_PATH, {
+      body: JSON.stringify({
+        urlRestrictions: [],
+        ...token,
+      }),
+      contentType: 'application/json',
+    });
+  }
+
+  /** Changes a token. `projectIds: []` lifts its project limit; leaving it out keeps it. */
+  async updateToken(tokenId: string, changes: Partial<NewAccessToken>) {
+    return await this.request<AccessToken>('PUT', `${TOKENS_PATH}/${tokenId}`, {
+      body: JSON.stringify(changes),
+      contentType: 'application/json',
+    });
+  }
+
+  /** Revokes a token: it stops working at once. */
+  async revokeToken(tokenId: string) {
+    return await this.request<unknown>('DELETE', `${TOKENS_PATH}/${tokenId}`);
   }
 
   // ─── Account ──────────────────────────────────────────────────────
