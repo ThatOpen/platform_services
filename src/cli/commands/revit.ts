@@ -19,20 +19,36 @@ function isRevitRunning(): boolean {
   }
 }
 
-/** Starts Revit and returns immediately. Detached on purpose: Revit outlives this command. */
+/**
+ * Starts Revit and returns immediately. Detached on purpose: Revit outlives this command.
+ *
+ * Which Revit, when there are several: the NEWEST one the add-in is installed for (it leaves a
+ * manifest in that year's Addins folder), else the newest installed at all. It used to start the
+ * first "Revit YYYY" folder the directory listing returned, so a machine with 2024 and 2026 got
+ * 2024 whichever the user worked in.
+ */
 function startRevit(): void {
-  const roots = ['C:\\Program Files\\Autodesk'];
-  for (const root of roots) {
-    if (!existsSync(root)) continue;
-    for (const dir of readdirSync(root)) {
-      if (!/^Revit \d{4}$/.test(dir)) continue;
-      const exe = join(root, dir, 'Revit.exe');
-      if (!existsSync(exe)) continue;
-      spawn(exe, [], { detached: true, stdio: 'ignore' }).unref();
-      return;
-    }
+  const root = 'C:\\Program Files\\Autodesk';
+  if (!existsSync(root)) {
+    console.log('      Could not find Revit.exe. Start Revit yourself and this will pick it up.');
+    return;
   }
-  console.log('      Could not find Revit.exe. Start Revit yourself and this will pick it up.');
+  const years = readdirSync(root)
+    .map((dir) => /^Revit (\d{4})$/.exec(dir)?.[1])
+    .filter((year): year is string => !!year && existsSync(join(root, `Revit ${year}`, 'Revit.exe')))
+    .sort()
+    .reverse();
+  const appData = process.env.APPDATA ?? '';
+  const withAddin = years.find((year) =>
+    existsSync(join(appData, 'Autodesk', 'Revit', 'Addins', year, 'revitflow.addin')),
+  );
+  const year = withAddin ?? years[0];
+  if (!year) {
+    console.log('      Could not find Revit.exe. Start Revit yourself and this will pick it up.');
+    return;
+  }
+  spawn(join(root, `Revit ${year}`, 'Revit.exe'), [], { detached: true, stdio: 'ignore' }).unref();
+  console.log(`      Started Revit ${year}.`);
 }
 
 /** One package per plug-in: they share no version relationship, only the platform and the .frag

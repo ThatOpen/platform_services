@@ -67,7 +67,7 @@ export function discoverAddin(): AddinInfo {
   if (!existsSync(file)) {
     console.error('');
     console.error('  The That Open Revit add-in is not running.');
-    console.error('  Open Revit 2026 (with the add-in installed) and try again.');
+    console.error('  Open Revit (2024-2027, with the add-in installed) and try again.');
     console.error('  If it is not installed yet, install it and restart Revit.');
     console.error('');
     process.exit(1);

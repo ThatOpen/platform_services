@@ -6,8 +6,9 @@ a Rhino model…) into their model with **recipes**. Follow the steps **in order
 **You may run the setup commands yourself** — install the CLI, install the add-in, launch Revit —
 *except* where a step says only the user can.
 
-Needs add-in **1.3.0 or later**. `thatopen revit status` prints `addinVersion`; if it is older,
-Step 2 updates it. Several things below did not exist or behaved differently before that.
+Works with **Revit 2024, 2025, 2026 and 2027**, and needs add-in **1.3.1 or later**.
+`thatopen revit status` prints `addinVersion`; if it is older, Step 2 updates it. Several things
+below did not exist or behaved differently before that.
 
 ## What this does
 
@@ -134,7 +135,7 @@ these credentials.
 thatopen revit status
 ```
 
-- Prints `"loaded": true` → the add-in is running. Check `addinVersion` is **1.3.0 or later**; if
+- Prints `"loaded": true` → the add-in is running. Check `addinVersion` is **1.3.1 or later**; if
   not, update it with the same command as below. Then go to Step 3.
 
 > **`status` also reports a `project`, a `doc` and a `central`. Do not use any of them.** They are
@@ -148,9 +149,10 @@ thatopen revit status
 > somewhere their team cannot see it.
 - Errors *"The That Open Revit add-in is not running"* → work through (a), then (b).
 
-**(a) Is Revit 2027 open?** If not, launch it:
+**(a) Is Revit open?** If not, ask the user which Revit year they work in (2024 to 2027; a machine
+can have several) and launch that one:
 ```
-powershell -Command "Start-Process 'C:\Program Files\Autodesk\Revit 2027\Revit.exe'"
+powershell -Command "Start-Process 'C:\Program Files\Autodesk\Revit <year>\Revit.exe'"
 ```
 A cold start takes a while. Re-run `thatopen revit status`.
 
@@ -160,7 +162,11 @@ this, because it holds its add-in files open while it runs. Ask the user to clos
 thatopen revit install
 ```
 This fetches the current package from the registry and runs the installer that ships inside it.
+It installs for **every** supported Revit year on the machine at once, each in its own folder.
 `--version <v>` pins a specific one; the default is the latest.
+
+On Revit 2024 and 2025, a recipe that attaches a wall's top to a roof or floor leaves that wall
+unattached and says so in its notes: Revit only exposes wall attachment to add-ins from 2026.
 
 Then **launch Revit again**. On the first start after an install, Revit shows an **unsigned add-in**
 prompt. **Only the user can answer it — ask them to choose "Always Load".** There is no way around
