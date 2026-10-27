@@ -1,5 +1,8 @@
 import { io } from 'socket.io-client';
-import { EngineServicesClient, EngineServicesClientProps } from './client';
+import {
+  EngineServicesClient,
+  EngineServicesClientProps,
+} from './client';
 import {
   Permission,
   Project,
@@ -78,7 +81,9 @@ export interface PermissionCheckEntry {
  * new PlatformClient(() => getAccessTokenSilently(), apiUrl)
  * ```
  */
-export type BearerTokenSource = string | (() => string | Promise<string>);
+export type BearerTokenSource =
+  | string
+  | (() => string | Promise<string>);
 
 /**
  * Client for apps, frontends, and any caller authenticating with a user JWT.
@@ -146,9 +151,10 @@ export class PlatformClient extends EngineServicesClient {
   static fromPlatformContext(
     props?: Omit<EngineServicesClientProps, 'useBearer'>,
   ): PlatformClient {
-    const ctx: ThatOpenContext = (typeof window !== 'undefined'
-      ? window.__THATOPEN_CONTEXT__
-      : null) || { appId: '', projectId: '', accessToken: '', apiUrl: '' };
+    const ctx: ThatOpenContext =
+      (typeof window !== 'undefined'
+        ? window.__THATOPEN_CONTEXT__
+        : null) || { appId: '', projectId: '', accessToken: '', apiUrl: '' };
     const client = new PlatformClient(ctx.accessToken, ctx.apiUrl, props);
     (client as { context: ThatOpenContext }).context = ctx;
     return client;
@@ -351,11 +357,7 @@ export class PlatformClient extends EngineServicesClient {
   /** Changes a role: its name, description or permissions (grants and revocations alike). */
   async updateRole(
     roleId: string,
-    changes: {
-      name?: string;
-      description?: string;
-      permissions?: Permission[];
-    },
+    changes: { name?: string; description?: string; permissions?: Permission[] },
   ) {
     return await this.request<ProjectRole>(
       'PUT',
