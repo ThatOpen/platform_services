@@ -3,7 +3,16 @@ import {
   EngineServicesClient,
   EngineServicesClientProps,
 } from './client';
-import { Project, ProjectData, ProjectWithRole } from '../types/projects';
+import {
+  Permission,
+  Project,
+  ProjectData,
+  ProjectDataMember,
+  ProjectInvitation,
+  ProjectPermissionMatrixRow,
+  ProjectRole,
+  ProjectWithRole,
+} from '../types/projects';
 import { ThatOpenContext } from '../types/context';
 import { ChannelClient, windowTransport } from './channel';
 import {
@@ -216,6 +225,172 @@ export class PlatformClient extends EngineServicesClient {
       'GET',
       `${PROJECT_PATH}/${projectId}/data`,
     );
+  }
+
+  // ─── Members, invitations and roles (JWT-only backend routes) ─────
+  //
+  // The administration half of a project, as the dashboard has it: who is in
+  // it, who is invited, which roles there are and what each may do — down to
+  // one folder (`Permission.resourcePermissions`). Each call is checked on the
+  // server against the caller's own role (MEMBERS / ROLES), exactly as the
+  // dashboard's are (APOGEA 23-10, «users and permissions»).
+
+  /** The project's members, each with their role. */
+  async listMembers(projectId: string) {
+    return await this.request<ProjectDataMember[]>(
+      'GET',
+      `${PROJECT_PATH}/${projectId}/users`,
+    );
+  }
+
+  /** Adds an existing account to the project, with a role (the project's default when not given). */
+  async addMember(projectId: string, accountId: string, roleId?: string) {
+    return await this.request<unknown>(
+      'POST',
+      `${PROJECT_PATH}/${projectId}/user`,
+      {
+        body: JSON.stringify({
+          accountId,
+          ...(roleId && { projectRoleId: roleId }),
+        }),
+        contentType: 'application/json',
+      },
+    );
+  }
+
+  /** Gives a member another role (`null`: the project's default). `projectUserId` is the member's, from {@link listMembers}. */
+  async setMemberRole(
+    projectId: string,
+    projectUserId: string,
+    roleId: string | null,
+  ) {
+    return await this.request<unknown>(
+      'PUT',
+      `${PROJECT_PATH}/${projectId}/user/${projectUserId}`,
+      {
+        body: JSON.stringify({ projectRoleId: roleId }),
+        contentType: 'application/json',
+      },
+    );
+  }
+
+  /** Takes a member out of the project. */
+  async removeMember(projectId: string, projectUserId: string) {
+    return await this.request<unknown>(
+      'DELETE',
+      `${PROJECT_PATH}/${projectId}/user/${projectUserId}`,
+    );
+  }
+
+  /**
+   * Invites a person to the project by email, with a role. They get the
+   * platform's invitation; on accepting it they join with that role, whether
+   * or not they had an account.
+   */
+  async inviteMember(projectId: string, email: string, roleId?: string) {
+    return await this.request<ProjectInvitation>(
+      'POST',
+      `${PROJECT_PATH}/${projectId}/invite`,
+      {
+        body: JSON.stringify({
+          email,
+          ...(roleId && { projectRoleId: roleId }),
+        }),
+        contentType: 'application/json',
+      },
+    );
+  }
+
+  /** The project's invitations. */
+  async listInvitations(projectId: string) {
+    return await this.request<ProjectInvitation[]>(
+      'GET',
+      `${PROJECT_PATH}/${projectId}/invites`,
+    );
+  }
+
+  /** Withdraws an invitation that has not been accepted. */
+  async cancelInvitation(projectId: string, invitationId: string) {
+    return await this.request<unknown>(
+      'DELETE',
+      `${PROJECT_PATH}/${projectId}/invite/${invitationId}`,
+    );
+  }
+
+  /** The project's roles, each with its permissions. */
+  async listRoles(projectId: string) {
+    return await this.request<ProjectRole[]>(
+      'GET',
+      `${PROJECT_PATH}/${projectId}/roles`,
+    );
+  }
+
+  /**
+   * Makes a role. Its `permissions` are subject × action, each optionally
+   * narrowed or widened on given files and folders (`resourcePermissions`):
+   * the grant a role has on one folder and what is under it.
+   *
+   * @example A role that only reads one folder and everything in it
+   * ```ts
+   * await client.createRole(projectId, {
+   *   name: 'Observer — structure',
+   *   permissions: [
+   *     { subject: 'STORAGE', action: 'READ',
+   *       resourcePermissions: [{ resourceId: structureFolderId, appliesToDescendants: true }] },
+   *   ],
+   * });
+   * ```
+   */
+  async createRole(
+    projectId: string,
+    role: { name: string; description?: string; permissions: Permission[] },
+  ) {
+    return await this.request<ProjectRole>(
+      'POST',
+      `${PROJECT_PATH}/${projectId}/role`,
+      { body: JSON.stringify(role), contentType: 'application/json' },
+    );
+  }
+
+  /** Changes a role: its name, description or permissions (grants and revocations alike). */
+  async updateRole(
+    roleId: string,
+    changes: { name?: string; description?: string; permissions?: Permission[] },
+  ) {
+    return await this.request<ProjectRole>(
+      'PUT',
+      `${PROJECT_PATH}/role/${roleId}`,
+      { body: JSON.stringify(changes), contentType: 'application/json' },
+    );
+  }
+
+  /** Deletes a role. */
+  async deleteRole(roleId: string) {
+    return await this.request<unknown>(
+      'DELETE',
+      `${PROJECT_PATH}/role/${roleId}`,
+    );
+  }
+
+  /**
+   * The project's permission matrix in one call: every role, what it may do
+   * (folder grants included) and who has it — for an admin screen that shows
+   * and changes it, instead of probing permission by permission.
+   */
+  async getPermissionMatrix(
+    projectId: string,
+  ): Promise<ProjectPermissionMatrixRow[]> {
+    const [roles, members] = await Promise.all([
+      this.listRoles(projectId),
+      this.listMembers(projectId),
+    ]);
+    return roles.map((role) => ({
+      role,
+      permissions: role.permissions ?? [],
+      members: members
+        .filter((member) => String(member.role?._id) === String(role._id))
+        .map((member) => member.user),
+    }));
   }
 
   // ─── Account ──────────────────────────────────────────────────────
