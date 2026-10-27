@@ -17,6 +17,7 @@ export * from './types/batch';
 export * from './types/response';
 export * from './types/item.dto';
 export * from './types/projects';
+export * from './types/tokens';
 export * from './types/context';
 export * from './types/npm';
 export * from './types/notifications';

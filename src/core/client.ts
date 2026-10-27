@@ -626,6 +626,42 @@ export class EngineServicesClient {
   }
 
   /**
+   * A project's documents as one flat table, for BI and spreadsheets
+   * (`GET /item/export`): a row per file with its folder path, its live
+   * version and every metadata field of that version as a `meta.<key>`
+   * column. Only what the caller may read. As JSON rows by default; as CSV
+   * text (RFC 4180) with `format: 'csv'`, ready for Power BI or Excel. A
+   * platform from before the route answers 404.
+   *
+   * @example
+   * ```ts
+   * const { columns, value } = await client.exportProjectDocuments(projectId);
+   * const csv = await client.exportProjectDocuments(projectId, { format: 'csv' });
+   * ```
+   */
+  async exportProjectDocuments(
+    projectId: string,
+  ): Promise<{ columns: string[]; value: Record<string, string | number | boolean | null>[] }>;
+  async exportProjectDocuments(
+    projectId: string,
+    options: { format: 'csv' },
+  ): Promise<string>;
+  async exportProjectDocuments(projectId: string, options?: { format?: 'csv' | 'json' }) {
+    if (options?.format === 'csv') {
+      const blob = await this.#requestApi<Blob>('GET', `${ITEM_PATH}/export`, {
+        query: { projectId, format: 'csv' },
+        responseType: 'blob',
+      });
+      // (The platform starts it with a BOM for Excel; a string has no use for it.)
+      return (await blob.text()).replace(/^﻿/, '');
+    }
+    return await this.#requestApi<{
+      columns: string[];
+      value: Record<string, string | number | boolean | null>[];
+    }>('GET', `${ITEM_PATH}/export`, { query: { projectId } });
+  }
+
+  /**
    * Gets a single file by ID, optionally including version history.
    * @param fileId - The file's unique identifier.
    * @param props - Options such as whether to include versions.
