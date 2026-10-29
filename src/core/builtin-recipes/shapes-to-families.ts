@@ -269,6 +269,21 @@ export function familiesFromShapes(shapes: SourceShapes, written: ReadonlySet<st
         }
       }
       if (Number.isFinite(mn[0])) attrs.Opening = [...mn, ...mx].map((v) => round(v, 1e-5)).join(',');
+      // (TRIAL, off unless RECIPE_CUT_LOST: whether its wall's mesh draws the hole — some of the wall's corners inside
+      // the opening's box, above the wall's foot — for the applier to cut the wall when Revit, unable to cut it, takes
+      // the hosted door away: GNI model_28, 3 of 3 placed again free-standing, their walls whole, twice the IFC's volume.
+      // Not where the file's wall has no hole: model_89's walls are whole in the IFC too.)
+      if (typeof process !== 'undefined' && process.env?.RECIPE_CUT_LOST && el.host && Number.isFinite(mn[0])) {
+        const op = openingParts(shapes, opening.gid).flatMap((part) => part.pts);
+        const wall = pointsOf(shapes, el.host);
+        if (op.length && wall.length) {
+          const lo = [0, 1, 2].map((k) => Math.min(...op.map((p) => p[k])) - 0.01), hi = [0, 1, 2].map((k) => Math.max(...op.map((p) => p[k])) + 0.01);
+          const foot = Math.min(...wall.map((p) => p[2])) + 0.01;
+          const inside = wall.filter((p) => p[0] > lo[0] && p[0] < hi[0] && p[1] > lo[1] && p[1] < hi[1] && p[2] > Math.max(lo[2], foot) && p[2] < hi[2]).length;
+          if (inside >= 4) attrs.CutIfLost = '1';
+          if (process.env?.RECIPE_TRACE) console.error(`[cut-if-lost] ${el.gid}: ${inside} of its wall's corners in its opening → ${inside >= 4 ? 'cut' : 'not'}`);
+        }
+      }
     }
     out.push({
       key: `${fileId}:${el.gid}:shape`,
@@ -762,56 +777,71 @@ export function wallTopOf(shapes: SourceShapes, gid: string, from: number[], to:
     }
   }
   if (facing.length < 2) return null;
-  // The outermost face only (a layered wall has a face between each two).
-  const outer = Math.max(...facing.map((t) => t.across));
-  const face = facing.filter((t) => t.across > outer - 0.005);
-  // Flattened, welded at a millimetre; an edge used once is the outline's.
+  // Flattened, welded at a millimetre; an edge used once is the outline's; its loops, the outline the one of largest area.
   const key = (p: number[]) => {
     const along = (p[0] - from[0]) * d[0] + (p[1] - from[1]) * d[1];
     return `${Math.round(along * 1000)},${Math.round(p[2] * 1000)}`;
   };
-  const edges = new Map<string, number>();
-  const edgeKey = (u: string, v: string) => (u < v ? `${u}|${v}` : `${v}|${u}`);
-  for (const t of face) {
-    const ks = [key(t.a), key(t.b), key(t.c)];
-    for (let k = 0; k < 3; k++) {
-      const u = ks[k], v = ks[(k + 1) % 3];
-      if (u === v) continue;
-      const e = edgeKey(u, v);
-      edges.set(e, (edges.get(e) ?? 0) + 1);
-    }
-  }
-  const next = new Map<string, string[]>();
-  for (const [e, n] of edges) {
-    if (n !== 1) continue;
-    const [u, v] = e.split('|');
-    (next.get(u) ?? next.set(u, []).get(u)!).push(v);
-    (next.get(v) ?? next.set(v, []).get(v)!).push(u);
-  }
-  if (next.size < 3 || next.size > 4000) return null;
-  // Its loops; the outline is the one of largest area.
   const pt = (k: string) => k.split(',').map((n) => Number(n) / 1000) as [number, number];
-  const seen = new Set<string>();
-  let best: [number, number][] | null = null;
-  let bestArea = 0;
-  const allLoops: { pts: [number, number][]; area: number }[] = [];
-  for (const start of next.keys()) {
-    if (seen.has(start)) continue;
-    const loop: string[] = [start];
-    seen.add(start);
-    let prev = '', cur = start;
-    for (let guard = 0; guard < 5000; guard++) {
-      const nb = (next.get(cur) ?? []).find((v) => v !== prev && !seen.has(v)) ?? null;
-      if (!nb) break;
-      loop.push(nb); seen.add(nb); prev = cur; cur = nb;
+  const loopsOf = (face: Tri[]) => {
+    const edges = new Map<string, number>();
+    const edgeKey = (u: string, v: string) => (u < v ? `${u}|${v}` : `${v}|${u}`);
+    for (const t of face) {
+      const ks = [key(t.a), key(t.b), key(t.c)];
+      for (let k = 0; k < 3; k++) {
+        const u = ks[k], v = ks[(k + 1) % 3];
+        if (u === v) continue;
+        const e = edgeKey(u, v);
+        edges.set(e, (edges.get(e) ?? 0) + 1);
+      }
     }
-    if (loop.length < 3) continue;
-    const pts = loop.map(pt);
-    let area = 0;
-    for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[(i + 1) % pts.length]; area += p[0] * q[1] - q[0] * p[1]; }
-    allLoops.push({ pts, area: Math.abs(area) / 2 });
-    if (Math.abs(area) / 2 > bestArea) { bestArea = Math.abs(area) / 2; best = pts; }
+    const next = new Map<string, string[]>();
+    for (const [e, n] of edges) {
+      if (n !== 1) continue;
+      const [u, v] = e.split('|');
+      (next.get(u) ?? next.set(u, []).get(u)!).push(v);
+      (next.get(v) ?? next.set(v, []).get(v)!).push(u);
+    }
+    if (next.size < 3 || next.size > 4000) return null;
+    const seen = new Set<string>();
+    let best: [number, number][] | null = null;
+    let bestArea = 0;
+    const allLoops: { pts: [number, number][]; area: number }[] = [];
+    for (const start of next.keys()) {
+      if (seen.has(start)) continue;
+      const loop: string[] = [start];
+      seen.add(start);
+      let prev = '', cur = start;
+      for (let guard = 0; guard < 5000; guard++) {
+        const nb = (next.get(cur) ?? []).find((v) => v !== prev && !seen.has(v)) ?? null;
+        if (!nb) break;
+        loop.push(nb); seen.add(nb); prev = cur; cur = nb;
+      }
+      if (loop.length < 3) continue;
+      const pts = loop.map(pt);
+      let area = 0;
+      for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[(i + 1) % pts.length]; area += p[0] * q[1] - q[0] * p[1]; }
+      allLoops.push({ pts, area: Math.abs(area) / 2 });
+      if (Math.abs(area) / 2 > bestArea) { bestArea = Math.abs(area) / 2; best = pts; }
+    }
+    return best ? { best, bestArea, allLoops } : null;
+  };
+  // The outermost face (a layered wall has a face between each two)…
+  const outer = Math.max(...facing.map((t) => t.across));
+  let read0 = loopsOf(facing.filter((t) => t.across > outer - 0.005));
+  // 🔴 …unless another of its faces is one larger piece (GNI model_58 25-10: a 6-layer «Exterior Wall» whose brick, its
+  // outermost, is in 4 pieces and three of its layers run end to end; read as 4 walls, the first 11.6 m of 31): then
+  // that face, the one whose largest loop is largest.
+  const planes = [...new Set(facing.map((t) => Math.round(t.across * 200)))].map((k) => k / 200);
+  if (planes.length > 1 && planes.length <= 24) {
+    for (const at of planes) {
+      if (Math.abs(at - outer) < 0.005) continue;
+      const other = loopsOf(facing.filter((t) => Math.abs(t.across - at) < 0.0025));
+      if (other && read0 && other.bestArea > read0.bestArea * 1.2) read0 = other;
+    }
   }
+  if (!read0) return null;
+  const { best, allLoops } = read0;
   if (!best || best.length < 3) return null;
   const lo = Math.min(...best.map((p) => p[0])), hi = Math.max(...best.map((p) => p[0]));
   const bottom = Math.min(...best.map((p) => p[1])), topZ = Math.max(...best.map((p) => p[1]));

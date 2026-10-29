@@ -482,6 +482,8 @@ function sharedRun(to: 'frag' | 'ifc') {
     // than a thickness (racbasic's retaining walls: 0.56 m).
     const REACH = 1.0;
     const extended = new Map<Seg, { from: [number, number]; to: [number, number] }>();
+    /** Half the thickness of the wall each end was carried to (see the outline's ends below). */
+    const metHalf = new Map<Seg, { from?: number; to?: number }>();
     for (const a of segs) {
       const ends: ['from' | 'to', boolean][] = [['from', a.joinStart], ['to', a.joinEnd]];
       const out = { from: a.from, to: a.to };
@@ -507,6 +509,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         // And the crossing is ON the wall it meets (within its thickness), not on its line far beyond.
         if (distToSeg(x, best) > best.width + 0.01) continue;
         out[end] = x;
+        metHalf.set(a, { ...metHalf.get(a), [end]: best.width / 2 });
       }
       extended.set(a, out);
     }
@@ -544,7 +547,7 @@ function sharedRun(to: 'frag' | 'ifc') {
           const lo = Math.max(0, Math.min(...tb)), hi = Math.min(A.L, Math.max(...tb));
           if (hi - lo < 0.3) continue;
           const ta = thickAt(a, lo, hi);
-          if (process.env?.RECIPE_WALL?.split(",").includes(a.record.item.guid ?? "")) console.error(`[cut-by?] ${a.record.item.guid} by ${b.record.item.guid}: off ${off.toFixed(3)}, along ${lo.toFixed(2)}..${hi.toFixed(2)}, shape ${ta}`);
+          if (typeof process !== "undefined" && process.env?.RECIPE_WALL?.split(",").includes(a.record.item.guid ?? "")) console.error(`[cut-by?] ${a.record.item.guid} by ${b.record.item.guid}: off ${off.toFixed(3)}, along ${lo.toFixed(2)}..${hi.toFixed(2)}, shape ${ta}`);
           if (ta === null || ta > a.width - 0.01) continue;
           if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[cut-by] ${a.record.item.guid} (${(a.width * 1000).toFixed(0)} mm, its shape ${(ta * 1000).toFixed(0)}) cut by ${b.record.item.guid} over ${(hi - lo).toFixed(2)} m`);
           cutBy.set(a, [...(cutBy.get(a) ?? []), b]);
@@ -659,6 +662,12 @@ function sharedRun(to: 'frag' | 'ifc') {
           // Wall» of layers run 7 cm into its neighbour and joined there, a twin before as an exact square end.)
           if (ts !== null && ts > 0.005 && ts < Math.min(1, L / 2)) { f = [f[0] + d[0] * ts, f[1] + d[1] * ts]; cutBack.add('start'); }
           if (te !== null && te < -0.005 && te > -Math.min(1, L / 2)) { e = [e[0] + d[0] * te, e[1] + d[1] * te]; cutBack.add('end'); }
+          // (TRIAL, off unless RECIPE_CUT_OUT: on OUT to it as well, unjoined — the exact square end of the shape test
+          // below, from the record's plane where the shape's mesh is no help: GNI model_176's face-set walls butted.)
+          if (typeof process !== 'undefined' && process.env?.RECIPE_CUT_OUT) {
+            if (ts !== null && ts < -0.005 && ts > -1) { f = [f[0] + d[0] * ts, f[1] + d[1] * ts]; cutBack.add('start'); }
+            if (te !== null && te > 0.005 && te < 1) { e = [e[0] + d[0] * te, e[1] + d[1] * te]; cutBack.add('end'); }
+          }
           if (typeof process !== "undefined" && process.env?.RECIPE_TRACE && ((ts !== null && Math.abs(ts) > 0.005 && Math.abs(ts) < 1) || (te !== null && Math.abs(te) > 0.005 && Math.abs(te) < 1))) console.error(`[wall-to-cut] ${record.item.guid} ${lookRef}: start ${ts?.toFixed(3)} end ${te?.toFixed(3)}`);
           if (typeof process !== 'undefined' && process.env?.RECIPE_WALL?.split(",").includes(record.item.guid ?? "")) console.error(`[wall-cut] ${record.item.guid}: start ${ts?.toFixed(3)} end ${te?.toFixed(3)}`);
         }
@@ -748,20 +757,70 @@ function sharedRun(to: 'frag' | 'ifc') {
         // Where the ends went, along the line: an end vertex keeps following its edge that is
         // not upright (a sloped top goes on sloping), or Revit, trimming back to the joint,
         // leaves the slope's end off (racbasic's CL_W1 493612: 3 cm at each end).
-        const ext0 = -((f[0] - sg.from[0]) * dir[0] + (f[1] - sg.from[1]) * dir[1]);
-        const ext1 = (e[0] - sg.to[0]) * dir[0] + (e[1] - sg.to[1]) * dir[1];
-        profile.forEach(([a, up], k) => {
+        let ext0 = -((f[0] - sg.from[0]) * dir[0] + (f[1] - sg.from[1]) * dir[1]);
+        let ext1 = (e[0] - sg.to[0]) * dir[0] + (e[1] - sg.to[1]) * dir[1];
+        const baseExt0 = ext0, baseExt1 = ext1;
+        // (Measured r56: model_150 96.7 → 99.7. A wall by its outline Revit does not carry on at a join — GNI model_150
+        // r55, 25 «Wall 11.5» partitions with a door notch, each corner left open between the axis it stopped at and the
+        // face of the wall it meets — so a joined end's outline goes on to that wall's far face; Revit trims the other.)
+        {
+          const half = metHalf.get(sg);
+          const faced: string[] = [];
+          // (No further than its own shape goes: GNI model_125 r56, a 33 cm stub carried 15 cm past where the file's
+          // ends, into the wall it meets.)
+          const own = shapes && record.item.guid ? shapePoints(shapes, record.item.guid).map((q) => (q[0] - sg.from[0]) * dir[0] + (q[1] - sg.from[1]) * dir[1]) : [];
+          const reach0 = own.length ? Math.max(0, -Math.min(...own)) - ext0 : Infinity, reach1 = own.length ? Math.max(0, Math.max(...own) - L) - ext1 : Infinity;
+          if (half?.from && joins.includes('start') && reach0 > 0.005) { ext0 += Math.min(half.from, reach0); faced.push('start'); }
+          if (half?.to && joins.includes('end') && reach1 > 0.005) { ext1 += Math.min(half.to, reach1); faced.push('end'); }
+          // (That end then unjoined: the other wall's end, joined, meets it along its side, a T.)
+          const left = joins.filter((j) => !faced.includes(j));
+          if (faced.length) { if (left.length) attrs.JoinEnds = left.join(','); else delete attrs.JoinEnds; }
+          if (faced.length && attrs.Mitre) { const m = attrs.Mitre.split(',').filter((j) => left.includes(j)); if (m.length) attrs.Mitre = m.join(','); else delete attrs.Mitre; }
+          if (faced.length && typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[profile-face] ${record.item.guid} ${lookRef}: ${faced.join(',')} to the far face`);
+        }
+        const outlineAt = (e0: number, e1: number) => profile.map(([a, up], k) => {
           const atStart = Math.abs(a) < 1e-6, atEnd = Math.abs(a - L) < 1e-6;
           let along = a, height = up;
           if (atStart || atEnd) {
-            along = atStart ? -ext0 : L + ext1;
+            along = atStart ? -e0 : L + e1;
             const sloped = [profile[(k - 1 + profile.length) % profile.length], profile[(k + 1) % profile.length]]
               .find(([b]) => Math.abs(b - a) > 1e-6);
             if (sloped) height = up + ((sloped[1] - up) / (sloped[0] - a)) * (along - a);
           }
+          return [along, height] as [number, number];
+        });
+        // 🔴 NEVER AN OUTLINE THAT CROSSES ITSELF (GNI model_119 r56/r57a: Revit itself died in Wall.Create, an access
+        // violation, twice): an end moved past a station inside it — a door's notch near the end — folds it. Then the
+        // ends where they were, and else the file's own.
+        const simple = (pts: [number, number][]) => {
+          const n = pts.length, edges = pts.map((p, k) => [p, pts[(k + 1) % n]] as const);
+          if (edges.some(([p, q]) => Math.hypot(q[0] - p[0], q[1] - p[1]) < 0.001)) return false;
+          // (Nor a spike: an edge that turns straight back along the one before — collinear, no crossing seen above.)
+          for (let k = 0; k < n; k++) {
+            const [p, q] = edges[k], [, r] = edges[(k + 1) % n];
+            const u = [q[0] - p[0], q[1] - p[1]], v = [r[0] - q[0], r[1] - q[1]];
+            if ((u[0] * v[0] + u[1] * v[1]) / (Math.hypot(...u) * Math.hypot(...v)) < -0.999) return false;
+          }
+          const cr = (o: number[], p: number[], q: number[]) => (p[0] - o[0]) * (q[1] - o[1]) - (p[1] - o[1]) * (q[0] - o[0]);
+          for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+            if (j === i + 1 || (i === 0 && j === n - 1)) continue;
+            const [a, b] = edges[i], [c, d] = edges[j];
+            const d1 = cr(c, d, a), d2 = cr(c, d, b), d3 = cr(a, b, c), d4 = cr(a, b, d);
+            if (((d1 > 1e-9 && d2 < -1e-9) || (d1 < -1e-9 && d2 > 1e-9)) && ((d3 > 1e-9 && d4 < -1e-9) || (d3 < -1e-9 && d4 > 1e-9))) return false;
+          }
+          return true;
+        };
+        let outline = outlineAt(ext0, ext1);
+        if (!simple(outline)) {
+          const tries: [number, number][] = [[baseExt0, baseExt1], [0, 0]];
+          const ok = tries.find(([a, b]) => simple(outlineAt(a, b)));
+          if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[profile-folded] ${record.item.guid} ${lookRef}: ends ${ext0.toFixed(3)}/${ext1.toFixed(3)} fold it → ${ok ? ok.map((x) => x.toFixed(3)).join('/') : 'as given'}`);
+          outline = ok ? outlineAt(...ok) : profile.map(([a, up]) => [a, up] as [number, number]);
+        }
+        for (const [along, height] of outline) {
           const p = [sg.from[0] + along * dir[0], sg.from[1] + along * dir[1]];
           flat.push(p[0] * s, p[1] * s, (level.at + base + height) * s);
-        });
+        }
         attrs.Profile = JSON.stringify([flat]);
         delete attrs.TopLevel;
         delete attrs.TopOffset;
@@ -937,7 +996,7 @@ function sharedRun(to: 'frag' | 'ifc') {
             // (And its middle seen on both faces: racbasic's straight partitions have one face's
             // vertex alone there, a «bow» of half their thickness.)
             const arcLike = spread < (b0.w + b1.w) / 2 + 0.01 && bm.w > 0.5 * Math.min(b0.w, b1.w);
-            if (process.env?.RECIPE_WALL?.split(",").includes(record.item.guid ?? "")) console.error(`[arc-bands] ${JSON.stringify({ b0, bm, b1, sag, spread })}`);
+            if (typeof process !== "undefined" && process.env?.RECIPE_WALL?.split(",").includes(record.item.guid ?? "")) console.error(`[arc-bands] ${JSON.stringify({ b0, bm, b1, sag, spread })}`);
             if (arcLike && Math.abs(sag) > 0.02 && Math.abs(sag) < L / 2) {
               const m = [(f[0] + e[0]) / 2 + nrm[0] * sag, (f[1] + e[1]) / 2 + nrm[1] * sag];
               attrs.LocationArc = `${num(m[0] * s)},${num(m[1] * s)},${num(z)}`;
@@ -964,6 +1023,21 @@ function sharedRun(to: 'frag' | 'ifc') {
       if (declared?.layers && declared.layers.length > 1) {
         attrs['Type.Layers'] = JSON.stringify([...declared.layers].reverse().map((l) => [+num(l.thickness * s), l.material ?? '', l.function ?? '']));
         if (declared.layersFlipped) attrs.FlipLayers = '1';
+      }
+      // 🔴 A LAYER THAT GOES ON ABOVE OR BELOW THE WALL (GNI model_176, Archicad 26 «SW - 0xx»: a 5 cm cladding up to
+      // 3.2 m on a 25 cm structure up to 3.0, one 30 cm wall up to 3.2 before, a strip too many on each; the converter
+      // since e64534d2a: `topExtension` / `baseExtension` on its style's layers): its type's layers from the style,
+      // exterior first, each with its extension; Revit's extendable layer and the wall's extension distances.
+      if (!attrs['Type.Layers'] && typeof process !== 'undefined' && process.env?.RECIPE_LAYER_EXT) {
+        const def =(() => { try { return JSON.parse(String(styles.get(lookRef)?.params?.definition ?? 'null')); } catch { return null; } })() as { layers?: { thickness?: number; material?: string; function?: string; topExtension?: number; baseExtension?: number }[] } | null;
+        const ls = def?.layers ?? [];
+        if (ls.length > 1 && ls.some((l) => (l.topExtension ?? 0) > 0.001 || (l.baseExtension ?? 0) > 0.001)) {
+          attrs['Type.Layers'] = JSON.stringify(ls.map((l) => [+num((l.thickness ?? 0) * s), l.material ?? '', l.function ?? '', +num((l.topExtension ?? 0) * s), +num((l.baseExtension ?? 0) * s)]));
+          const top = Math.max(...ls.map((l) => l.topExtension ?? 0)), bottom = Math.max(...ls.map((l) => l.baseExtension ?? 0));
+          if (top > 0.001) attrs.TopExtension = num(top * s);
+          if (bottom > 0.001) attrs.BaseExtension = num(bottom * s);
+          if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[layer-extension] ${record.item.guid} ${attrs.Type}: top ${top}, base ${bottom}`);
+        }
       }
       if (typeof process !== 'undefined' && process.env?.RECIPE_WALL?.split(",").includes(record.item.guid ?? "")) console.error(`[wall-attrs] ${JSON.stringify(attrs).slice(0, 1500)} style ${JSON.stringify(styles.get(lookRef)?.params ?? null).slice(0, 800)}`);
       if (add(`${key(record.id)}#${sg.i}`, attrs)) wallCount++;
@@ -1208,8 +1282,10 @@ function sharedRun(to: 'frag' | 'ifc') {
           maxRiser: Math.ceil((rise / risers) * 1000 - 1e-6) / 1000 * s,
           minTread: tread * s,
           waist: n(style.waist) * s,
-          treadThickness: n(style.treadThickness) * s,
-          riserThickness: n(style.riserThickness) * s,
+          // (Of an assembled flight only: a cast one is its stepped profile and its waist, no tread nor riser on it —
+          // GNI model_156 r55, the contract's 50 / 25 mm defaults on «Monolithic Run» flights, each run 6 cm deep under.)
+          treadThickness: style.construction === 'assembled' ? n(style.treadThickness) * s : 0,
+          riserThickness: style.construction === 'assembled' ? n(style.riserThickness) * s : 0,
           notchExtension: n(style.notchExtension) * s,
           notchThickness: n(style.notchThickness) * s,
           // (Its nosing, where the style says: Revit's template keeps 20 mm, GNI model_54's treads 2 cm off, 25-10.)
@@ -1363,7 +1439,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         Level: level.name,
         Stairs: JSON.stringify(spec),
       };
-      if (typeof process !== 'undefined' && (process.env?.RECIPE_STAIR === record.item.guid || process.env?.RECIPE_STAIR === "*")) console.error(`[stair-spec] ${attrs.Stairs}`);
+      if (typeof process !== 'undefined' && (process.env?.RECIPE_STAIR === record.item.guid || process.env?.RECIPE_STAIR === "*")) console.error(`[stair-spec] ${attrs.Stairs} style ${JSON.stringify(style)}`);
       if (add(key(record.id), attrs)) stairCount++;
     }
 
@@ -1379,8 +1455,12 @@ function sharedRun(to: 'frag' | 'ifc') {
       // 🔴 A RAMP IS NO FLOOR: Revit makes no ramp through its API, and a ramp's sloped flight as a floor came to nothing
       // (Savoyvilla 24-10: its 4 flights missing, BLOXHUB's made from their shapes all twins). Left to its shape.
       if (shapes && record.item.guid && /^IFCRAMP(FLIGHT)?$/i.test(shapes.elements.get(record.item.guid)?.ifcClass ?? '')) continue;
-      slabRead[kind]++;
       const body = innerJson<ExtrusionBody>(record, 'extrusion');
+      // 🔴 A PROFILE DRAWN STANDING UP IS NO FLOOR'S OUTLINE (GNI model_120 r55: 11 stepped footings «Fundament 60 x 60 x
+      // 1.20», their L section on a vertical workplane, laid flat at the origin by Revit or lost): left to its shape.
+      const on = (body as { on?: { u?: number[]; v?: number[] } } | null)?.on;
+      if (on && (Math.abs(on.u?.[2] ?? 0) > 1e-3 || Math.abs(on.v?.[2] ?? 0) > 1e-3)) continue;
+      slabRead[kind]++;
       if (typeof process !== 'undefined' && process.env?.RECIPE_SLAB === record.item.guid) console.error(`[slab] ${record.item.guid}: params ${JSON.stringify(record.params).slice(0, 600)} body ${JSON.stringify(body).slice(0, 1500)}`);
       const base =
         typeof record.params.base === 'number' ? record.params.base : 0;
@@ -1482,6 +1562,25 @@ function sharedRun(to: 'frag' | 'ifc') {
           // down by its thickness measured plumb, t·√(1+p²) (DACH: all 15 sloped roofs 0.17 m off their slope, 23-10).
           const p = Math.max(...slopes.filter((x): x is number => typeof x === 'number').map((x) => Math.abs(x)));
           if (width && p > 0) attrs.BaseOffset = num(base * s - width * Math.sqrt(1 + p * p));
+          // 🔴 ITS EAVES CUT AS THE FILE CUTS THEM (GNI model_28 25-10: a 30° hip roof «Ziegeldach 360», its top at the
+          // eaves right, its lowest point 0.29 m higher than a plumb cut's — a 15 cm cut square to the slope and a level
+          // soffit, Revit's «Two Cut - Square» with that fascia depth; set on its base, the ridge went 0.29 m high).
+          // Its lowest points inside its outline: square; at it: plumb. The fascia from how far above them its top is.
+          const roofPts = shapes && record.item.guid ? shapePoints(shapes, record.item.guid) : [];
+          if (width && p > 0 && roofPts.length >= 4) {
+            const zs = roofPts.map((q) => q[2] - shapeDz), lowest = Math.min(...zs);
+            const top = level.at + base, plumbLow = top - (width / s) * Math.sqrt(1 + p * p);
+            const drop = top - lowest;
+            if (lowest - plumbLow > 0.01 && drop > 0.01) {
+              const low = roofPts.filter((_, k) => zs[k] < lowest + 0.002);
+              const box = (ps: number[][]) => [Math.min(...ps.map((q) => q[0])), Math.min(...ps.map((q) => q[1])), Math.max(...ps.map((q) => q[0])), Math.max(...ps.map((q) => q[1]))];
+              const [ax0, ay0, ax1, ay1] = box(roofPts), [lx0, ly0, lx1, ly1] = box(low);
+              const square = lx0 - ax0 > 0.01 && ly0 - ay0 > 0.01 && ax1 - lx1 > 0.01 && ay1 - ly1 > 0.01;
+              attrs.EaveCut = square ? 'TwoCutSquare' : 'TwoCutPlumb';
+              attrs.FasciaDepth = num((square ? drop * Math.sqrt(1 + p * p) : drop) * s);
+            }
+            if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[roof-eave] ${record.item.guid} ${lookRef}: plumb low ${plumbLow.toFixed(3)}, its lowest ${lowest.toFixed(3)} → ${attrs.EaveCut ?? 'plumb'}${attrs.FasciaDepth ? `, fascia ${(Number(attrs.FasciaDepth) / s).toFixed(3)}` : ''}`);
+          }
           if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[roof] ${record.item.guid} ${lookRef}: slopes ${JSON.stringify(slopes)} base ${base} width ${width} edges ${loops[0] ? loops[0].length / 3 : 0} profile ${JSON.stringify(loops[0]?.map((v) => +v.toFixed(2)))}`);
         }
         // A GABLE - four edges, two opposite ones sloping - is Revit's ROOF BY EXTRUSION: its
