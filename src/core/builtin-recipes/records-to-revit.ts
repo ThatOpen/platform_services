@@ -805,8 +805,12 @@ function sharedRun(to: 'frag' | 'ifc') {
           // ends, into the wall it meets.)
           const own = shapes && record.item.guid ? shapePoints(shapes, record.item.guid).map((q) => (q[0] - sg.from[0]) * dir[0] + (q[1] - sg.from[1]) * dir[1]) : [];
           const reach0 = own.length ? Math.max(0, -Math.min(...own)) - ext0 : Infinity, reach1 = own.length ? Math.max(0, Math.max(...own) - L) - ext1 : Infinity;
-          if (half?.from && joins.includes('start') && reach0 > 0.005) { ext0 += Math.min(half.from, reach0); faced.push('start'); }
-          if (half?.to && joins.includes('end') && reach1 > 0.005) { ext1 += Math.min(half.to, reach1); faced.push('end'); }
+          // (And where the wall it meets went unmeasured, as far as its own shape goes, under 60 cm: GNI model_167 r58, «STB 20.0
+          // WD 12.0» L corners, one end faced and the other left 13 cm short of the corner, a square of insulation nobody's;
+          // measured r63/r65: 167 95.2 → 96.6, Duplex, Savoyvilla, racbasic, 150, 51 unchanged.)
+          const h0 = half?.from ?? (reach0 < 0.6 ? reach0 : 0), h1 = half?.to ?? (reach1 < 0.6 ? reach1 : 0);
+          if (h0 && joins.includes('start') && reach0 > 0.005) { ext0 += Math.min(h0, reach0); faced.push('start'); }
+          if (h1 && joins.includes('end') && reach1 > 0.005) { ext1 += Math.min(h1, reach1); faced.push('end'); }
           // (That end then unjoined: the other wall's end, joined, meets it along its side, a T.)
           const left = joins.filter((j) => !faced.includes(j));
           if (faced.length) { if (left.length) attrs.JoinEnds = left.join(','); else delete attrs.JoinEnds; }
@@ -852,11 +856,28 @@ function sharedRun(to: 'frag' | 'ifc') {
           if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[profile-folded] ${record.item.guid} ${lookRef}: ends ${ext0.toFixed(3)}/${ext1.toFixed(3)} fold it → ${ok ? ok.map((x) => x.toFixed(3)).join('/') : 'as given'}`);
           outline = ok ? outlineAt(...ok) : profile.map(([a, up]) => [a, up] as [number, number]);
         }
-        for (const [along, height] of outline) {
+        const flatOf = (pts: [number, number][]) => pts.flatMap(([along, height]) => {
           const p = [sg.from[0] + along * dir[0], sg.from[1] + along * dir[1]];
-          flat.push(p[0] * s, p[1] * s, (level.at + base + height) * s);
-        }
+          return [p[0] * s, p[1] * s, (level.at + base + height) * s];
+        });
+        for (const v of flatOf(outline)) flat.push(v);
         attrs.Profile = JSON.stringify([flat]);
+        // 🔴 A SLIT FROM ITS FOOT NEARLY TO ITS TOP IS TWO WALLS (GNI model_71 r58: «SW - 035/045», 10 cm slits up to 20 cm
+        // under the top; Revit «No es posible crear extrusión» and deleted both walls): its box either side of the slit, a
+        // wall of each — the strip over the slit left out. (Measured r63: model_71 89.2 → 91.0; on no reference model.)
+        if (outline.length === 8) {
+          const zs = outline.map(([, u]) => u), top = Math.max(...zs), low = Math.min(...zs);
+          const as = outline.map(([a]) => a), a0 = Math.min(...as), a1 = Math.max(...as);
+          const inner = outline.filter(([a]) => a > a0 + 0.005 && a < a1 - 0.005);
+          const sa = [...new Set(inner.map(([a]) => +a.toFixed(4)))].sort((x, y) => x - y);
+          const corners = outline.filter(([a, u]) => (Math.abs(a - a0) < 0.005 || Math.abs(a - a1) < 0.005) && (Math.abs(u - top) < 0.005 || Math.abs(u - low) < 0.005)).length;
+          if (corners === 4 && inner.length === 4 && sa.length === 2 && sa[1] - sa[0] < 0.3 && inner.some(([, u]) => Math.abs(u - low) < 0.005) && inner.every(([, u]) => Math.abs(u - low) < 0.005 || top - u < 0.3)) {
+            const box = (x0: number, x1: number): [number, number][] => [[x0, low], [x1, low], [x1, top], [x0, top]];
+            attrs.Profile = JSON.stringify([flatOf(box(a0, sa[0]))]);
+            pieceProfiles = [JSON.stringify([flatOf(box(sa[1], a1))])];
+            if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[slit-split] ${record.item.guid} ${lookRef}: a slit ${((sa[1] - sa[0]) * 100).toFixed(0)} cm wide at ${sa[0].toFixed(2)}, two walls`);
+          }
+        }
         delete attrs.TopLevel;
         delete attrs.TopOffset;
       }
