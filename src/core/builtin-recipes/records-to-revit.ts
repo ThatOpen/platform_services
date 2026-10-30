@@ -1199,6 +1199,8 @@ function sharedRun(to: 'frag' | 'ifc') {
       // along, not grown by half a bar and their border bars taken away. Only for a wall the file gives members for,
       // and not one by its outline.
       const bare = { start: false, end: false, bottom: false, top: false };
+      /** Its uprights' middles along its line, inside its ends, where the file draws them (see «…its lines from its bars»). */
+      let barsAlong: number[] = [];
       if (shapes && record.item.guid && !Array.isArray((body as { profile?: unknown }).profile)) {
         const kids = [...shapes.elements.values()].filter((el) => el.parent === record.item.guid);
         const boxOf = (gid: string) => {
@@ -1216,6 +1218,7 @@ function sharedRun(to: 'frag' | 'ifc') {
           bare.top = !bars.some((b) => flat(b) && Math.abs(b.z1 - Z1) < 0.01);
           bare.start = !bars.some((b) => !flat(b) && Math.abs(b.t0 - T0) < 0.01);
           bare.end = !bars.some((b) => !flat(b) && Math.abs(b.t1 - T1) < 0.01);
+          barsAlong = [...new Set(bars.filter((b) => !flat(b) && b.t0 > T0 + 0.01 && b.t1 < T1 - 0.01).map((b) => +((b.t0 + b.t1) / 2).toFixed(4)))].sort((x, y) => x - y);
           if (Object.values(bare).some(Boolean) && typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[curtain-bare] ${record.item.guid}: no bar at its ${Object.entries(bare).filter(([, v]) => v).map(([k]) => k).join(', ')}`);
         }
       }
@@ -1226,7 +1229,15 @@ function sharedRun(to: 'frag' | 'ifc') {
       const base = (typeof body.base === 'number' ? body.base : 0) - b0;
       const height = body.height + b0 + b1;
       const z = (level.at + base) * s;
-      const along = body.lines?.along ?? ruled(L, n(style.alongSpacing), style.alongJustify);
+      // 🔴 …ITS LINES FROM ITS BARS, where the record says none (GNI model_0_arc r58: a Revit «Curtain System», its grid
+      // laid over the whole system, our wall's own centred rule half a bay off: 40 uprights and 14 panels 13.9 cm «off»):
+      // its uprights' middles, when the type's rule puts a line anywhere none is. (Measured r66: model_0_arc 97.3 → 100;
+      // on none of Duplex, Savoyvilla, racbasic, GNI 203/67/70/150.)
+      const ruledAlong = ruled(L, n(style.alongSpacing), style.alongJustify);
+      const fromBars = !body.lines?.along && barsAlong.length > 0
+        && (barsAlong.length !== ruledAlong.length || barsAlong.some((t, k) => Math.abs(t - ruledAlong[k]) > 0.01));
+      if (fromBars && typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[curtain-lines] ${record.item.guid}: ${barsAlong.length} from its bars, not the type's ${ruledAlong.length}`);
+      const along = body.lines?.along ?? (fromBars ? barsAlong : ruledAlong);
       const up = body.lines?.up ?? ruled(body.height, n(style.upSpacing), style.upJustify);
       // «horizontal@<up mm>:<along mm>»: the segment of that line starting there is not there.
       const omit = (body.omitted ?? []).flatMap((one) => {
