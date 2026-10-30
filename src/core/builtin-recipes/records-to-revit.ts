@@ -404,6 +404,17 @@ function sharedRun(to: 'frag' | 'ifc') {
     let wallSkipped = 0;
     /** Each wall type's width, as the first wall of it said it (see «one type, one width» below). */
     const wallTypeWidths = new Map<string, number>();
+    /** Each wall type's layers as its first wall's body stacked them, where the file declares none («…as its body stacks them»). */
+    const pieceLayersOf = new Map<string, string>();
+    /** Every slab's and roof's keys and box in the file's shape coordinates (for a wall's added strip, «…as Revit can make
+     * it»): its record's, made as a floor, and its shape's, made as a family from it — whichever this operation makes. */
+    let slabBoxesMade: { keys: string[]; box: number[] }[] | null = null;
+    const slabBoxes = () => (slabBoxesMade ??= !shapes ? [] : [...shapes.elements.values()].filter((el) => /^IFC(SLAB|ROOF)/i.test(el.ifcClass)).flatMap((el) => {
+      const q = shapePoints(shapes, el.gid);
+      if (!q.length) return [];
+      const rec = records.find((r) => r.kind === 'extrusion' && r.item.guid === el.gid);
+      return [{ keys: [...(rec ? [key(rec.id)] : []), `${picked.fileId}:${el.gid}:shape`], box: [0, 1, 2].map((k) => Math.min(...q.map((p) => p[k]))).concat([0, 1, 2].map((k) => Math.max(...q.map((p) => p[k])))) }];
+    }));
     interface Seg {
       record: (typeof records)[number];
       i: number;
@@ -750,6 +761,30 @@ function sharedRun(to: 'frag' | 'ifc') {
         const corners = profile.map(([a, z]) => [at(a, L0), at(z, h0)]);
         if (corners.every(([a, z]) => a && z) && new Set(corners.map(([a, z]) => `${a}${z}`)).size === 4) profile = undefined;
       }
+      // 🔴 A NOTCH ITS DOOR FILLS, ON A WALL WHOSE LAYERS GO ON ABOVE OR BELOW IT (GNI model_176 30-10: «SW» walls whose
+      // outline is their box less the notch of the door in them, their 5 cm finish going on 20 cm above; Revit keeps a
+      // wall by its outline from extending a layer, «TopExtension read-only», 47 walls «off»): a plain wall, each door
+      // and window cutting its own. (And one whose outline is only its box, there for its ends: Revit's join cleans those.)
+      if (typeof process !== 'undefined' && process.env?.RECIPE_LAYER_EXT && Array.isArray(profile) && profile.length >= 4 && shapes && record.item.guid && typeof body.height === 'number') {
+        const def = (() => { try { return JSON.parse(String(styles.get(lookRef)?.params?.definition ?? 'null')); } catch { return null; } })() as { layers?: { topExtension?: number; baseExtension?: number }[] } | null;
+        if ((def?.layers ?? []).some((l) => (l.topExtension ?? 0) > 0.001 || (l.baseExtension ?? 0) > 0.001)) {
+          const L0 = Math.hypot(sg.to[0] - sg.from[0], sg.to[1] - sg.from[1]), h0 = body.height, d0 = [(sg.to[0] - sg.from[0]) / L0, (sg.to[1] - sg.from[1]) / L0];
+          const z0 = level.at + base + shapeDz;
+          const boxes = [...shapes.elements.values()].filter((o) => o.host === record.item.guid && !/^IFCOPENINGELEMENT$/i.test(o.ifcClass)).map((o) => {
+            const q = shapePoints(shapes, o.gid).map((p) => [(p[0] - sg.from[0]) * d0[0] + (p[1] - sg.from[1]) * d0[1], p[2] - z0]);
+            return q.length ? [Math.min(...q.map((x) => x[0])), Math.max(...q.map((x) => x[0])), Math.min(...q.map((x) => x[1])), Math.max(...q.map((x) => x[1]))] : null;
+          }).filter((b): b is number[] => b !== null);
+          // (Its corners where its outline's ends are: one that stops at the face of the wall it meets, not its line.)
+          const a0 = Math.min(...profile.map(([a]) => a)), a1 = Math.max(...profile.map(([a]) => a));
+          const corner = ([a, z]: [number, number]) => (Math.abs(a - a0) < 0.005 || Math.abs(a - a1) < 0.005) && (Math.abs(z) < 0.005 || Math.abs(z - h0) < 0.005);
+          const filled = ([a, z]: [number, number]) => boxes.some((b) => a >= b[0] - 0.03 && a <= b[1] + 0.03 && z >= b[2] - 0.15 && z <= b[3] + 0.03);
+          const notches = profile.filter((p) => !corner(p));
+          if (profile.filter(corner).length === 4 && (notches.length === 0 || (boxes.length && notches.every(filled)))) {
+            if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[layer-extension] ${record.item.guid} ${lookRef}: its outline's ${notches.length} notch corner(s) filled by what it hosts → a plain wall`);
+            profile = undefined;
+          }
+        }
+      }
       if (!sg.arcMid && Array.isArray(profile) && profile.length >= 3 && sg.i === 0 && !segs.some((o) => o !== sg && o.record === record)) {
         const L = Math.hypot(sg.to[0] - sg.from[0], sg.to[1] - sg.from[1]);
         const dir = [(sg.to[0] - sg.from[0]) / L, (sg.to[1] - sg.from[1]) / L];
@@ -1024,6 +1059,42 @@ function sharedRun(to: 'frag' | 'ifc') {
         attrs['Type.Layers'] = JSON.stringify([...declared.layers].reverse().map((l) => [+num(l.thickness * s), l.material ?? '', l.function ?? '']));
         if (declared.layersFlipped) attrs.FlipLayers = '1';
       }
+      // 🔴 …AND WHERE IT DECLARES NONE, AS ITS BODY STACKS THEM (GNI model_119 30-10, Archicad: «Wall Brick - Red 287 mm»,
+      // an IfcMaterialConstituentSet with no thicknesses, its body one solid per constituent and a 5 cm cavity between;
+      // as one 287 mm layer, 55 walls «off» at 14 cm, the faces between its layers nowhere in ours): the bands its pieces
+      // fill across its line, exterior (left) first, a gap between two an air layer. One type, one stack: a wall of the
+      // type drawn the other way is it flipped; one stacked otherwise keeps the type's.
+      else if (typeof process !== 'undefined' && process.env?.RECIPE_PIECE_LAYERS && declared && declared.pieces.length >= 2 && width && record.item.guid) {
+        const L = Math.hypot(e[0] - f[0], e[1] - f[1]), d = [(e[0] - f[0]) / L, (e[1] - f[1]) / L];
+        const bands: [number, number][] = [];
+        declared.pieces.forEach((_, k) => {
+          const pts = shapePoints(shapes!, record.item.guid!, k);
+          if (pts.length < 4) return;
+          const al = pts.map((p) => (p[0] - f[0]) * d[0] + (p[1] - f[1]) * d[1]), ac = pts.map((p) => -(p[0] - f[0]) * d[1] + (p[1] - f[1]) * d[0]), zs = pts.map((p) => p[2]);
+          // (Its layer bodies only — most of its height, a length of it, a piece an opening cut short as good — not a
+          // corner's bit.)
+          if (Math.max(...al) - Math.min(...al) < Math.min(0.3, 0.5 * L) || Math.max(...zs) - Math.min(...zs) < 0.5 * height) return;
+          const lo = Math.min(...ac), hi = Math.max(...ac);
+          if (!bands.some((b) => Math.abs(b[0] - lo) < 0.002 && Math.abs(b[1] - hi) < 0.002)) bands.push([lo, hi]);
+        });
+        bands.sort((a, b) => b[1] - a[1]);
+        const total = bands.length ? bands[0][1] - bands[bands.length - 1][0] : 0;
+        const stacked = bands.every((b, k) => k === 0 || b[1] <= bands[k - 1][0] + 0.002);
+        if (bands.length >= 2 && stacked && Math.abs(total - width / s) < 0.01) {
+          const rows: [number, string, string][] = [];
+          bands.forEach((b, k) => {
+            // (To the half millimetre: the same stack in another wall is the same type.)
+            const mm = (x: number) => +num((Math.round(x * 2000) / 2000) * s);
+            if (k > 0 && bands[k - 1][0] - b[1] > 0.003) rows.push([mm(bands[k - 1][0] - b[1]), '', 'air']);
+            rows.push([mm(b[1] - b[0]), '', '']);
+          });
+          const mine = JSON.stringify(rows), back = JSON.stringify([...rows].reverse()), seen = pieceLayersOf.get(attrs.Type);
+          if (seen === undefined) pieceLayersOf.set(attrs.Type, mine);
+          if (seen === undefined || seen === mine) attrs['Type.Layers'] = mine;
+          else if (seen === back) { attrs['Type.Layers'] = seen; attrs.FlipLayers = '1'; }
+          if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[piece-layers] ${record.item.guid} ${attrs.Type}: ${mine}${seen && seen !== mine ? (seen === back ? ' (flipped)' : ' (the type stacks otherwise: kept)') : ''}`);
+        }
+      }
       // 🔴 A LAYER THAT GOES ON ABOVE OR BELOW THE WALL (GNI model_176, Archicad 26 «SW - 0xx»: a 5 cm cladding up to
       // 3.2 m on a 25 cm structure up to 3.0, one 30 cm wall up to 3.2 before, a strip too many on each; the converter
       // since e64534d2a: `topExtension` / `baseExtension` on its style's layers): its type's layers from the style,
@@ -1034,8 +1105,28 @@ function sharedRun(to: 'frag' | 'ifc') {
         if (ls.length > 1 && ls.some((l) => (l.topExtension ?? 0) > 0.001 || (l.baseExtension ?? 0) > 0.001)) {
           attrs['Type.Layers'] = JSON.stringify(ls.map((l) => [+num((l.thickness ?? 0) * s), l.material ?? '', l.function ?? '', +num((l.topExtension ?? 0) * s), +num((l.baseExtension ?? 0) * s)]));
           const top = Math.max(...ls.map((l) => l.topExtension ?? 0)), bottom = Math.max(...ls.map((l) => l.baseExtension ?? 0));
-          if (top > 0.001) attrs.TopExtension = num(top * s);
-          if (bottom > 0.001) attrs.BaseExtension = num(bottom * s);
+          // 🔴 …AS REVIT CAN MAKE IT: THE WALL UP TO ITS FINISH'S TOP, CUT BY THE SLAB ITS STRUCTURE STOPS AT (GNI model_176
+          // r60y: Revit's API refuses an extendable layer on any structure not already vertically compound, and it cannot
+          // make one): its height on by the extension, plain layers, and Join Geometry with each slab its added strip runs
+          // into, the slab cutting — its structure stops under the slab, its finish, past the slab's edge, goes on.
+          const slabsIn = (z0: number, z1: number) => {
+            if (!shapes || !record.item.guid) return [] as string[];
+            const wp = shapePoints(shapes, record.item.guid);
+            if (wp.length < 4) return [];
+            const wb = [Math.min(...wp.map((q) => q[0])), Math.min(...wp.map((q) => q[1])), Math.max(...wp.map((q) => q[0])), Math.max(...wp.map((q) => q[1]))];
+            return slabBoxes().filter((b) => b.box[0] < wb[2] - 0.01 && wb[0] < b.box[3] - 0.01 && b.box[1] < wb[3] - 0.01 && wb[1] < b.box[4] - 0.01 && b.box[2] < z1 - 0.01 && z0 < b.box[5] - 0.01).flatMap((b) => b.keys);
+          };
+          const z0 = level.at + base + shapeDz;
+          const cutters = typeof process !== 'undefined' && process.env?.RECIPE_EXT_CUT && !attrs.Profile && top > 0.001 && bottom < 0.001 ? slabsIn(z0 + height, z0 + height + top) : [];
+          if (cutters.length && (attrs.Height || attrs.TopOffset)) {
+            attrs['Type.Layers'] = JSON.stringify(ls.map((l) => [+num((l.thickness ?? 0) * s), l.material ?? '', l.function ?? '']));
+            if (attrs.TopOffset) attrs.TopOffset = num(Number(attrs.TopOffset) + top * s); else attrs.Height = num(Number(attrs.Height) + top * s);
+            attrs.CutBy = [...(attrs.CutBy ? attrs.CutBy.split('|') : []), ...cutters].join('|');
+            if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[layer-extension] ${record.item.guid} ${attrs.Type}: up ${top} to its finish's top, cut by ${cutters.length} slab(s)`);
+          } else {
+            if (top > 0.001) attrs.TopExtension = num(top * s);
+            if (bottom > 0.001) attrs.BaseExtension = num(bottom * s);
+          }
           if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[layer-extension] ${record.item.guid} ${attrs.Type}: top ${top}, base ${bottom}`);
         }
       }
@@ -1450,7 +1541,7 @@ function sharedRun(to: 'frag' | 'ifc') {
     for (const record of records) {
       const of = record.params.of;
       if (record.kind !== 'extrusion' || (of !== 'slab' && of !== 'roof' && of !== 'covering')) continue;
-      const kind = of === 'covering' ? 'ceiling' : of === 'roof' ? 'roof' : slabKind(record);
+      let kind = of === 'covering' ? 'ceiling' : of === 'roof' ? 'roof' : slabKind(record);
       if (kind === 'other') continue;
       // 🔴 A RAMP IS NO FLOOR: Revit makes no ramp through its API, and a ramp's sloped flight as a floor came to nothing
       // (Savoyvilla 24-10: its 4 flights missing, BLOXHUB's made from their shapes all twins). Left to its shape.
@@ -1460,6 +1551,24 @@ function sharedRun(to: 'frag' | 'ifc') {
       // 1.20», their L section on a vertical workplane, laid flat at the origin by Revit or lost): left to its shape.
       const on = (body as { on?: { u?: number[]; v?: number[] } } | null)?.on;
       if (on && (Math.abs(on.u?.[2] ?? 0) > 1e-3 || Math.abs(on.v?.[2] ?? 0) > 1e-3)) continue;
+      // 🔴 A ONE-PLANE ROOF WHOSE LOW SIDE IS A CORNER, NO EDGE (GNI model_98 r55: «FB 100 leer», 14 pieces of a 2-3° deck
+      // as IfcSlab, each a slope toward a vertex of its outline; no edge to put Revit's footprint slope on, made flat, 14
+      // «off» at 4 to 20 cm): a sloped floor — Revit's slope arrow takes any direction. (Measured r61: model_98 96.5 → 98.4,
+      // the 8 off → twin; on nothing else of Duplex, Savoyvilla, racbasic, DACH, Schependomlaan, GNI 18/28/166.)
+      if (kind === 'roof' && !gableOf(record)) {
+        const pl = (body as { slope?: { toward?: number; by?: number }; slopes?: unknown[] } | null);
+        const cs = body?.profile?.outline?.curves ?? [];
+        if (pl?.slope && typeof pl.slope.by === 'number' && Math.abs(pl.slope.by) > 1e-3 && typeof pl.slope.toward === 'number' && !(Array.isArray(pl.slopes) && pl.slopes.some((x) => typeof x === 'number')) && cs.length >= 3) {
+          const d = [Math.cos(pl.slope.toward), Math.sin(pl.slope.toward)];
+          const pts = cs.map((cv) => cv.from!).filter(Boolean);
+          const proj = pts.map((p) => p[0] * d[0] + p[1] * d[1]), lo = Math.min(...proj);
+          const eave = pts.some((_, i) => Math.abs(proj[i] - lo) < 0.01 && Math.abs(proj[(i + 1) % pts.length] - lo) < 0.01);
+          if (!eave) {
+            kind = 'floor';
+            if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[roof-as-floor] ${record.item.guid} ${record.params.lookRef}: its low side a corner, a sloped floor`);
+          }
+        }
+      }
       slabRead[kind]++;
       if (typeof process !== 'undefined' && process.env?.RECIPE_SLAB === record.item.guid) console.error(`[slab] ${record.item.guid}: params ${JSON.stringify(record.params).slice(0, 600)} body ${JSON.stringify(body).slice(0, 1500)}`);
       const base =
