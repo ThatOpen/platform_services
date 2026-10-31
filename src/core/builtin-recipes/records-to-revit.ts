@@ -1399,7 +1399,9 @@ function sharedRun(to: 'frag' | 'ifc') {
         }
       }
       const spec: Record<string, unknown> = {
-        family: String(lookRef).split(':')[0],
+        // (Its family, the element's number off its end: the first of «Assembled Stair:Stair», the second of «Stairs : Assembled Stair : Stair», as GNI model_78
+        // and 45 name them: read as «Stairs», no family, its default cast in place, 1.35 m³ for 0.18.)
+        family: (() => { const parts = String(lookRef).split(':').map((one) => one.trim()).filter((one, k, all) => k < all.length - 1 || !/^\d+$/.test(one)); return parts.length >= 3 && /^(stairs?|escaleras?|treppen?)$/i.test(parts[0]) ? parts[1] : parts[0]; })(),
         base: baseAt * s,
         height: rise * s,
         risers,
@@ -1530,6 +1532,11 @@ function sharedRun(to: 'frag' | 'ifc') {
         if (Number.isFinite(going)) {
           spec.tread = going * s;
           (spec.sizes as Record<string, number>).minTread = going * s;
+          // (Its straight path, should it be used, a tread back when lowered a riser, as a straight flight's: model_128 r76.)
+          if (lowered) {
+            const q = spec.path as number[][], L = Math.hypot(q[1][0] - q[0][0], q[1][1] - q[0][1]);
+            if (L > 0) spec.path = [[q[0][0] - ((q[1][0] - q[0][0]) / L) * going * s, q[0][1] - ((q[1][1] - q[0][1]) / L) * going * s], q[1]];
+          }
         }
       } else {
         // (Lowered a riser, its start a tread back along its path.)
@@ -1811,6 +1818,13 @@ function sharedRun(to: 'frag' | 'ifc') {
           if (pts.length === curves.length && eaves.some(Boolean)) {
             attrs.Slopes = JSON.stringify(eaves.map((low) => (low ? Math.tan(Math.abs(plane.by!)) : null)));
             attrs.BaseOffset = num(base * s);
+            // 🔴 ITS BOTTOM FROM ITS SHAPE WHERE `base` IS ITS HIGH SIDE'S (31-10, GNI model_154's «Roof_Generic-125mm», 30°, up by
+            // exactly its rise; model_78, 123, 143...), as a sloped floor's (model_54): `base` is at either side, as the file wrote it.
+            const body3 = shapes && record.item.guid ? shapePoints(shapes, record.item.guid) : [];
+            if (typeof process !== 'undefined' && process.env?.RECIPE_ROOF_BASE && body3.length >= 4) {
+              const lowest = Math.min(...body3.map((q) => q[2])) - shapeDz;
+              if (level.at + base - lowest > 0.5 * Math.tan(Math.abs(plane.by!)) * (Math.max(...proj) - lo)) attrs.BaseOffset = num((lowest - level.at) * s);
+            }
           }
           if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[roof-plane] ${record.item.guid} ${lookRef}: ${(plane.by * 180 / Math.PI).toFixed(1)}° toward ${(plane.toward * 180 / Math.PI).toFixed(1)}°, eaves ${JSON.stringify(eaves)}`);
         }

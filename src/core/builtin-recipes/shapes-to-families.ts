@@ -459,7 +459,6 @@ export function prismOf(piece: { v: number[]; t: number[] }): { axis: number; fr
       if (!id.has(k)) { id.set(k, pts.length); pts.push(p); }
       return id.get(k)!;
     };
-    const edges = new Map<string, number>();
     const capTris: number[][] = [];
     for (let t = 0; t + 2 < piece.t.length; t += 3) {
       const tri = [piece.t[t], piece.t[t + 1], piece.t[t + 2]];
@@ -467,13 +466,34 @@ export function prismOf(piece: { v: number[]; t: number[] }): { axis: number; fr
       const q = tri.map(at);
       if (q[0] === q[1] || q[1] === q[2] || q[0] === q[2]) continue;
       capTris.push(q);
-      for (let k = 0; k < 3; k++) { const a = q[k], b = q[(k + 1) % 3]; const key = a < b ? `${a},${b}` : `${b},${a}`; edges.set(key, (edges.get(key) ?? 0) + 1); }
     }
     if (capTris.length === 0) continue;
+    // 🔴 EACH EDGE CUT AT THE CORNERS THAT LIE ON IT (31-10, GNI model_7_arc's 22 «Shading_lessVertical», a frame with a 3 cm
+    // bar between two holes: the file's triangles leave T junctions, a long side against the bar's short end, so that end
+    // counted as boundary, the two holes chained as one and the bar lost, 0.29 m³ for 0.37).
+    const onEdge = (a: number, b: number) => {
+      const [p, q] = [pts[a], pts[b]];
+      const d = [q[0] - p[0], q[1] - p[1]], len2 = d[0] * d[0] + d[1] * d[1];
+      const inner: { t: number; id: number }[] = [];
+      if (pts.length <= 3000) for (let i = 0; i < pts.length; i++) {
+        if (i === a || i === b) continue;
+        const t = ((pts[i][0] - p[0]) * d[0] + (pts[i][1] - p[1]) * d[1]) / len2;
+        if (t <= 1e-6 || t >= 1 - 1e-6) continue;
+        const off = Math.abs((pts[i][0] - p[0]) * d[1] - (pts[i][1] - p[1]) * d[0]) / Math.sqrt(len2);
+        if (off < 3e-4) inner.push({ t, id: i });
+      }
+      return [a, ...inner.sort((x, y) => x.t - y.t).map((one) => one.id), b];
+    };
+    const directed: [number, number][] = [];
+    for (const tri of capTris) for (let k = 0; k < 3; k++) {
+      const chain = onEdge(tri[k], tri[(k + 1) % 3]);
+      for (let j = 0; j + 1 < chain.length; j++) directed.push([chain[j], chain[j + 1]]);
+    }
+    const edges = new Map<string, number>();
+    for (const [a, b] of directed) { const key = a < b ? `${a},${b}` : `${b},${a}`; edges.set(key, (edges.get(key) ?? 0) + 1); }
     // Boundary: edges of one triangle only, chained into loops.
     const next = new Map<number, number[]>();
-    for (const tri of capTris) for (let k = 0; k < 3; k++) {
-      const a = tri[k], b = tri[(k + 1) % 3];
+    for (const [a, b] of directed) {
       if (edges.get(a < b ? `${a},${b}` : `${b},${a}`) !== 1) continue;
       next.set(a, [...(next.get(a) ?? []), b]);
     }
