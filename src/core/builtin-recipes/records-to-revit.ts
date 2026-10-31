@@ -1383,9 +1383,24 @@ function sharedRun(to: 'frag' | 'ifc') {
       const risers = Math.max(1, Math.ceil(rise / maxRiser - 1e-6));
       const tread = n(style.tread);
       const p = (q: [number, number]) => [q[0] * s, q[1] * s];
+      // 🔴 A FLIGHT THAT STARTS A RISER UNDER ITS RECORD'S BASE (#45, GNI model_193: «Cast-In-Place Stair» second runs, the
+      // record's base at the top of the run below — the landing's step counted twice — its shape from a riser lower): its
+      // base where its shape starts, and its straight path's start a tread back (lowered alone, r67, its treads came a going
+      // off; with it, r68, their error 0.215 → 0.14 m; a tread forward, r69, lost flights).
+      let baseAt = level.at + n(record.params.base);
+      let lowered = false;
+      if (shapes && record.item.guid) {
+        const zs = shapePoints(shapes, record.item.guid).map((q) => q[2] - shapeDz), r = rise / risers;
+        const low = zs.length ? Math.min(...zs) : baseAt;
+        if (baseAt - low > 0.5 * r && baseAt - low < 1.5 * r) {
+          if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[stair-base] ${record.item.guid} ${record.item.name ?? ''}: base ${baseAt.toFixed(3)} → its shape's ${low.toFixed(3)}`);
+          baseAt = low;
+          lowered = true;
+        }
+      }
       const spec: Record<string, unknown> = {
         family: String(lookRef).split(':')[0],
-        base: (level.at + n(record.params.base)) * s,
+        base: baseAt * s,
         height: rise * s,
         risers,
         tread: tread * s,
@@ -1514,7 +1529,13 @@ function sharedRun(to: 'frag' | 'ifc') {
           (spec.sizes as Record<string, number>).minTread = going * s;
         }
       } else {
-        spec.path = [p([body.start[0], body.start[1]]), p([body.end[0], body.end[1]])];
+        // (Lowered a riser, its start a tread back along its path.)
+        let from: [number, number] = [body.start[0], body.start[1]];
+        if (lowered && tread > 0) {
+          const dx = body.end[0] - body.start[0], dy = body.end[1] - body.start[1], L = Math.hypot(dx, dy);
+          if (L > 0) from = [from[0] - (tread * dx) / L, from[1] - (tread * dy) / L];
+        }
+        spec.path = [p(from), p([body.end[0], body.end[1]])];
         // (A style with no tread: its path by its risers. Conference's grand stair, «7" max riser 11" tread», came
         // with tread 0, its riser lines on one another, «curve too short»: 5.588 m / 20 = 0.2794 m, its 11".)
         if (!(tread > 0)) {
@@ -1684,6 +1705,31 @@ function sharedRun(to: 'frag' | 'ifc') {
         if (sum > 0 && (!width || Math.abs(sum * s - width) > 0.2 * width)) width = sum * s;
       }
       if (width) attrs['Type.Width'] = num(width);
+      // 🔴 CUT BY THE WALLS THAT STAND IN IT (GNI model_176 30-10: «SLA - 001», 200 mm of structure and a 100 mm finish
+      // short of every wall, its walls standing on the structure): Join Geometry, each wall cutting, as Revit's walls cut
+      // a floor's finish; the floor whole under them, 10 cm too many at every wall before.
+      if (kind === 'floor' && shapes && record.item.guid) {
+        const q = shapePoints(shapes, record.item.guid);
+        if (q.length) {
+          const fb = [0, 1, 2].map((k) => Math.min(...q.map((p) => p[k]))).concat([0, 1, 2].map((k) => Math.max(...q.map((p) => p[k]))));
+          const cutters = segs.flatMap((sg) => {
+            const w = sg.record.item.guid ? shapePoints(shapes, sg.record.item.guid) : [];
+            if (w.length < 4) return [];
+            const wb = [0, 1, 2].map((k) => Math.min(...w.map((p) => p[k]))).concat([0, 1, 2].map((k) => Math.max(...w.map((p) => p[k]))));
+            // (On a step of the floor's own shape: its finish stops there. A floor that goes on whole through a wall that
+            // stands in it — Savoyvilla's 2, 98.2 → 97.7 cut — has no such level; its file did not cut it.)
+            const standsIn = wb[2] > fb[2] + 0.01 && wb[2] < fb[5] - 0.01 && wb[5] > fb[5] && q.some((p) => Math.abs(p[2] - wb[2]) < 0.005);
+            const over = wb[0] < fb[3] - 0.01 && fb[0] < wb[3] - 0.01 && wb[1] < fb[4] - 0.01 && fb[1] < wb[4] - 0.01;
+            if (!standsIn || !over) return [];
+            const k = `${key(sg.record.id)}#${sg.i}`, before = made.get(k);
+            return before ? [k, before] : [k];
+          });
+          if (cutters.length) {
+            attrs.CutBy = [...new Set(cutters)].join('|');
+            if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[floor-cut] ${record.item.guid} ${record.item.name ?? ''}: cut by ${cutters.length} wall(s)`);
+          }
+        }
+      }
       if (kind === 'roof' || kind === 'ceiling') {
         // A footprint roof and a ceiling are placed by their BOTTOM face: the record's base as
         // it stands. A roof also carries which edges slope, and by how much (rise over run).
