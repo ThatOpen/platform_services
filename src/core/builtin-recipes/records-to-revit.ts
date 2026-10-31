@@ -1821,7 +1821,7 @@ function sharedRun(to: 'frag' | 'ifc') {
             // 🔴 ITS BOTTOM FROM ITS SHAPE WHERE `base` IS ITS HIGH SIDE'S (31-10, GNI model_154's «Roof_Generic-125mm», 30°, up by
             // exactly its rise; model_78, 123, 143...), as a sloped floor's (model_54): `base` is at either side, as the file wrote it.
             const body3 = shapes && record.item.guid ? shapePoints(shapes, record.item.guid) : [];
-            if (typeof process !== 'undefined' && process.env?.RECIPE_ROOF_BASE && body3.length >= 4) {
+            if (body3.length >= 4) {
               const lowest = Math.min(...body3.map((q) => q[2])) - shapeDz;
               if (level.at + base - lowest > 0.5 * Math.tan(Math.abs(plane.by!)) * (Math.max(...proj) - lo)) attrs.BaseOffset = num((lowest - level.at) * s);
             }
