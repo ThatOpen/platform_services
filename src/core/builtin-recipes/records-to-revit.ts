@@ -1589,6 +1589,7 @@ function sharedRun(to: 'frag' | 'ifc') {
 
     // ---- 3. Floors, foundation slabs, roofs and ceilings: slabs by their boundary loops. ----
     // Read and written per kind: each is its own row of the rules table.
+    const slabTypeWidths = new Map<string, number>();
     const slabRead = { floor: 0, foundation: 0, roof: 0, ceiling: 0 };
     const slabMade = { floor: 0, foundation: 0, roof: 0, ceiling: 0 };
     for (const record of records) {
@@ -1705,6 +1706,13 @@ function sharedRun(to: 'frag' | 'ifc') {
         if (sum > 0 && (!width || Math.abs(sum * s - width) > 0.2 * width)) width = sum * s;
       }
       if (width) attrs['Type.Width'] = num(width);
+      // 🔴 ONE TYPE, ONE WIDTH, as a wall's (GNI model_78's «Foundation Slab», 50, 15 and 12 cm: made by the first, the
+      // others 3 and 4 times their volume). The name the file uses at another thickness is a variant of its own.
+      if (width) {
+        const seen = slabTypeWidths.get(attrs.Type);
+        if (seen === undefined) slabTypeWidths.set(attrs.Type, width);
+        else if (Math.abs(seen - width) > 0.001) attrs.Type = `${attrs.Type} · ${Math.round((width / s) * 1000)} mm`;
+      }
       // 🔴 CUT BY THE WALLS THAT STAND IN IT (GNI model_176 30-10: «SLA - 001», 200 mm of structure and a 100 mm finish
       // short of every wall, its walls standing on the structure): Join Geometry, each wall cutting, as Revit's walls cut
       // a floor's finish; the floor whole under them, 10 cm too many at every wall before.
