@@ -1510,6 +1510,9 @@ function sharedRun(to: 'frag' | 'ifc') {
         void endLine;
         const walk = riserLines.map(([a, c]) => [(a[0] + c[0]) / 2, (a[1] + c[1]) / 2]);
         spec.sketch = { boundary: sides, risers: riserLines, path: walk };
+        // (Should Revit refuse the sketch: straight from its first riser to its last, as wide as its first.)
+        spec.path = [walk[0], walk[walk.length - 1]];
+        if (!spec.width) spec.width = Math.hypot(riserLines[0][1][0] - riserLines[0][0][0], riserLines[0][1][1] - riserLines[0][0][1]);
         if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) {
           const len = (q: number[][]) => Math.hypot(q[1][0] - q[0][0], q[1][1] - q[0][1]) / s;
           console.error(`[stair] ${record.item.guid} ${record.item.name ?? ''}: ${sides.length} sides (shortest ${(Math.min(...sides.map(len)) * 1000).toFixed(2)} mm), ${riserLines.length} risers (shortest ${(Math.min(...riserLines.map(len)) * 1000).toFixed(2)} mm), walk ${walk.length} points (shortest step ${(Math.min(...walk.slice(1).map((q, k) => len([walk[k], q]))) * 1000).toFixed(2)} mm)`);
