@@ -1,4 +1,5 @@
 export * from './core/client';
+export * from './core/browser-sign-in';
 export * from './core/platform-client';
 export * from './core/channel';
 export * from './core/documents';
