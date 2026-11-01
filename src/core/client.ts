@@ -1,3 +1,9 @@
+import {
+  refreshBrowserSession,
+  signInWithBrowser,
+  type BrowserSession,
+  type SignInWithBrowserOptions,
+} from './browser-sign-in';
 import { io } from 'socket.io-client';
 import { ProjectDocuments } from './documents';
 import { ProjectHistory } from './history';
@@ -333,6 +339,103 @@ export class EngineServicesClient {
       }
       this.localServerUrl = lsUrl;
     }
+  }
+
+  /**
+   * Signs in through the browser, as the Revit plugin does, and returns a client
+   * that keeps its access token fresh while the process lives. For a program
+   * outside the platform; an app inside it uses {@link fromPlatformContext}.
+   *
+   * Keep the session given to `onSession` to start again without asking the
+   * person, with {@link fromBrowserSession}. Its refresh token rotates, so each
+   * one replaces the last.
+   *
+   * @example
+   * ```ts
+   * const client = await EngineServicesClient.signInWithBrowser({
+   *   apiUrl: 'https://platform.thatopen.com',
+   *   application: 'My tool',
+   *   machine: os.hostname(),
+   *   version: '1.0.0',
+   *   onVerification: ({ url, userCode }) => {
+   *     console.log(`Confirm ${userCode} at ${url}`);
+   *   },
+   *   onSession: (session) => save(session),
+   * });
+   * ```
+   */
+  static async signInWithBrowser(
+    options: SignInWithBrowserOptions & {
+      onSession?: (session: BrowserSession) => void;
+    },
+  ): Promise<EngineServicesClient> {
+    const session = await signInWithBrowser(options);
+    options.onSession?.(session);
+    return EngineServicesClient.fromBrowserSession(session, options);
+  }
+
+  /**
+   * A client from a session kept earlier. It renews the access token shortly
+   * before it expires, without keeping the process alive for it; call
+   * {@link stopRenewing} when done with a client in a process that goes on.
+   */
+  static fromBrowserSession(
+    session: BrowserSession,
+    options?: { onSession?: (session: BrowserSession) => void },
+  ): EngineServicesClient {
+    const client = new EngineServicesClient(
+      session.accessToken,
+      session.apiUrl,
+      { useBearer: true },
+    );
+    client.renewFrom(session, options?.onSession);
+    return client;
+  }
+
+  private renewal: ReturnType<typeof setTimeout> | null = null;
+
+  private renewFrom(
+    session: BrowserSession,
+    onSession?: (session: BrowserSession) => void,
+  ) {
+    const renewBefore = 60_000;
+    const delay = Math.max(session.expiresAt - Date.now() - renewBefore, 0);
+    this.renewal = setTimeout(async () => {
+      try {
+        const next = await refreshBrowserSession(session);
+        this.setAccessToken(next.accessToken);
+        onSession?.(next);
+        this.renewFrom(next, onSession);
+      } catch {
+        /* Tried again in a minute, keeping the same session: the platform
+           answers a refresh token just rotated with a fresh pair, and a cut
+           session goes on failing in the calls that use it, which is where
+           somebody will read why. */
+        this.renewFrom(
+          { ...session, expiresAt: Date.now() + renewBefore + 60_000 },
+          onSession,
+        );
+      }
+    }, delay);
+    (this.renewal as { unref?: () => void }).unref?.();
+  }
+
+  /** Stops renewing the access token of a client from a browser session. */
+  stopRenewing() {
+    if (this.renewal) clearTimeout(this.renewal);
+    this.renewal = null;
+  }
+
+  /**
+   * Replaces the access token used by every call from now on.
+   * @param accessToken - The new token.
+   */
+  setAccessToken(accessToken: string) {
+    this.accessToken = accessToken;
+    (this as { context: ThatOpenContext }).context = {
+      ...this.context,
+      accessToken,
+    };
   }
 
   /**

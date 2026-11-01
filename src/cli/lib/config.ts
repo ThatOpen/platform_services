@@ -1,10 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import type { BrowserSession } from '../../core/browser-sign-in';
 
 export interface ThatOpenConfig {
   accessToken: string;
   apiUrl: string;
+  /** Present after a login through the browser: what renews `accessToken`. */
+  session?: BrowserSession;
 }
 
 const CONFIG_DIR = join(homedir(), '.thatopen');
@@ -45,6 +48,8 @@ export type ProjectType = 'APP' | 'COMPONENT';
 export interface ThatOpenLocalConfig {
   accessToken: string;
   apiUrl: string;
+  /** Present after a login through the browser: what renews `accessToken`. */
+  session?: BrowserSession;
   appId?: string;
   componentId?: string;
   /** Project type marker set by `thatopen create`. */
