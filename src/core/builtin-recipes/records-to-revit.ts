@@ -388,14 +388,13 @@ function sharedRun(to: 'frag' | 'ifc') {
     let levelCount = 0;
     if (createLevels) {
       for (const [datumId, level] of levels) {
-        if (
-          add(key(datumId), {
-            CategoryId: CATEGORY.levels,
-            Name: level.name,
-            Elevation: num(level.at * s),
-          })
-        )
-          levelCount++;
+        const attrs = { CategoryId: CATEGORY.levels, Name: level.name, Elevation: num(level.at * s) };
+        // 🔴 THE SAME LEVEL IS THE SAME LEVEL, whatever key the new version gives it: a level has no element of its own, it goes
+        // by the thing it hangs on, and that thing changing asked to delete the level and everything on it (1-11, a shaft
+        // drawn: 10 levels of BLOXHUB «to remove», with their doors and ceilings).
+        const print = printOf({ attrs: sharedFrame ? { ...attrs, Frame: 'shared', ...(sharedAt ? { SharedAt: sharedAt } : {}) } : attrs, placement: {} });
+        const madeAs = [...prints].find(([one, was]) => was === print && made.has(one))?.[0];
+        if (add(madeAs ?? key(datumId), attrs)) levelCount++;
       }
     }
 
@@ -1602,6 +1601,18 @@ function sharedRun(to: 'frag' | 'ifc') {
     const slabTypeWidths = new Map<string, number>();
     const slabRead = { floor: 0, foundation: 0, roof: 0, ceiling: 0 };
     const slabMade = { floor: 0, foundation: 0, roof: 0, ceiling: 0 };
+    // 🔴 A SHAFT DRAWN IN THE MODELLER IS A VOID FORM (`opening.shaft`, a void that cuts what it crosses, Revit's Opening): no
+    // thing of its own, and a hole in each slab its height goes through (Antonio 1-11, the guion: «her Revit has the opening.
+    // Native»). Written as a thing, it came as a solid box in the shaft, the floor whole around it.
+    const voidForms = records.flatMap((one) => {
+      if (one.kind !== 'extrusion' || one.params.of !== 'form') return [];
+      const its = innerJson<ExtrusionBody & { void?: boolean; depth?: number }>(one, 'extrusion');
+      const on = levels.get(String(its?.level ?? one.params.level ?? ''));
+      const outline = (its?.profile?.outline?.curves ?? []).flatMap((c) => (c.from ? [c.from] : []));
+      if (!its?.void || !on || outline.length < 3) return [];
+      const from = on.at + (Number(one.params.base) || 0);
+      return [{ guid: one.item.guid, outline, from, to: from + (Number(its.depth ?? one.params.depth) || 0) }];
+    });
     for (const record of records) {
       const of = record.params.of;
       if (record.kind !== 'extrusion' || (of !== 'slab' && of !== 'roof' && of !== 'covering')) continue;
@@ -1663,7 +1674,9 @@ function sharedRun(to: 'frag' | 'ifc') {
       }
       // 🔴 THE OPENINGS THAT VOID IT (the converter since 24-10, `extrusion.cuts`: shafts and stair wells, lost before):
       // each cut straight down through it a hole of its loop, its outline's plan; one at a slant is not a hole.
-      const cuts = (body as { cuts?: { outline?: number[][]; through?: number[] }[] } | null)?.cuts ?? [];
+      const cuts = [...((body as { cuts?: { outline?: number[][]; through?: number[] }[] } | null)?.cuts ?? [])];
+      const slabFrom = level.at + base, slabTo = slabFrom + (Number(record.params.depth) || 0);
+      for (const shaft of voidForms) if (shaft.from < slabTo - 1e-3 && slabFrom < shaft.to - 1e-3) cuts.push({ outline: shaft.outline, through: [0, 0, shaft.to - shaft.from] });
       for (const cut of cuts) {
         const t = cut.through, o = cut.outline;
         if (!Array.isArray(o) || o.length < 3 || !Array.isArray(t) || Math.abs(t[2]) < 0.99 * Math.hypot(t[0], t[1], t[2])) continue;
@@ -1685,7 +1698,11 @@ function sharedRun(to: 'frag' | 'ifc') {
         const box = (q: number[][]) => [Math.min(...q.map((p) => p[0])), Math.min(...q.map((p) => p[1])), Math.max(...q.map((p) => p[0])), Math.max(...q.map((p) => p[1]))];
         const flatPts = (l: number[]) => { const q: number[][] = []; for (let k = 0; k + 2 < l.length; k += 3) q.push([l[k] / s, l[k + 1] / s]); return q; };
         const mine = box(pts);
-        const clashes = loops.slice(1).some((l) => { const b = box(flatPts(l)); return mine[0] < b[2] + 0.01 && b[0] < mine[2] + 0.01 && mine[1] < b[3] + 0.01 && b[1] < mine[3] + 0.01; });
+        // (By its real shape where the boxes meet: a shaft beside a stepped stair well is inside the well's box and clear of it, BLOXHUB 1-11.)
+        const inLoop = (q: number[][], x: number, y: number) => { let c = false; for (let i = 0, j = q.length - 1; i < q.length; j = i++) if ((q[i][1] > y) !== (q[j][1] > y) && x < ((q[j][0] - q[i][0]) * (y - q[i][1])) / (q[j][1] - q[i][1]) + q[i][0]) c = !c; return c; };
+        const toEdge = (p: number[], a: number[], b: number[]) => { const dx = b[0] - a[0], dy = b[1] - a[1], u = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (dx * dx + dy * dy || 1))); return Math.hypot(p[0] - (a[0] + u * dx), p[1] - (a[1] + u * dy)); };
+        const nearLoop = (q: number[][], r: number[][]) => q.some((p) => inLoop(r, p[0], p[1]) || r.some((a, k) => toEdge(p, a, r[(k + 1) % r.length]) < 0.01));
+        const clashes = loops.slice(1).some((l) => { const other = flatPts(l), b = box(other); return mine[0] < b[2] + 0.01 && b[0] < mine[2] + 0.01 && mine[1] < b[3] + 0.01 && b[1] < mine[3] + 0.01 && (nearLoop(pts, other) || nearLoop(other, pts)); });
         const outerPts = flatPts(outer);
         const nearEdge = pts.some((p) => outerPts.some((a, k) => {
           const b = outerPts[(k + 1) % outerPts.length], dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy || 1;
@@ -1938,7 +1955,7 @@ function sharedRun(to: 'frag' | 'ifc') {
     // the parts of nothing written) is a family: one per shape, defined from the file's own geometry in the
     // element's frame, placed where the file has each. Doors and windows in the wall whose opening they fill.
     if (shapedPanels.size && typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[shaped-panels] ${shapedPanels.size} curtain panel(s) made as families of their shape`);
-    const shaped = shapes ? familiesFromShapes(shapes, seen, picked.fileId, shapedPanels) : [];
+    const shaped = shapes ? familiesFromShapes(shapes, seen, picked.fileId, shapedPanels).filter((one) => !voidForms.some((shaft) => shaft.guid && one.key.includes(shaft.guid))) : [];
     // (RECIPE_GID=<gid>: what one shaped element is sent as, its shape left out.)
     if (typeof process !== 'undefined' && process.env?.RECIPE_GID)
       for (const one of shaped.filter((x) => x.key.includes(process.env!.RECIPE_GID!))) console.error(`[shaped] ${one.key} at ${one.at} turn ${one.rotationDeg} host ${one.host} ${JSON.stringify({ ...one.attrs, Shape: one.attrs.Shape ? '…' : undefined })}`);
