@@ -781,16 +781,16 @@ export class FlowDoc {
       version.full = true;
     }
     if (input.delta) {
-      const modelFile = await this.#modelFile();
-      if (!modelFile) {
+      // A document whose own file is no .frag (an IFC edited in the modeller) has no model file: its delta hangs from
+      // the file the version is of, which is the document's own. Read back by `deltaId` alone, so either does.
+      const hangsFrom =
+        (await this.#modelFile())?.id ?? input.file?.fileId ?? undefined;
+      if (!hangsFrom) {
         throw new Error(
           'A delta needs the model file to hang from: sync a full model first.',
         );
       }
-      const hidden = await this.client.createHiddenFile(
-        input.delta,
-        modelFile.id,
-      );
+      const hidden = await this.client.createHiddenFile(input.delta, hangsFrom);
       version.deltaId = hiddenIdOf(hidden);
     }
 
