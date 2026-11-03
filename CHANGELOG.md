@@ -1,5 +1,11 @@
 # thatopen-services
 
+## 0.34.2
+
+### Patch Changes
+
+- b0afd5e: Release the document and history fixes of 0.34.1, which failed to publish on type errors (now fixed).
+
 ## 0.34.1
 
 ### Patch Changes
