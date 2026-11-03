@@ -1,5 +1,19 @@
 # thatopen-services
 
+## 0.34.0
+
+### Minor Changes
+
+- 1920119: PlatformClient manages the caller's API tokens: `listTokens`, `getTokenSecret`, `createToken`, `updateToken` and `revokeToken`. A token can be limited to some projects (`projectIds`); without them it acts on every project its owner can reach. New types `AccessToken`, `NewAccessToken` and `AccessTokenPermission`.
+- baeb772: `exportProjectDocuments(projectId, { format? })`: a project's documents as one flat table for BI and spreadsheets — a row per file with its folder path, live version and every metadata field as a `meta.<key>` column; JSON rows by default, CSV text with `format: 'csv'`. Needs the platform's `GET /item/export`.
+- a0d1715: PlatformClient administers a project's people and permissions: `listMembers`, `addMember`, `setMemberRole`, `removeMember`, `inviteMember`, `listInvitations`, `cancelInvitation`, `listRoles`, `createRole`, `updateRole`, `deleteRole` and `getPermissionMatrix` (every role, what it may do — folder grants included — and who has it). `Permission` gains `resourcePermissions` (a grant or removal on one file or folder, optionally for everything under it) and `PermissionSubject` gains `'API'`.
+
+### Patch Changes
+
+- 61e97c8: A document's descriptor keeps what it says besides its known fields (a PDF's `source`): they were dropped on reading. A new file version with `metadata` no longer fails (the platform takes none with the upload): the metadata is written right after.
+- 3c2a302: The drawings document type is labelled «Drawing set» (was «Drawings»); its key stays `drawings`.
+- df7d8ec: `history.document(…).sync` takes an optional `timestamp` (when it happened, when not now).
+
 ## 0.33.0
 
 ### Minor Changes
