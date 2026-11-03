@@ -969,7 +969,6 @@ function sharedRun(to: 'frag' | 'ifc') {
           if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[wall-outline] ${record.item.guid} ${record.item.name ?? ''}: ${whole.outline.length} corners`);
           const L = Math.hypot(e[0] - f[0], e[1] - f[1]);
           const dir = [(e[0] - f[0]) / L, (e[1] - f[1]) / L];
-          const flat: number[] = [];
           const loopOf = (loop: [number, number][]) => loop.flatMap(([along, z]) => [(f[0] + along * dir[0]) * s, (f[1] + along * dir[1]) * s, (z - shapeDz) * s]);
           attrs.Profile = JSON.stringify([loopOf(whole.outline), ...(whole.holes ?? []).map(loopOf)]);
           delete attrs.TopLevel;
