@@ -263,12 +263,16 @@ export class ProjectDocuments {
     const name =
       options?.name ?? fileName.replace(/\.[^.]+$/, '') ?? fileName;
 
-    const folder = await this.client.createFolder(
-      name,
-      item.folderId ? String(item.folderId) : undefined,
-      this.projectId,
-    );
-    const folderId = idOf(folder as never);
+    // 🔴 NEVER INTO ANOTHER DOCUMENT (3-11): the platform answers a folder of a name that is already there with that
+    // folder, so a second «Structural.ifc» beside a «Structural» document went into it and overwrote its descriptor.
+    // A name already holding a document gets « (2)», « (3)»…
+    const parentId = item.folderId ? String(item.folderId) : undefined;
+    let folderId = '';
+    for (let n = 1; n < 100; n++) {
+      const folder = await this.client.createFolder(n === 1 ? name : `${name} (${n})`, parentId, this.projectId);
+      folderId = idOf(folder as never);
+      if (!(await this.#descriptorFile(folderId))) break;
+    }
     await this.client.updateFile(fileId, { parentFolderId: folderId });
 
     const views: DocumentView[] = [];
