@@ -523,11 +523,41 @@ export class ProjectDocuments {
     const base = String(item.name ?? '').replace(/\.[^.]+$/, '').toLowerCase();
     if (!base) return undefined;
     listed ??= (await this.client.listFiles({ projectId: this.projectId }).catch(() => [])) as Record<string, unknown>[];
-    const twin = listed.find((one) => {
+    const folderOf = (one: Record<string, unknown>) => String(one.folderId ?? one.parentFolderId ?? '');
+    // 🔴 NOT ANOTHER DOCUMENT'S (3-11): a second upload of «Structural.ifc» took the first one's frag by its name and
+    // moved it out of that document. A frag already in a document's folder, or made from another IFC, is not this one's.
+    const inDocuments = new Set(
+      listed.filter((one) => String(one.name ?? '') === DOCUMENT_FILE).map(folderOf),
+    );
+    const twins = listed.filter((one) => {
       const name = String(one.name ?? '').toLowerCase();
-      return name === `${base}.frag` && !one.archived && idOf(one as never) !== idOf(item as never);
+      return (
+        name === `${base}.frag` &&
+        !one.archived &&
+        idOf(one as never) !== idOf(item as never) &&
+        !inDocuments.has(folderOf(one))
+      );
     });
-    return twin ? idOf(twin as never) : undefined;
+    for (const twin of twins) {
+      const source = await this.#sourceIfcOf(twin);
+      if (source === undefined || source === idOf(item as never)) return idOf(twin as never);
+    }
+    return undefined;
+  }
+
+  /** The IFC a processed frag says it was made from (`sourceIfcId` in its latest version's metadata), if it says. */
+  async #sourceIfcOf(file: Record<string, unknown>): Promise<string | undefined> {
+    const versions = (file.versions as { tag: string; createdAt?: unknown }[] | undefined) ?? [];
+    const latest = [...versions].sort((a, b) =>
+      String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')),
+    )[0];
+    if (!latest) return undefined;
+    try {
+      const metadata = (await this.client.getFileVersionMetadata(idOf(file as never), latest.tag)) as Record<string, unknown>;
+      return typeof metadata?.sourceIfcId === 'string' && metadata.sourceIfcId ? metadata.sourceIfcId : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   async #derivedFromVersions(
