@@ -11,6 +11,7 @@ import { swapCommand } from './commands/swap';
 import { revitCommand } from './commands/revit';
 import { rhinoCommand } from './commands/rhino';
 import { mcpCommand } from './commands/mcp';
+import { renewStoredSession } from './lib/browser-session';
 
 const pkg = JSON.parse(
   readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'),
@@ -48,6 +49,11 @@ program
   .description('CLI for ThatOpen Engine Services')
   .version(pkg.version);
 
+// The login that just asked for a new session has nothing to renew.
+program.hook('preAction', async (_program, command) => {
+  if (command.name() !== 'login') await renewStoredSession();
+});
+
 program.addCommand(loginCommand);
 program.addCommand(createCommand);
 program.addCommand(publishCommand);
@@ -59,4 +65,4 @@ program.addCommand(revitCommand);
 program.addCommand(rhinoCommand);
 program.addCommand(mcpCommand);
 
-program.parse(process.argv);
+program.parseAsync(process.argv);
