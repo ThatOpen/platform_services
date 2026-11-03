@@ -729,7 +729,7 @@ export function pointsOf(shapes: SourceShapes, gid: string, only?: number): numb
  * curtain wall to leave its cell empty and the panel to be made as a family of its own shape. Plain: one box (12
  * triangles); `sheet`, the panel's own thickness, kept for when one box is not enough to tell.
  */
-export function shapedPanelsOf(shapes: SourceShapes, curtainGid: string, sheet: number, wallNormal?: number[]): { gid: string; centre: number[] }[] {
+export function shapedPanelsOf(shapes: SourceShapes, curtainGid: string, _sheet: number, wallNormal?: number[]): { gid: string; centre: number[] }[] {
   const out: { gid: string; centre: number[] }[] = [];
   for (const el of shapes.elements.values()) {
     if (el.parent !== curtainGid || !/^IFC(PLATE|COVERING|BUILDINGELEMENTPROXY)$/i.test(el.ifcClass) || el.pieces.length === 0) continue;

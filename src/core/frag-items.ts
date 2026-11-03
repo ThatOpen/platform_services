@@ -22,6 +22,8 @@ export interface FragItem {
   guid: string | null;
   category: string | null;
   attrs: Record<string, string>;
+  /** Its name, when the reader keeps one (the recipes' traces print it). */
+  name?: string;
 }
 
 export interface FragContents {

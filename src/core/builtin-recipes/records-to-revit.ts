@@ -1189,7 +1189,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       // 🔴 Half a bar of the bars it HAS (Conference r38: its «MaxSpacing» walls' style says 0, their members are 38 mm,
       // and every grid line and the wall's ends sat 19 mm off — 135 members and 49 panels): its measured mullion when
       // its style says none.
-      const measured = n(style.uprightWidth) > 0 ? null : mullionOf(record.item.guid, d);
+      const measured = n(style.uprightWidth) > 0 ? null : mullionOf(record.item.guid ?? undefined, d);
       const halfUp = (n(style.uprightWidth) || (measured ? measured.width / s : 0)) / 2;
       const halfAcross = (n(style.horizontalWidth) || (measured ? measured.width / s : 0)) / 2;
       // 🔴 A SIDE WITH NO BAR (Savoyvilla 24-10: its entrance glass has none at its foot, Revit's type a bar on every
@@ -1292,7 +1292,7 @@ function sharedRun(to: 'frag' | 'ifc') {
           // The glass off the bars' middle: the converter counts it toward the wall's inside,
           // Revit's panel offset toward its outside (measured: racbasic's glass 0.032 m off,
           // on the other side, with the sign as it was).
-          panel: { thickness: glassOf(record.item.guid, d) ?? n(style.panelDepth) * s, offset: -n(style.panelOffset) * s },
+          panel: { thickness: glassOf(record.item.guid ?? undefined, d) ?? n(style.panelDepth) * s, offset: -n(style.panelOffset) * s },
         }),
       };
       // ITS OUTLINE, where it is not its rectangle (a gable under a roof): the record's, inside
@@ -1404,7 +1404,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         height: rise * s,
         risers,
         tread: tread * s,
-        width: (n(style.width) > 0 ? n(style.width) : widthOfStair(record.item.guid, body.start, body.end) ?? 0) * s,
+        width: (n(style.width) > 0 ? n(style.width) : widthOfStair(record.item.guid ?? undefined, body.start, body.end) ?? 0) * s,
         // 🔴 ENDING ON A RISER, when its own shape stops a riser under its rise (DACH 24-10: two flights and a landing,
         // the first a tread too long and a riser too high — the landing is that tread).
         endsWithRiser: (() => {
@@ -1445,7 +1445,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         if (kept.length >= 2 && !isEdge(kept[0])) {
           const [r0, r1] = [kept[0], kept[1]], d = [r0[1][0] - r0[0][0], r0[1][1] - r0[0][1]], dl = Math.hypot(d[0], d[1]);
           const n0 = m2(r0), n1 = m2(r1), away = [n0[0] - n1[0], n0[1] - n1[1]];
-          let pick: [number, number][] | null = null, nearest = Infinity;
+          let pick: [[number, number], [number, number]] | null = null, nearest = Infinity;
           for (let k = 0; k < bd.length; k++) {
             const q = bd[k], w = bd[(k + 1) % bd.length], e = [w[0] - q[0], w[1] - q[1]], el = Math.hypot(e[0], e[1]);
             if (!(el > 0) || Math.abs((e[0] * d[1] - e[1] * d[0]) / (el * dl)) > 0.02) continue;
@@ -1551,7 +1551,7 @@ function sharedRun(to: 'frag' | 'ifc') {
           spec.tread = going * s;
           (spec.sizes as Record<string, number>).minTread = going * s;
         }
-        if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[stair] ${record.item.guid} ${record.item.name ?? ''}: straight, ${Math.hypot(body.end[0] - body.start[0], body.end[1] - body.start[1]).toFixed(3)} m, rise ${rise}, ${risers} risers, width ${n(style.width)}, measured ${widthOfStair(record.item.guid, body.start, body.end)}`);
+        if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[stair] ${record.item.guid} ${record.item.name ?? ''}: straight, ${Math.hypot(body.end[0] - body.start[0], body.end[1] - body.start[1]).toFixed(3)} m, rise ${rise}, ${risers} risers, width ${n(style.width)}, measured ${widthOfStair(record.item.guid ?? undefined, body.start, body.end)}`);
       }
       // ITS LANDINGS: the slabs the file names after this stair ("…:725045 Landing 1" for
       // "…:725045 Run 1"). The converter has each as its cross-section on a vertical plane pushed
@@ -1643,7 +1643,7 @@ function sharedRun(to: 'frag' | 'ifc') {
           }
         }
       }
-      slabRead[kind]++;
+      slabRead[kind as keyof typeof slabRead]++;
       if (typeof process !== 'undefined' && process.env?.RECIPE_SLAB === record.item.guid) console.error(`[slab] ${record.item.guid}: params ${JSON.stringify(record.params).slice(0, 600)} body ${JSON.stringify(body).slice(0, 1500)}`);
       const base =
         typeof record.params.base === 'number' ? record.params.base : 0;
@@ -1876,7 +1876,7 @@ function sharedRun(to: 'frag' | 'ifc') {
           }
         }
       }
-      if (add(key(record.id), attrs)) slabMade[kind]++;
+      if (add(key(record.id), attrs)) slabMade[kind as keyof typeof slabMade]++;
     }
 
     // ---- 4. Columns (members), by picked type or by style name. ----
