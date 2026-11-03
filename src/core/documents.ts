@@ -260,16 +260,23 @@ export class ProjectDocuments {
     const item = await this.client.getFile(fileId);
     const fileName = String(item.name ?? '');
     const format = formatOf(fileName, item.fileExtension);
-    const name =
+    const wanted =
       options?.name ?? fileName.replace(/\.[^.]+$/, '') ?? fileName;
 
-    // 🔴 NEVER INTO ANOTHER DOCUMENT (3-11): the platform answers a folder of a name that is already there with that
-    // folder, so a second «Structural.ifc» beside a «Structural» document went into it and overwrote its descriptor.
-    // A name already holding a document gets « (2)», « (3)»…
+    // 🔴 ONE NAME, ONE DOCUMENT IN THE PROJECT (3-11, as Forma and ACC): two «Structural» documents broke the clash
+    // query, `openNamed` and the changed-model notice, each app taking a different one. A name another document already
+    // has gets « (2)», « (3)»… And never into another document's folder: the platform answers a folder of a name that is
+    // already there with that folder, and a second upload went into it and overwrote its descriptor.
+    const taken = new Set(
+      (await this.list().catch(() => [])).map((d) => String(d.descriptor.name ?? '').toLowerCase()),
+    );
     const parentId = item.folderId ? String(item.folderId) : undefined;
+    let name = wanted;
     let folderId = '';
     for (let n = 1; n < 100; n++) {
-      const folder = await this.client.createFolder(n === 1 ? name : `${name} (${n})`, parentId, this.projectId);
+      name = n === 1 ? wanted : `${wanted} (${n})`;
+      if (taken.has(name.toLowerCase())) continue;
+      const folder = await this.client.createFolder(name, parentId, this.projectId);
       folderId = idOf(folder as never);
       if (!(await this.#descriptorFile(folderId))) break;
     }
