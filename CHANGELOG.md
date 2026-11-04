@@ -1,5 +1,11 @@
 # thatopen-services
 
+## 0.34.3
+
+### Patch Changes
+
+- a4b9547: A document's history and descriptor are found from their folder's listing (with versions), not the whole project's; `getProjectData` is shared for a minute between the readers that ask together.
+
 ## 0.34.2
 
 ### Patch Changes
