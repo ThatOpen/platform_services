@@ -596,12 +596,10 @@ export class ProjectDocuments {
   async #descriptorFile(
     folderId: string,
   ): Promise<{ id: string; stamp?: string } | undefined> {
-    // (Found in the project's listing, which every list and panel of the page shares, not one listing per folder: the
-    // Coordinator's start listed 16 folders one by one for this.)
-    const items = (await this.client.listFiles({ projectId: this.projectId })).filter((item) => {
-      const where = item as { folderId?: unknown; parentFolderId?: unknown };
-      return String(where.folderId ?? where.parentFolderId ?? '') === folderId;
-    });
+    // (Its folder's listing, not the project's: 0.23 s against 3.6 s in DEV's beta project, and the project's was not
+    // shared, every reader paid it; Coordinator 4-11.)
+    if (!folderId) return undefined;
+    const items = await this.client.listFiles({ folderId, versions: true });
     const found = items.find(
       (item) => String((item as { name?: unknown }).name ?? '') === DOCUMENT_FILE,
     );

@@ -866,12 +866,12 @@ export class FlowDoc {
       this.#filesAt = Date.now();
       this.#filesListed = (async () => {
         const folderId = await this.#folder(false);
-        // (From the project's listing, shared by every reader of the page, not one listing per document: the
-        // Coordinator's start listed 16 folders one by one for their histories, Antonio 23-10.)
-        const items = (await this.client.listFiles({ projectId: this.project.projectId })).filter((item) => {
-          const where = item as { folderId?: unknown; parentFolderId?: unknown };
-          return String(where.folderId ?? where.parentFolderId ?? '') === folderId;
-        });
+        // (Its folder's listing, not the project's: in DEV's beta project the folder answers in 0.23 s and the project
+        // in 3.6 s, each time, so the project's listing was not shared but paid by every reader; a Save waited for
+        // four of them, Coordinator 4-11.)
+        // (No folder, no files: a listing with no folderId would be every file the token reaches.)
+        if (!folderId) return [];
+        const items = await this.client.listFiles({ folderId, versions: true });
         return items.map((item) => ({
           id: idOf(item as never),
           name: String((item as { name?: unknown }).name ?? ''),

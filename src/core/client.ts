@@ -588,13 +588,24 @@ export class EngineServicesClient {
      * 403. Per-entity permission overrides are applied server-side.
      */
     projectId?: string;
+    /**
+     * With a `folderId`: each file with its `versions`, as the project's
+     * listing has them. A folder's listing leaves them out unless asked.
+     */
+    versions?: boolean;
   }) {
-    const { folderId, archived, projectId } = filters || {};
+    const { folderId, archived, projectId, versions } = filters || {};
     if (folderId) {
       return await this.#requestApi<Item[]>(
         'GET',
         `${FOLDER_PATH}/${folderId}/items`,
-        { query: { itemType: ITEM_TYPE_FILE, archived } },
+        {
+          query: {
+            itemType: ITEM_TYPE_FILE,
+            archived,
+            ...(versions && { showVersions: true }),
+          },
+        },
       );
     }
     return await this.#requestApi<Item[]>('GET', `${ITEM_PATH}`, {

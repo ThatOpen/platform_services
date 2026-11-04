@@ -26,6 +26,8 @@ import {
 const PROJECT_PATH = 'project';
 const NOTIFICATION_PATH = 'notifications';
 const TOKENS_PATH = 'tokens';
+/** How long one answer of `getProjectData` serves the readers that ask again. */
+const PROJECT_DATA_KEPT_MS = 60_000;
 
 /**
  * What arrived on the socket. One callback for all three because a bell
@@ -223,10 +225,42 @@ export class PlatformClient extends EngineServicesClient {
    * User data is stripped of sensitive fields server-side.
    */
   async getProjectData(projectId: string) {
-    return await this.request<ProjectData>(
+    // Asked once for the readers that come together, and kept a minute: a Save
+    // waited 3.5 s for it to name its author, after the app had already asked
+    // at its start (Coordinator, beta 4-11). Forgotten when this client changes
+    // the project's members, invitations or roles.
+    const kept = this.#projectData.get(projectId);
+    if (kept && Date.now() - kept.at < PROJECT_DATA_KEPT_MS) return await kept.data;
+    const data = this.request<ProjectData>(
       'GET',
       `${PROJECT_PATH}/${projectId}/data`,
     );
+    this.#projectData.set(projectId, { at: Date.now(), data });
+    data.catch(() => {
+      if (this.#projectData.get(projectId)?.data === data) this.#projectData.delete(projectId);
+    });
+    return await data;
+  }
+
+  #projectData = new Map<string, { at: number; data: Promise<ProjectData> }>();
+
+  /** Every other request this client makes to the project routes may change what `getProjectData` answers. */
+  protected async request<T = object>(
+    method: string,
+    path: string,
+    requestData?: {
+      body?: BodyInit;
+      query?: object;
+      contentType?:
+        | 'application/json'
+        | 'multipart/form-data'
+        | 'application/x-www-form-urlencoded';
+      retries?: number;
+      responseType?: 'json' | 'blob';
+    },
+  ): Promise<T> {
+    if (method.toUpperCase() !== 'GET') this.#projectData.clear();
+    return await super.request<T>(method, path, requestData);
   }
 
   // ─── Members, invitations and roles (JWT-only backend routes) ─────
