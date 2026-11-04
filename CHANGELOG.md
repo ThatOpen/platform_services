@@ -1,5 +1,11 @@
 # thatopen-services
 
+## 0.34.4
+
+### Patch Changes
+
+- 81d17c7: `listDocumentDescriptors` makes one request for the readers that ask at the same time.
+
 ## 0.34.3
 
 ### Patch Changes
