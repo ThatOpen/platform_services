@@ -1235,15 +1235,22 @@ export class EngineServicesClient {
     this.setBuiltInGlobals(globals);
     await this.initBuiltInComponents(components, ...builtIns);
     components.init();
+    // (An app with a shell that says when it is ready — `@thatopen/builtin`'s top-app sets this flag as it loads — is
+    // held from here until the shell calls `appReady()`: its components are made long before it can be looked at.)
+    if ((globalThis as { __thatOpenShellSaysLoaded?: boolean }).__thatOpenShellSaysLoaded && !this.#shellRelease) {
+      this.#shellRelease = this.holdAppLoaded();
+    }
     this.#setupDone = true;
     this.#reportLoaded();
-    // (Never later than the platform waits: it calls an app that has not said it is loaded 15 s after its page ran
-    // «never_ready», an error over an app that was only slow. Said by 12 s from this client's start, held or not.)
+    // (Never later than the platform waits: it calls an app that has not said it is loaded 15 s after its bundle ran
+    // «never_ready», an error over an app that was only slow. Said by 12 s from the page's start, held or not: from the
+    // page's, not this client's, because an app served from source is still loading its modules when that clock runs.)
     if (!this.#loadedReported) {
+      const since = typeof performance !== 'undefined' ? performance.now() : Date.now() - this.#bornAt;
       setTimeout(() => {
         this.#loadedHolds = 0;
         this.#reportLoaded();
-      }, Math.max(0, LOADED_AT_THE_LATEST_MS - (Date.now() - this.#bornAt)));
+      }, Math.max(0, LOADED_AT_THE_LATEST_MS - since));
     }
     return { components };
   }
@@ -1275,6 +1282,15 @@ export class EngineServicesClient {
     return release;
   }
 
+  /**
+   * The app's shell saying it is ready to be looked at: the hold `setup` took
+   * for it, let go. Nothing if it took none.
+   */
+  appReady(): void {
+    this.#shellRelease?.();
+  }
+
+  #shellRelease?: () => void;
   #bornAt = Date.now();
   #setupDone = false;
   #loadedHolds = 0;
