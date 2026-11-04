@@ -46,6 +46,17 @@ declare global {
 
 const FOLDER_PATH = 'item/folder';
 const ITEM_PATH = 'item';
+
+/** What `GET /item/documents` answers: every document descriptor of a project. */
+type DocumentDescriptors = {
+  documents: {
+    folderId: string;
+    fileId: string;
+    versionTag: string | null;
+    descriptor: Record<string, unknown>;
+  }[];
+  unread: number;
+};
 const PROCESS_PATH = 'processor';
 const NPM_REGISTRY_PATH = 'npm-registry';
 const HIDDEN_PATH = 'hidden';
@@ -624,16 +635,26 @@ export class EngineServicesClient {
    * `documents` for an item id), which `documents.list()` reads as "ask one
    * by one".
    */
-  async listDocumentDescriptors(projectId: string) {
-    return await this.#requestApi<{
-      documents: {
-        folderId: string;
-        fileId: string;
-        versionTag: string | null;
-        descriptor: Record<string, unknown>;
-      }[];
-      unread: number;
-    }>('GET', `${ITEM_PATH}/documents`, { query: { projectId } });
+  async listDocumentDescriptors(projectId: string): Promise<DocumentDescriptors> {
+    // One request for the readers that ask at the same time, nothing kept once it answers: a Coordinator
+    // start asked twice together, ~4.8 s each (the Hub's documents and the issues' inbox, 4-11).
+    const asked = this.#descriptorsAsked.get(projectId);
+    if (asked) return await asked;
+    const request = this.#listDocumentDescriptors(projectId);
+    this.#descriptorsAsked.set(projectId, request);
+    try {
+      return await request;
+    } finally {
+      this.#descriptorsAsked.delete(projectId);
+    }
+  }
+
+  #descriptorsAsked = new Map<string, Promise<DocumentDescriptors>>();
+
+  async #listDocumentDescriptors(projectId: string): Promise<DocumentDescriptors> {
+    return await this.#requestApi<DocumentDescriptors>('GET', `${ITEM_PATH}/documents`, {
+      query: { projectId },
+    });
   }
 
   /**
