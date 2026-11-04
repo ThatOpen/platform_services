@@ -1,5 +1,11 @@
 # thatopen-services
 
+## 0.34.5
+
+### Patch Changes
+
+- 3cd67bf: `holdAppLoaded()`: what still gets an app ready holds back its word to the platform, so the platform's loading screen is the only one; said by 12 s at the latest.
+
 ## 0.34.4
 
 ### Patch Changes
