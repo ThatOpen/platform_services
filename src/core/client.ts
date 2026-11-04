@@ -46,6 +46,8 @@ declare global {
 
 const FOLDER_PATH = 'item/folder';
 const ITEM_PATH = 'item';
+/** By when an app says it is loaded, held or not: before the platform's 15 s «never_ready». */
+const LOADED_AT_THE_LATEST_MS = 12_000;
 
 /** What `GET /item/documents` answers: every document descriptor of a project. */
 type DocumentDescriptors = {
@@ -1233,8 +1235,55 @@ export class EngineServicesClient {
     this.setBuiltInGlobals(globals);
     await this.initBuiltInComponents(components, ...builtIns);
     components.init();
-    this.context.appEventOrchestrator?.appLoaded?.();
+    this.#setupDone = true;
+    this.#reportLoaded();
+    // (Never later than the platform waits: it calls an app that has not said it is loaded 15 s after its page ran
+    // «never_ready», an error over an app that was only slow. Said by 12 s from this client's start, held or not.)
+    if (!this.#loadedReported) {
+      setTimeout(() => {
+        this.#loadedHolds = 0;
+        this.#reportLoaded();
+      }, Math.max(0, LOADED_AT_THE_LATEST_MS - (Date.now() - this.#bornAt)));
+    }
     return { components };
+  }
+
+  /**
+   * 🔴 ONE LOADING SCREEN (Jesús 4-11: opening an app showed three, one after
+   * the other). The platform keeps its own until the app says it is loaded,
+   * and `setup` said so as soon as the components were made: the app's own
+   * screens (its configuration, its viewer) then showed behind. Whatever is
+   * still getting the app ready holds the word back with this, and lets it go
+   * once it is: the platform's screen, the only one, stays until then.
+   *
+   * Returns the release; each is let go once. Held or not, the word goes 12 s
+   * after this client was made at the latest, before the platform's own
+   * deadline (15 s) calls the app dead.
+   */
+  holdAppLoaded(maxMs = LOADED_AT_THE_LATEST_MS): () => void {
+    if (this.#loadedReported) return () => {};
+    this.#loadedHolds++;
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      clearTimeout(timer);
+      this.#loadedHolds--;
+      this.#reportLoaded();
+    };
+    const timer = setTimeout(release, maxMs);
+    return release;
+  }
+
+  #bornAt = Date.now();
+  #setupDone = false;
+  #loadedHolds = 0;
+  #loadedReported = false;
+
+  #reportLoaded() {
+    if (this.#loadedReported || !this.#setupDone || this.#loadedHolds > 0) return;
+    this.#loadedReported = true;
+    this.context.appEventOrchestrator?.appLoaded?.();
   }
 
   /**
