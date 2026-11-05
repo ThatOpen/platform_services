@@ -36,6 +36,7 @@ import {
 import { ThatOpenContext } from '../types/context';
 import { NpmCredentials } from '../types/npm';
 import { RequestError } from './request-error';
+import { AppCache } from './app-cache';
 
 declare global {
   interface Window {
@@ -282,6 +283,14 @@ export class EngineServicesClient {
    * Populated automatically when using {@link fromPlatformContext}.
    */
   readonly context: ThatOpenContext;
+
+  /**
+   * What this app saw last time, to open on at once and correct afterwards
+   * ({@link AppCache}): kept by the platform page, or in memory outside it. The
+   * project's listings (`documents`, `files`, `projectData`) are kept here
+   * whenever a fresh answer arrives; an app keeps its own under `app:` keys.
+   */
+  readonly cache = new AppCache();
 
   /**
    * Creates a client from the platform context injected into
@@ -621,13 +630,16 @@ export class EngineServicesClient {
         },
       );
     }
-    return await this.#requestApi<Item[]>('GET', `${ITEM_PATH}`, {
+    const files = await this.#requestApi<Item[]>('GET', `${ITEM_PATH}`, {
       query: {
         itemType: ITEM_TYPE_FILE,
         archived,
         ...(projectId && { projectId }),
       },
     });
+    // (A project's live files, for the next opening: `cache.answer('files', projectId)`.)
+    if (projectId && !archived) this.cache.keepAnswer('files', projectId, files);
+    return files;
   }
 
   /**
@@ -654,9 +666,12 @@ export class EngineServicesClient {
   #descriptorsAsked = new Map<string, Promise<DocumentDescriptors>>();
 
   async #listDocumentDescriptors(projectId: string): Promise<DocumentDescriptors> {
-    return await this.#requestApi<DocumentDescriptors>('GET', `${ITEM_PATH}/documents`, {
+    const answer = await this.#requestApi<DocumentDescriptors>('GET', `${ITEM_PATH}/documents`, {
       query: { projectId },
     });
+    // (For the next opening: `cache.answer('documents', projectId)`.)
+    this.cache.keepAnswer('documents', projectId, answer);
+    return answer;
   }
 
   /**

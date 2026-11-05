@@ -18,4 +18,10 @@ export interface ThatOpenContext {
   apiUrl: string;
   /** Platform-to-app event callbacks. */
   appEventOrchestrator?: AppEventOrchestrator;
+  /** What this app saw last time in this project, kept by the platform page (read through `client.cache`). */
+  cache?: Record<string, unknown>;
+  /** Keeps a value for the next time this app opens here (through `client.cache.set`). */
+  cacheSet?: (key: string, value: unknown) => void;
+  /** Forgets one (through `client.cache.delete`). */
+  cacheDelete?: (key: string) => void;
 }

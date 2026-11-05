@@ -1,5 +1,6 @@
 export * from './core/client';
 export * from './core/platform-client';
+export * from './core/app-cache';
 export * from './core/channel';
 export * from './core/documents';
 export * from './core/frag-items';

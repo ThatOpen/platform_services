@@ -236,6 +236,8 @@ export class PlatformClient extends EngineServicesClient {
       `${PROJECT_PATH}/${projectId}/data`,
     );
     this.#projectData.set(projectId, { at: Date.now(), data });
+    // (For the next opening: `cache.answer('projectData', projectId)`.)
+    data.then((value) => this.cache.keepAnswer('projectData', projectId, value), () => undefined);
     data.catch(() => {
       if (this.#projectData.get(projectId)?.data === data) this.#projectData.delete(projectId);
     });
