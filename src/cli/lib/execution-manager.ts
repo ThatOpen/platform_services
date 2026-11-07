@@ -1,9 +1,10 @@
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { fork, ChildProcess } from 'node:child_process';
+import { ChildProcess } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { buildEngineScript } from './engine-script';
+import { forkEngine } from './engine-fork';
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -122,7 +123,7 @@ export class ExecutionManager {
     );
 
     const tmpFile = join(tmpdir(), `thatopen-local-${executionId}.js`);
-    writeFileSync(tmpFile, engineScript);
+    writeFileSync(tmpFile, engineScript, { mode: 0o600 });
 
     const state: ExecutionState = {
       _id: executionId,
@@ -138,13 +139,7 @@ export class ExecutionManager {
 
     this.executions.set(executionId, state);
 
-    const child = fork(tmpFile, [], {
-      stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
-      env: {
-        ...process.env,
-        NODE_PATH: join(config.cwd, 'node_modules'),
-      },
-    });
+    const child = forkEngine(config.cwd, tmpFile);
 
     state.childProcess = child;
 
