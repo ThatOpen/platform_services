@@ -6,7 +6,7 @@ description: "Build and run a cloud component locally as a child process, mirror
 
 Builds and executes a cloud component locally, replicating what the platform's cloud engine does. Useful for testing component logic and parameters before publishing.
 
-Execution output (`MESSAGE`, `PROGRESS`, `SUCCESS`, `FAIL`) is streamed to the terminal with elapsed time.
+Execution output (`MESSAGE`, `ERROR` from `executionReporter.error`, `PROGRESS`, `SUCCESS`, `FAIL`) is streamed to the terminal with elapsed time.
 
 **Usage:**
 ```bash

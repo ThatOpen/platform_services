@@ -117,6 +117,9 @@ export const runCommand = new Command('run')
           case 'MESSAGE':
             console.log(`[${elapsed}s] [message] ${msg.message}`);
             break;
+          case 'ERROR':
+            console.error(`[${elapsed}s] [error] ${msg.message}`);
+            break;
           case 'PROGRESS':
             console.log(`[${elapsed}s] [progress] ${msg.message}%`);
             break;

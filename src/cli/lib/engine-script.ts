@@ -43,6 +43,9 @@ const executionReporter = {
   progress: (message) => {
     process.send({ type: 'PROGRESS', message });
   },
+  error: (message) => {
+    process.send({ type: 'ERROR', message });
+  },
 };
 
 let thatOpenServices, executionParams;
