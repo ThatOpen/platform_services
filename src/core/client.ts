@@ -141,8 +141,10 @@ function retryDelayMs(error: unknown, attempt: number): number {
  * Avoids hard-coupling to `@thatopen/components` at the public API level.
  */
 export interface ComponentsLike {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic constructor pattern requires any[]
-  get<T>(c: new (...args: any[]) => T): T;
+  // A method, not a property, so OBC.Components' own `get<U extends Component>` fits it: with a generic `<T>` here the
+  // public engine's Components (3.6) failed `setup<OBC.Components>` with TS2344.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- any engine's constructors
+  get(c: new (...args: any[]) => any): any;
   init(): void;
 }
 
