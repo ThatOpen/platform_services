@@ -29,6 +29,7 @@
 import type { EngineServicesClient } from './client';
 import { mintGuid } from './history';
 import { ProjectRecipes, type CatalogEntry, type RecipeKit } from './project-recipes';
+import type { FragContents } from './frag-items';
 
 /**
  * How a settings property says "this names something that EXISTS". Put it on
@@ -206,7 +207,7 @@ export interface SourceShapes {
       /** Its classification's code (Uniformat, as Revit writes its assembly code). */
       classification?: string;
       /** A reinforcing bar's axis (world metres, z up) and its radius: made a native rebar. */
-      rebar?: { path: readonly (readonly [number, number, number])[]; radius: number };
+      rebar?: { path: readonly (readonly [number, number, number])[]; paths?: readonly (readonly (readonly [number, number, number])[])[]; radius: number };
       opening?: string | null;
       pieces: { geometry: number; matrix: number[] }[];
       /** Its layer stack as the file declares it, metres, in the file's order; flipped: laid against its axis. */
@@ -216,6 +217,20 @@ export interface SourceShapes {
   >;
 }
 export type ShapesReader = (bytes: Uint8Array, name: string) => Promise<SourceShapes>;
+
+/**
+ * 🔴 A STREAMED .frag READ AS A WHOLE ONE IS (15-11, the Revit video: Designer saves every new document streamed, and a
+ * recipe pointed at it downloaded its version record — a small JSON naming the pieces — and choked on it). The pieces
+ * are gathered here (`readPickedFrag`); what they SAY needs the fragments library, which the SDK does not carry: the
+ * host that has it provides this, answering what `readFrag` answers for a whole file.
+ */
+export interface StreamedPieces {
+  entry: Uint8Array;
+  container: Uint8Array;
+  sidecar: Uint8Array;
+  lod: Uint8Array;
+}
+export type StreamedReader = (pieces: StreamedPieces, name: string) => Promise<FragContents>;
 
 /**
  * The local recipe registry and runner. Reach it as `client.recipes`.
@@ -254,6 +269,16 @@ export class Recipes {
   /** The importer provided for an extension, or undefined. */
   importerFor(extension: string): RecordsImporter | undefined {
     return this.#importers.get(extension.toLowerCase());
+  }
+
+  #streamed: StreamedReader | undefined;
+  /** Says how this host reads a streamed .frag's pieces ({@link StreamedReader}). */
+  provideStreamedReader(reader: StreamedReader): void {
+    this.#streamed = reader;
+  }
+  /** The streamed reader provided, or undefined. */
+  streamedReader(): StreamedReader | undefined {
+    return this.#streamed;
   }
 
   /** Registers a recipe. One per name; a second with the same name throws. */

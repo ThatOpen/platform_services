@@ -14,6 +14,7 @@ import {
   whatItMadeBefore,
   type PickedFile,
 } from './shared';
+import { familiesFromShapes } from './shapes-to-families';
 
 /** What each unit name means in metres. Read from the source, never assumed. */
 const METRES_PER_UNIT: Record<string, number> = {
@@ -42,8 +43,11 @@ interface RevitType {
 interface Settings {
   /** The Rhino layer that drives placement. */
   layer: string;
-  /** The Revit type every placed object becomes. */
-  instanceType: RevitType;
+  /**
+   * The Revit type every placed object becomes. Unsaid: each object is made as a family of its own shape (one per
+   * shape; a prism, one per profile with its length an instance parameter), standing where Rhino has it.
+   */
+  instanceType?: RevitType;
 }
 
 const NAME = 'rhino-to-revit';
@@ -80,7 +84,7 @@ export const rhinoToRevit: Recipe<Settings> = {
         'x-existing': { of: 'family-type', from: 'target' },
       },
     },
-    required: ['layer', 'instanceType'],
+    required: ['layer'],
   },
   rules: [
     {
@@ -127,13 +131,15 @@ point's height.
 `,
 
   async run(context: RecipeContext<Settings>) {
-    const { picked, contents } = await readPickedFrag(
+    const { layer, instanceType } = context.settings;
+    if (!layer) throw new Error('Choose the layer.');
+    const { picked, contents, shapes } = await readPickedFrag(
       context,
       context.input as PickedFile | undefined,
+      { shapes: !instanceType },
     );
-    const { layer, instanceType } = context.settings;
-    if (!layer || !instanceType)
-      throw new Error('Choose the layer and the Revit type.');
+    if (!instanceType && !shapes)
+      throw new Error('Choose the Revit type: this app cannot read the shapes of the Rhino model to make its own families.');
 
     // Refused rather than guessed: a length read in the wrong unit is off by
     // a thousand and still looks plausible.
@@ -174,7 +180,46 @@ point's height.
     let elsewhere = 0;
     const seen = new Set<string>();
     const moves: { instance: string; object: string; position: [number, number, number] }[] = [];
-    for (const item of contents.items) {
+    // 🔴 FROM THEIR OWN SHAPES, WHEN NO TYPE IS CHOSEN (VSL 16-11: the architect's 82 façade fins, «as native elements»): the
+    // layer's objects made as families of their shape, the same way an IFC's are (`familiesFromShapes`): one per shape, a
+    // prism one per profile with its length an instance parameter, each standing at its base where Rhino has it. Kept when
+    // what it asks is what it was made from; made again when the object changed.
+    if (!instanceType && shapes) {
+      const onLayer = new Set(contents.items.filter((it) => it.guid && (it.attrs.Layer ?? '') === layer).map((it) => it.guid!));
+      elsewhere = contents.items.filter((it) => it.guid && Object.keys(it.attrs).length && (it.attrs.Layer ?? '') !== layer).length;
+      const mine = { geometries: shapes.geometries, elements: new Map([...shapes.elements].filter(([gid]) => onLayer.has(gid))) };
+      const prints = new Map<string, string>();
+      whatItMadeBefore(context, prints);
+      const printOfIt = (attrs: Record<string, string>, at: number[], turn: number) => {
+        const text = JSON.stringify({ a: Object.fromEntries(Object.entries(attrs).filter(([k]) => k !== 'Shape' && k !== 'Prism').sort()), p: at.map((v) => Math.round(v * 1e4) / 1e4), r: Math.round(turn * 1e3) / 1e3 });
+        let h = 0x811c9dc5;
+        for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+        return (h >>> 0).toString(36);
+      };
+      const shaped = familiesFromShapes(mine, new Set(), picked.fileId);
+      // (A family's shape goes with the first of its instances WRITTEN, whichever that is: its first may be kept.)
+      const definition = new Map<string, Record<string, string>>();
+      for (const one of shaped) {
+        const def: Record<string, string> = {};
+        for (const k of ['Shape', 'Prism']) if (one.attrs[k]) def[k] = one.attrs[k];
+        if (one.attrs.Family && Object.keys(def).length && !definition.has(one.attrs.Family)) definition.set(one.attrs.Family, def);
+      }
+      const defined = new Set<string>();
+      for (const one of shaped) {
+        const object = one.key.split(':')[1] ?? one.key;
+        seen.add(object);
+        const position: [number, number, number] = [one.at[0] * FEET_PER_METRE, one.at[1] * FEET_PER_METRE, one.at[2] * FEET_PER_METRE];
+        const print = printOfIt(one.attrs, position, one.rotationDeg);
+        const before = made.get(object);
+        if (before && prints.get(object) === print) continue;
+        if (before) { operation.remove(before); moved++; }
+        const fam = one.attrs.Family;
+        const attrs = fam && !defined.has(fam) ? { ...one.attrs, ...(definition.get(fam) ?? {}) } : Object.fromEntries(Object.entries(one.attrs).filter(([k]) => k !== 'Shape' && k !== 'Prism'));
+        if (fam) defined.add(fam);
+        operation.add({ ...attrs, 'flow:print': print }, { position, rotationDeg: one.rotationDeg, source: object });
+        added++;
+      }
+    } else for (const item of contents.items) {
       if (!item.guid || Object.keys(item.attrs).length === 0) continue;
       if ((item.attrs.Layer ?? '') !== layer) {
         elsewhere++;
@@ -194,9 +239,9 @@ point's height.
       } else {
         operation.add(
           {
-            CategoryId: instanceType.categoryId,
-            Family: instanceType.family,
-            Type: instanceType.type,
+            CategoryId: instanceType!.categoryId,
+            Family: instanceType!.family,
+            Type: instanceType!.type,
           },
           { position, source: item.guid },
         );

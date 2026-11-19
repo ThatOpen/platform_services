@@ -160,9 +160,57 @@ export type PickedFile = PickedSource;
  * (`client.recipes.provideImporter`), so the person points the recipe at the
  * file they uploaded and nothing else.
  */
+/**
+ * A STREAMED .frag's contents, or null when the bytes are a whole file (15-11, the Revit video: what Designer saves is a
+ * version record — `{ entry, parts: { container, sidecar, lod } }`, each a range of a hidden object — and `readFrag`
+ * read that JSON as a deflated model, which the browser reports as «Failed to fetch»). Each object is downloaded once,
+ * its ranges cut out, and the host's reader (`client.recipes.provideStreamedReader`) says what they hold.
+ */
+async function streamedContents(context: RecipeContext<unknown>, bytes: Uint8Array, name: string) {
+  if (bytes[0] !== 0x7b /* { */) return null;
+  type Range = { object: string; offset: number; length: number };
+  let record: { entry?: Range; parts?: Record<string, Range[]> };
+  try {
+    record = JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    return null;
+  }
+  if (!record?.entry?.object || !record.parts) return null;
+  const reader = context.client.recipes.streamedReader();
+  if (!reader) throw new Error(`${name} is a streamed model, and this app cannot read those: it provides no reader for them.`);
+  context.progress(`Downloading the pieces of ${name}`);
+  const objects = new Map<string, Promise<Uint8Array>>();
+  const objectOf = (id: string) => {
+    let got = objects.get(id);
+    if (!got) {
+      got = (async () => {
+        const response = await context.client.downloadHiddenFile(id);
+        if (!response.ok) throw new Error(`Reading a piece of ${name} answered ${response.status}`);
+        return new Uint8Array(await response.arrayBuffer());
+      })();
+      objects.set(id, got);
+    }
+    return got;
+  };
+  const cut = async (ranges: Range[] | undefined) => {
+    const pieces = await Promise.all((ranges ?? []).map(async (r) => (await objectOf(r.object)).subarray(r.offset, r.offset + r.length)));
+    const out = new Uint8Array(pieces.reduce((n, p) => n + p.length, 0));
+    let at = 0;
+    for (const piece of pieces) { out.set(piece, at); at += piece.length; }
+    return out;
+  };
+  const [entry, container, sidecar, lod] = await Promise.all([
+    cut([record.entry]), cut(record.parts.container), cut(record.parts.sidecar), cut(record.parts.lod),
+  ]);
+  context.progress(`Reading ${name}`);
+  return await reader({ entry, container, sidecar, lod }, name);
+}
+
 export async function readPickedFrag(
   context: RecipeContext<unknown>,
   picked: PickedFile | undefined,
+  /** Also a whole .frag's shapes, when the host reads them (`provideShapes('frag')`): a Rhino model's objects made as families. */
+  options?: { shapes?: boolean },
 ) {
   if (!picked?.fileId) throw new Error('Choose the model file to read.');
   context.progress(`Downloading ${picked.name}`);
@@ -192,7 +240,16 @@ export async function readPickedFrag(
     context.progress(`Reading ${picked.name}`);
     bytes = await importer(bytes, picked.name);
   }
-  const contents = await readFrag(bytes);
+  const streamed = await streamedContents(context, bytes, picked.name);
+  // (A whole .frag's shapes, asked for: read from the file itself, its render frame turned Z up by the host's reader.)
+  if (extension === 'frag' && options?.shapes && !streamed) {
+    const reader = context.client.recipes.shapesFor('frag');
+    if (reader) {
+      context.progress(`Reading the shapes of ${picked.name}`);
+      shapes = await reader(bytes, picked.name);
+    }
+  }
+  const contents = streamed ?? (await readFrag(bytes));
   // 🔴 THE SHAPES IN THE RECORDS' FRAME (Snowdon 13-11: its floors built at the origin, its families 417 km away, and walls
   // stretched from one to the other — past Revit's 32 km, every shape there was garbage). A file far from its origin is read
   // moved to it, records and items alike, and its mark keeps how far (`thatOpenModelling.origin`, metres, in plan: the
@@ -209,10 +266,23 @@ export async function readPickedFrag(
       }
     // (A bar's axis is in the world too, and moved the same.)
     for (const el of shapes.elements.values())
-      if (el.rebar) el.rebar = { ...el.rebar, path: el.rebar.path.map((p) => [p[0] - (origin[0] ?? 0), p[1] - (origin[1] ?? 0), p[2]] as const) };
+      if (el.rebar) el.rebar = moveBar(el.rebar, (p) => [p[0] - (origin[0] ?? 0), p[1] - (origin[1] ?? 0), p[2]] as const);
   }
+  // (And at the project's height, as the records are read — `atTheProjectsHeight`: DACH's site stands 500 m up, and its 195 bars
+  // came in 500 m above their building, in no host, 13-11.)
+  if (shapes && site?.elevation)
+    for (const el of shapes.elements.values())
+      if (el.rebar) el.rebar = moveBar(el.rebar, (p) => [p[0], p[1], p[2] - site!.elevation] as const);
   return { picked, contents, site, shapes };
 }
+
+type Bar = NonNullable<NonNullable<ReturnType<SourceShapes['elements']['get']>>['rebar']>;
+/** A bar (every bar of its set) moved point by point. */
+const moveBar = (bar: Bar, to: (p: readonly [number, number, number]) => readonly [number, number, number]): Bar => ({
+  ...bar,
+  path: bar.path.map(to),
+  ...(bar.paths ? { paths: bar.paths.map((one) => one.map(to)) } : {}),
+});
 
 /**
  * Where an IFC's site stands in the coordinates it was written in: its origin

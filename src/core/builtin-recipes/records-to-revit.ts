@@ -198,6 +198,9 @@ interface RevitType {
 interface Settings {
   /** The Revit type columns get, when style names are not trusted. */
   columnType?: RevitType;
+  /** The Revit door and window types the model's hosted doors and windows get, when style names are not trusted. */
+  doorType?: RevitType;
+  windowType?: RevitType;
   /**
    * Trust the records' own style names: `lookRef` "Family:Type" becomes the
    * change's Family and Type verbatim, for columns and instances. Revit
@@ -317,7 +320,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       );
     }
 
-    const { columnType, trustStyleNames, includeInstances } = context.settings;
+    const { columnType, doorType, windowType, trustStyleNames, includeInstances } = context.settings;
     const createLevels = context.settings.createLevels !== false;
     if (includeInstances && !trustStyleNames) {
       throw new Error(
@@ -2614,12 +2617,63 @@ function sharedRun(to: 'frag' | 'ifc') {
     let instanceCount = 0;
     let instanceRead = 0;
     let hostedWaiting = 0;
+    let hostedCount = 0;
     for (const record of records) {
       if (record.kind !== 'familyInstance') continue;
-      if (record.params.host) {
-        // A hosted door or window needs its category and family recorded by
-        // the converter before it can be asked for; counted, not guessed.
-        hostedWaiting++;
+      if (record.params.host || innerJson<InstanceBody>(record, 'instance')?.host) {
+        // 🔴 A HOSTED DOOR OR WINDOW, IN THE WALL IT IS IN (Antonio 15-11, the Revit video: «faltan las puertas»): placed as
+        // an existing Revit type, in the wall this run made for its host (the applier finds it by its source key), at the
+        // point the record has. The type: its own style name when style names are trusted, else the recipe's door or
+        // window type. With neither, counted and not guessed (the applier refuses a type it does not have).
+        const body = innerJson<InstanceBody & { hole?: string }>(record, 'instance');
+        const hostId = String(record.params.host ?? body?.host ?? '');
+        // 🔴 WHERE IT STANDS IS ITS HOLE'S (Designer 15-11: a door's `placement` is [0,0,0]; its `hostedCut` says `along`, metres
+        // from the start of its host's line to the hole's edge, and `width`): the middle of the hole, on the host's line, in
+        // the segment of the run it falls in (each segment is its own wall in Revit, `<run>#<i>`).
+        const hole = body?.hole ? records.find((one) => one.id === body.hole) : undefined;
+        const hostRun = records.find((one) => one.id === hostId);
+        let at = body?.placement?.at;
+        let hostKey = key(hostId);
+        if (hole && hostRun) {
+          const along = Number(hole.params.along), width = Number(hole.params.width ?? 0);
+          const pieces = segs.filter((sg) => sg.record === hostRun);
+          let left = along + width / 2;
+          for (const sg of pieces) {
+            const len = Math.hypot(sg.to[0] - sg.from[0], sg.to[1] - sg.from[1]);
+            if (left <= len + 1e-9 || sg === pieces[pieces.length - 1]) {
+              const t = len > 0 ? Math.min(1, Math.max(0, left / len)) : 0;
+              const level = levels.get(String(innerJson<RunBody>(hostRun, 'run')?.level ?? ''));
+              at = [sg.from[0] + (sg.to[0] - sg.from[0]) * t, sg.from[1] + (sg.to[1] - sg.from[1]) * t, (level?.at ?? 0) + Number(hole.params.sill ?? 0)];
+              hostKey = `${key(hostId)}#${sg.i}`;
+              break;
+            }
+            left -= len;
+          }
+        }
+        const said = `${String(record.params.type ?? '')} ${record.item.category ?? ''} ${record.item.name ?? ''}`;
+        const isWindow = /window|ventana/i.test(said) && !/door|puerta/i.test(said);
+        const named = trustStyleNames ? familyAndType(record.params.lookRef ?? record.params.type) : null;
+        const chosen = isWindow ? windowType : doorType;
+        if (!hostId || !at || at.length !== 3 || (!named && !chosen)) {
+          hostedWaiting++;
+          continue;
+        }
+        // (Its level: its host's, so it stands on the floor the wall stands on.)
+        const hostRecord = records.find((one) => one.id === hostId);
+        const hostLevel = hostRecord ? levels.get(String(innerJson<RunBody>(hostRecord, 'run')?.level ?? '')) : undefined;
+        if (
+          add(
+            key(record.id),
+            {
+              CategoryId: named ? (isWindow ? '-2000014' : '-2000023') : chosen!.categoryId,
+              Family: named ? named.family : chosen!.family,
+              Type: named ? named.type : chosen!.type,
+              ...(hostLevel ? { Level: hostLevel.name } : {}),
+            },
+            { position: [at[0] * s, at[1] * s, at[2] * s], host: hostKey },
+          )
+        )
+          hostedCount++;
         continue;
       }
       // Read whether or not they are asked for: the row shows what the model holds.
@@ -2651,7 +2705,12 @@ function sharedRun(to: 'frag' | 'ifc') {
         const attrs: Record<string, string> = {
           CategoryId: CATEGORY.rebar,
           Type: (el.typeName ?? el.objectType ?? el.name ?? 'Rebar').replace(/^.*?:\s*/, '').trim() || 'Rebar',
-          Rebar: JSON.stringify({ diameter: 2 * el.rebar.radius * s, path: el.rebar.path.map((p) => [p[0] * s, p[1] * s, p[2] * s]) }),
+          Rebar: JSON.stringify({
+            diameter: 2 * el.rebar.radius * s,
+            path: el.rebar.path.map((p) => [p[0] * s, p[1] * s, p[2] * s]),
+            // (The others of its set, when it is one: the applier lays them out as Revit's bar set.)
+            ...((el.rebar.paths?.length ?? 0) > 1 ? { others: el.rebar.paths!.slice(1).map((one) => one.map((p) => [p[0] * s, p[1] * s, p[2] * s])) } : {}),
+          }),
         };
         if (add(`${picked.fileId}:${el.gid}:rebar`, attrs)) rebarCount++;
       }
@@ -2783,6 +2842,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       stairCount ? `${stairCount} stair(s)` : '',
       columnCount ? `${columnCount} column(s)` : '',
       instanceCount ? `${instanceCount} instance(s)` : '',
+      hostedCount ? `${hostedCount} door(s) and window(s)` : '',
       shapeCount ? `${shapeCount} family instance(s)` : '',
       changed ? `${changed} changed` : '',
       removed ? `${removed} gone` : '',
@@ -2803,7 +2863,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         { read: slabRead.ceiling, written: slabMade.ceiling },
         { read: stairRead, written: stairCount },
         { read: columnRead, written: columnCount },
-        { read: instanceRead, written: instanceCount },
+        { read: instanceRead + hostedCount, written: instanceCount + hostedCount },
         { read: shaped.length, written: shapeCount },
         { read: removed, written: removed },
         { read: hostedWaiting + bodiesWaiting, written: 0 },
@@ -2825,6 +2885,17 @@ const sharedSchema = {
         from: 'target',
         where: { CategoryId: '-2001330' },
       },
+    },
+    // (Doors and windows hosted in the model's walls: the type each gets, from those the Revit model has.)
+    doorType: {
+      type: 'object',
+      title: 'Door type',
+      'x-existing': { of: 'family-type', from: 'target', where: { CategoryId: '-2000023' } },
+    },
+    windowType: {
+      type: 'object',
+      title: 'Window type',
+      'x-existing': { of: 'family-type', from: 'target', where: { CategoryId: '-2000014' } },
     },
     trustStyleNames: {
       type: 'boolean',
@@ -2858,7 +2929,7 @@ const sharedRules = [
   { reads: 'Free-standing family instances', writes: 'When turned on: a new instance of the same-named type, placed and turned' },
   { reads: 'Everything else with a body: doors, windows, furniture, fixtures, proxies, columns, railings', writes: "A family made from the file's own shape, one per shape, placed where the file has it (doors and windows in their wall)" },
   { reads: 'Things this recipe made whose record is gone', writes: 'That element removed' },
-  { reads: 'Hosted doors/windows, footings, ramps, other bodies', writes: 'Nothing yet - read and counted' },
+  { reads: 'Hosted doors/windows with no type to give them, footings, ramps, other bodies', writes: 'Nothing yet - read and counted (hosted doors and windows go in their wall as the Door/Window type chosen)' },
 ];
 
 const sharedDoc = `
