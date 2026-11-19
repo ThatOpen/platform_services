@@ -147,8 +147,11 @@ export class PlatformClient extends EngineServicesClient {
   /**
    * Creates a client from the platform context injected into
    * `window.__THATOPEN_CONTEXT__` by the That Open Platform. Recommended
-   * entry point for apps running inside the platform's iframe — the context
-   * carries a fresh JWT on every navigation.
+   * entry point for apps running inside the platform's iframe.
+   *
+   * The token is read from the context on every request, not copied once:
+   * the platform renews it in the context while the app is open, so an app
+   * left open past the token's life keeps working.
    */
   static fromPlatformContext(
     props?: Omit<EngineServicesClientProps, 'useBearer'>,
@@ -157,7 +160,11 @@ export class PlatformClient extends EngineServicesClient {
       (typeof window !== 'undefined'
         ? window.__THATOPEN_CONTEXT__
         : null) || { appId: '', projectId: '', accessToken: '', apiUrl: '' };
-    const client = new PlatformClient(ctx.accessToken, ctx.apiUrl, props);
+    const client = new PlatformClient(
+      () => ctx.accessToken ?? '',
+      ctx.apiUrl,
+      props,
+    );
     (client as { context: ThatOpenContext }).context = ctx;
     return client;
   }

@@ -192,7 +192,26 @@ export async function readPickedFrag(
     context.progress(`Reading ${picked.name}`);
     bytes = await importer(bytes, picked.name);
   }
-  return { picked, contents: await readFrag(bytes), site, shapes };
+  const contents = await readFrag(bytes);
+  // 🔴 THE SHAPES IN THE RECORDS' FRAME (Snowdon 13-11: its floors built at the origin, its families 417 km away, and walls
+  // stretched from one to the other — past Revit's 32 km, every shape there was garbage). A file far from its origin is read
+  // moved to it, records and items alike, and its mark keeps how far (`thatOpenModelling.origin`, metres, in plan: the
+  // records are the file's points less it); the shapes are read where the file says, so they are moved the same way here,
+  // once, for every recipe that reads them.
+  const origin = (contents.metadata as { thatOpenModelling?: { origin?: number[] } } | undefined)?.thatOpenModelling?.origin;
+  if (shapes && Array.isArray(origin) && (origin[0] || origin[1])) {
+    const done = new Set<object>();
+    for (const el of shapes.elements.values())
+      for (const piece of el.pieces) {
+        if (done.has(piece)) continue;
+        done.add(piece);
+        piece.matrix = piece.matrix.map((n, i) => (i === 12 ? n - (origin[0] ?? 0) : i === 13 ? n - (origin[1] ?? 0) : n));
+      }
+    // (A bar's axis is in the world too, and moved the same.)
+    for (const el of shapes.elements.values())
+      if (el.rebar) el.rebar = { ...el.rebar, path: el.rebar.path.map((p) => [p[0] - (origin[0] ?? 0), p[1] - (origin[1] ?? 0), p[2]] as const) };
+  }
+  return { picked, contents, site, shapes };
 }
 
 /**

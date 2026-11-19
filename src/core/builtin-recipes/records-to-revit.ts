@@ -34,7 +34,7 @@ import {
   whatItMadeBefore,
   type PickedFile,
 } from './shared';
-import { extentAcross, familiesFromShapes, openingsFromShapes, pointsOf as shapePoints, roofOverWall, roomsFromShapes, shapedPanelsOf, wallTopOf } from './shapes-to-families';
+import { categoryOfName, extentAcross, familiesFromShapes, startsWithACategory, openingsFromShapes, pointsOf as shapePoints, roofOverWall, roomsFromShapes, shapedPanelsOf, wallTopOf } from './shapes-to-families';
 
 /** Revit's own category ids, printed from RevitAPI.dll - never guessed. */
 const CATEGORY = {
@@ -45,6 +45,8 @@ const CATEGORY = {
   ceilings: '-2000038',
   structuralFoundations: '-2001300',
   stairs: '-2000120',
+  railings: '-2000126',
+  rebar: '-2009000',
 };
 
 /**
@@ -52,9 +54,112 @@ const CATEGORY = {
  * an IFC exported from Revit names every element "Family:Type:ElementId". A model that came FROM
  * Revit goes back with its own type names; anything else keeps the record's style name.
  */
+/**
+ * 🔴 THE UNION OF LOOPS THAT TOUCH (BLOXHUB 13-11: a ceiling written as two rectangles side by side, «CL-UB03.02», read as its
+ * first, 13.6 m of its 32.2): each loop turned counter-clockwise, every side split where another's corner lies on it, the sides
+ * met once each way taken away (they are inside), the rest chained again; corners that do not turn dropped. Plan points; the
+ * loops that come out, the outer ones counter-clockwise and any hole clockwise.
+ */
+export function unionOfLoops(loops: number[][][]): number[][][] {
+  const area = (l: number[][]) => l.reduce((a, p, i) => { const q = l[(i + 1) % l.length]!; return a + p[0]! * q[1]! - q[0]! * p[1]!; }, 0) / 2;
+  const key = (p: number[]) => `${Math.round(p[0]! * 1e4)}|${Math.round(p[1]! * 1e4)}`;
+  const turned = loops.filter((l) => l.length >= 3).map((l) => (area(l) < 0 ? [...l].reverse() : l));
+  const corners = turned.flat();
+  const sides = new Map<string, [number[], number[]]>();
+  for (const l of turned)
+    for (let i = 0; i < l.length; i++) {
+      const p = l[i]!, q = l[(i + 1) % l.length]!;
+      const long = Math.hypot(q[0]! - p[0]!, q[1]! - p[1]!);
+      if (!(long > 1e-6)) continue;
+      const d = [(q[0]! - p[0]!) / long, (q[1]! - p[1]!) / long];
+      const on = corners
+        .map((r) => ({ r, t: (r[0]! - p[0]!) * d[0]! + (r[1]! - p[1]!) * d[1]! }))
+        .filter(({ r, t }) => t > 1e-4 && t < long - 1e-4 && Math.abs((r[0]! - p[0]!) * d[1]! - (r[1]! - p[1]!) * d[0]!) < 1e-4)
+        .sort((x, y) => x.t - y.t).map(({ r }) => r);
+      const chain = [p, ...on, q];
+      for (let k = 0; k + 1 < chain.length; k++) {
+        const [u, v] = [chain[k]!, chain[k + 1]!];
+        const [ku, kv] = [key(u), key(v)];
+        if (ku === kv) continue;
+        if (sides.has(`${kv}>${ku}`)) sides.delete(`${kv}>${ku}`);
+        else sides.set(`${ku}>${kv}`, [u, v]);
+      }
+    }
+  const next = new Map<string, number[]>();
+  for (const [p, q] of sides.values()) next.set(key(p), q);
+  const out: number[][][] = [];
+  const used = new Set<string>();
+  for (const [p] of sides.values()) {
+    if (used.has(key(p))) continue;
+    const loop: number[][] = [];
+    for (let at: number[] | undefined = p, guard = 0; at && !used.has(key(at)) && guard < 100000; guard++) { used.add(key(at)); loop.push(at); at = next.get(key(at)); }
+    const turning = loop.filter((r, i) => { const o = loop[(i - 1 + loop.length) % loop.length]!, t = loop[(i + 1) % loop.length]!; return Math.abs((r[0]! - o[0]!) * (t[1]! - r[1]!) - (r[1]! - o[1]!) * (t[0]! - r[0]!)) > 1e-9; });
+    if (turning.length >= 3) out.push(turning);
+  }
+  return out;
+}
+
+/**
+ * The outline of a union of rectangles [x0, y0, x1, y1] (a stepped curtain wall's pieces, in its plane), counter-clockwise,
+ * its corners only; null unless the union is one piece with no hole. Edges within 5 mm are one.
+ */
+function outlineOfBoxes(boxes: number[][]): number[][] | null {
+  const snap = (v: number) => Math.round(v / 0.005) * 0.005;
+  const xs = [...new Set(boxes.flatMap((b) => [snap(b[0]), snap(b[2])]))].sort((a, b) => a - b);
+  const ys = [...new Set(boxes.flatMap((b) => [snap(b[1]), snap(b[3])]))].sort((a, b) => a - b);
+  if (xs.length > 400 || ys.length > 400) return null;
+  const nx = xs.length - 1, ny = ys.length - 1;
+  const on = (i: number, j: number) => i >= 0 && j >= 0 && i < nx && j < ny && grid[j * nx + i];
+  const grid = new Array<boolean>(nx * ny).fill(false);
+  for (const b of boxes) {
+    const i0 = xs.indexOf(snap(b[0])), i1 = xs.indexOf(snap(b[2])), j0 = ys.indexOf(snap(b[1])), j1 = ys.indexOf(snap(b[3]));
+    for (let j = j0; j < j1; j++) for (let i = i0; i < i1; i++) grid[j * nx + i] = true;
+  }
+  // (Gaps between pieces narrower than a bar are the wall's own: filled.)
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) if (!grid[j * nx + i] && xs[i + 1] - xs[i] < 0.03 && on(i - 1, j) && on(i + 1, j)) grid[j * nx + i] = true;
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) if (!grid[j * nx + i] && ys[j + 1] - ys[j] < 0.03 && on(i, j - 1) && on(i, j + 1)) grid[j * nx + i] = true;
+  // Its boundary edges, each cell's sides with nothing beyond, counter-clockwise (inside on the left).
+  const next = new Map<string, string[]>();
+  const keyOf = (i: number, j: number) => `${i},${j}`;
+  const edge = (a: [number, number], b: [number, number]) => { const k = keyOf(...a); next.set(k, [...(next.get(k) ?? []), keyOf(...b)]); };
+  let count = 0;
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    if (!grid[j * nx + i]) continue;
+    if (!on(i, j - 1)) { edge([i, j], [i + 1, j]); count++; }
+    if (!on(i + 1, j)) { edge([i + 1, j], [i + 1, j + 1]); count++; }
+    if (!on(i, j + 1)) { edge([i + 1, j + 1], [i, j + 1]); count++; }
+    if (!on(i - 1, j)) { edge([i, j + 1], [i, j]); count++; }
+  }
+  if (!count) return null;
+  const start = next.keys().next().value as string;
+  const loop: string[] = [start];
+  let at = start;
+  for (let guard = 0; guard <= count; guard++) {
+    const outs = next.get(at);
+    if (!outs?.length) return null;
+    at = outs.shift()!;
+    if (at === start) break;
+    loop.push(at);
+  }
+  // One loop only: every boundary edge used.
+  if (loop.length !== count || [...next.values()].some((v) => v.length)) return null;
+  const pts = loop.map((k) => { const [i, j] = k.split(',').map(Number); return [xs[i], ys[j]]; });
+  // Its corners only.
+  return pts.filter((p, k) => { const a = pts[(k - 1 + pts.length) % pts.length], b = pts[(k + 1) % pts.length]; return Math.abs((p[0] - a[0]) * (b[1] - p[1]) - (p[1] - a[1]) * (b[0] - p[0])) > 1e-9; });
+}
+
 function nativeOf(record: { item: { attrs: Record<string, string> } }): { family: string; type: string } | null {
-  const name = record.item.attrs.Name;
+  let name = record.item.attrs.Name;
   if (typeof name !== 'string') return null;
+  // (A name that starts with its Revit category, «Structural Foundations : M_Pile : 500mm»: the family is the second.)
+  if (startsWithACategory(name)) {
+    name = name.slice(name.indexOf(':') + 1);
+    // (Such names carry no element id at the end: «Family : Type».)
+    if (name.indexOf(':') === name.lastIndexOf(':') && name.includes(':')) {
+      const [family, type] = name.split(':').map((part) => part.trim());
+      return family && type ? { family, type } : null;
+    }
+  }
   const first = name.indexOf(':');
   const last = name.lastIndexOf(':');
   if (first <= 0 || last <= first) return null;
@@ -72,6 +177,11 @@ function slabKind(record: { item: { attrs: Record<string, string> } }): 'floor' 
   const predefined = record.item.attrs.PredefinedType;
   if (!native) return 'floor';
   if (/escalera|stair|landing|descansillo/i.test(native.family) || predefined === 'LANDING') return 'other';
+  // 🔴 A PILE OR A PILE CAP IS NO SLAB (school_str 13-11: 121 steel piles made foundation slabs, 175 caps generic): an
+  // isolated foundation of the file's shape — and so is anything its name files under structural foundations that is no
+  // foundation slab.
+  if (/pile|pilote|encepado|pfahl/i.test(native.family)) return 'other';
+  if (categoryOfName(record.item.attrs.Name) === 'OST_StructuralFoundation' && !/slab|losa|platte|radier|dalle/i.test(native.family)) return 'other';
   if (/plataforma|^pad\b|building pad/i.test(native.family)) return 'other';
   if (/cubierta|roof/i.test(native.family) || predefined === 'ROOF') return 'roof';
   if (/cimentaci|foundation/i.test(native.family) || predefined === 'BASESLAB') return 'foundation';
@@ -219,6 +329,7 @@ function sharedRun(to: 'frag' | 'ifc') {
     const styles = stylesOf(records);
     if (typeof process !== 'undefined' && process.env?.RECIPE_STYLE) for (const [k, v] of styles) if (k.includes(process.env.RECIPE_STYLE)) console.error(`[style] ${k}: ${JSON.stringify(v).slice(0, 1500)}`);
     const author = `recipe:${to}-to-revit`;
+    const env0: Record<string, string | undefined> = typeof process !== 'undefined' ? process.env : {};
     const prints = new Map<string, string>();
     const made = whatItMadeBefore(context, prints);
     context.progress('Writing the changes for Revit');
@@ -481,11 +592,22 @@ function sharedRun(to: 'frag' | 'ifc') {
       const u = Math.max(0, Math.min(1, ((p[0] - q.from[0]) * dx + (p[1] - q.from[1]) * dy) / L2));
       return Math.hypot(p[0] - (q.from[0] + u * dx), p[1] - (q.from[1] + u * dy));
     };
+    // (Each wall's span in height read once: asked of every pair, Snowdon Architectural's 1079 walls parsed their records 4.6 M
+    // times, 83 of the reading's 290 s — 13-11.)
+    const heightSpan = new Map<Seg['record'], [number, number]>();
+    const spanOf = (r: Seg['record']): [number, number] => {
+      let known = heightSpan.get(r);
+      if (!known) {
+        const l = innerJson<RunBody>(r, 'run');
+        const e = levels.get(String(l?.level ?? r.params.level))!.at;
+        known = [e + l!.base!, e + l!.base! + l!.height!];
+        heightSpan.set(r, known);
+      }
+      return known;
+    };
     const sameLevel = (a: Seg, b: Seg) => {
-      const la = innerJson<RunBody>(a.record, 'run'), lb = innerJson<RunBody>(b.record, 'run');
-      const za = [la!.base!, la!.base! + la!.height!], zb = [lb!.base!, lb!.base! + lb!.height!];
-      const ea = levels.get(String(la?.level ?? a.record.params.level))!.at, eb = levels.get(String(lb?.level ?? b.record.params.level))!.at;
-      return Math.min(ea + za[1], eb + zb[1]) > Math.max(ea + za[0], eb + zb[0]); // they overlap in height
+      const [a0, a1] = spanOf(a.record), [b0, b1] = spanOf(b.record);
+      return Math.min(a1, b1) > Math.max(a0, b0); // they overlap in height
     };
     // How far a cut-back end may be from the wall it meets, and travel to reach its line: a
     // metre. A thick wall met at an angle, or one that runs through, leaves the cut further back
@@ -615,6 +737,93 @@ function sharedRun(to: 'frag' | 'ifc') {
       if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[mullion] ${curtainGid}: ${faces.length} member(s), median ${(m.width * 1000).toFixed(1)} × ${(m.depth * 1000).toFixed(1)} mm`);
       return { width: m.width * s, depth: m.depth * s };
     };
+    /**
+     * 🔴 THE GLAZING OF A ROOF MADE OF GLASS (rac_advanced's «Sloped Glazing»: an IfcRoof of IfcPlate and IfcMember): each bar's
+     * axis, its section and the glass's thickness, read off the file's own pieces. Each axis in feet, x and y as the record's (the
+     * shapes' plan is the records'), z from the lowest of its pieces, which the applier puts at the roof's own bottom. Null when
+     * the roof has no glass.
+     */
+    const glazingOf = (roofGid: string): { bars: number[][]; panels: number; mullion: { width: number; depth: number; offset?: number }; panel: { thickness: number } } | null => {
+      if (!shapes) return null;
+      const kids = [...shapes.elements.values()].filter((el) => el.parent === roofGid && /^IFC(PLATE|MEMBER)$/i.test(el.ifcClass));
+      const plates = kids.filter((el) => /^IFCPLATE$/i.test(el.ifcClass)), members = kids.filter((el) => /^IFCMEMBER$/i.test(el.ifcClass));
+      if (!plates.length) return null;
+      const all = kids.flatMap((el) => shapePoints(shapes, el.gid));
+      if (!all.length) return null;
+      const z0 = Math.min(...all.map((p) => p[2]));
+      const median = (v: number[]) => [...v].sort((a, b) => a - b)[Math.floor(v.length / 2)] ?? 0;
+      /** A piece's long axis and its section's two sides: across it level, and square to that. */
+      const axisOf = (pts: number[][]) => {
+        // (Its axis the points' main direction: corner to corner, a bar mitred at its ends lay askew and its section came twice as wide.)
+        const c = [0, 1, 2].map((k) => pts.reduce((t, p) => t + p[k], 0) / pts.length);
+        const cov = [0, 1, 2].map((i) => [0, 1, 2].map((j) => pts.reduce((t, p) => t + (p[i] - c[i]) * (p[j] - c[j]), 0)));
+        let dir = [1, 1, 1];
+        for (let it = 0; it < 50; it++) { const nx = [0, 1, 2].map((i) => cov[i][0] * dir[0] + cov[i][1] * dir[1] + cov[i][2] * dir[2]); const l = Math.hypot(nx[0], nx[1], nx[2]) || 1; dir = nx.map((x) => x / l); }
+        let u = [dir[1], -dir[0], 0]; const lu = Math.hypot(u[0], u[1]); u = lu > 1e-6 ? u.map((x) => x / lu) : [1, 0, 0];
+        const v = [dir[1] * u[2] - dir[2] * u[1], dir[2] * u[0] - dir[0] * u[2], dir[0] * u[1] - dir[1] * u[0]];
+        const along = (q: number[]) => pts.map((p) => (p[0] - c[0]) * q[0] + (p[1] - c[1]) * q[1] + (p[2] - c[2]) * q[2]);
+        const span = (q: number[]) => { const x = along(q); return Math.max(...x) - Math.min(...x); };
+        const half = span(dir) / 2;
+        // 🔴 ITS SECTION BY THE SMALLEST RECTANGLE ROUND IT, square to the bar, at any turn (rac_advanced 12-11: read along level and
+        // square axes, a 30 mm square bar on a 15° slope came as 58 x 72).
+        const flat = pts.map((p) => [(p[0] - c[0]) * u[0] + (p[1] - c[1]) * u[1] + (p[2] - c[2]) * u[2], (p[0] - c[0]) * v[0] + (p[1] - c[1]) * v[1] + (p[2] - c[2]) * v[2]]);
+        let sides = [span(u), span(v)];
+        for (let i = 0; i < flat.length; i++) for (let j = i + 1; j < flat.length; j++) {
+          const ex = flat[j][0] - flat[i][0], ey = flat[j][1] - flat[i][1], l = Math.hypot(ex, ey);
+          if (l < 1e-6) continue;
+          const [cx, cy] = [ex / l, ey / l];
+          const xs = flat.map((q) => q[0] * cx + q[1] * cy), ys = flat.map((q) => -q[0] * cy + q[1] * cx);
+          const w = Math.max(...xs) - Math.min(...xs), h = Math.max(...ys) - Math.min(...ys);
+          if (w * h < sides[0] * sides[1] - 1e-12) sides = [w, h];
+        }
+        return { from: c.map((x, k) => x - dir[k] * half), to: c.map((x, k) => x + dir[k] * half), sides: sides.sort((p, q) => p - q) };
+      };
+      const bars: number[][] = [], widths: number[] = [], depths: number[] = [];
+      for (const el of members) {
+        const pts = shapePoints(shapes, el.gid);
+        if (pts.length < 4) continue;
+        const ax = axisOf(pts);
+        bars.push([ax.from[0] * s, ax.from[1] * s, (ax.from[2] - z0) * s, ax.to[0] * s, ax.to[1] * s, (ax.to[2] - z0) * s]);
+        widths.push(ax.sides[0]); depths.push(ax.sides[1]);
+      }
+      const glass = plates.map((el) => shapePoints(shapes, el.gid)).filter((pts) => pts.length >= 4).map((pts) => axisOf(pts).sides[0]);
+      /**
+       * 🔴 ITS BARS ON ITS GLASS, AS THE FILE LAYS THEM (rac_advanced 13-11: the file's 30 mm bars sit on the glass, Revit's were
+       * centred in it, every bar 3 cm under the file's and each pane 4 cm off): how far each bar's axis is from the middle of the
+       * pane under it, along the pane's upper side; the median, for the bar type's offset.
+       */
+      const planeOf = (pts: number[][]) => {
+        const c = [0, 1, 2].map((k) => pts.reduce((t, p) => t + p[k], 0) / pts.length);
+        const cov = [0, 1, 2].map((i) => [0, 1, 2].map((j) => pts.reduce((t, p) => t + (p[i] - c[i]) * (p[j] - c[j]), 0)));
+        const power = (m: number[][], seed: number[]) => { let v = seed; for (let it = 0; it < 60; it++) { const nx = [0, 1, 2].map((i) => m[i][0] * v[0] + m[i][1] * v[1] + m[i][2] * v[2]); const l = Math.hypot(nx[0], nx[1], nx[2]) || 1; v = nx.map((x) => x / l); } return v; };
+        const e1 = power(cov, [1, 0.7, 0.3]);
+        const l1 = [0, 1, 2].reduce((t, i) => t + e1[i] * [0, 1, 2].reduce((u, j) => u + cov[i][j] * e1[j], 0), 0);
+        const e2 = power(cov.map((row, i) => row.map((x, j) => x - l1 * e1[i] * e1[j])), [0.3, 1, 0.7]);
+        let n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+        const ln = Math.hypot(n[0], n[1], n[2]) || 1; n = n.map((x) => x / ln);
+        if (n[2] < 0) n = n.map((x) => -x);
+        return { c, n };
+      };
+      const panes = plates.map((el) => shapePoints(shapes, el.gid)).filter((pts) => pts.length >= 4).map(planeOf);
+      const offsets: number[] = [];
+      for (const el of members) {
+        const pts = shapePoints(shapes, el.gid);
+        if (pts.length < 4 || !panes.length) continue;
+        const m = [0, 1, 2].map((k) => pts.reduce((t, p) => t + p[k], 0) / pts.length);
+        // (The pane nearest it in its own plane: a bar on a hip lies between two, either says the same.)
+        let best: { d: number; along: number } | null = null;
+        for (const p of panes) {
+          const r = [m[0] - p.c[0], m[1] - p.c[1], m[2] - p.c[2]];
+          const d = r[0] * p.n[0] + r[1] * p.n[1] + r[2] * p.n[2];
+          const along = Math.hypot(r[0] - d * p.n[0], r[1] - d * p.n[1], r[2] - d * p.n[2]);
+          if (Math.abs(d) < 0.25 && (!best || along < best.along)) best = { d, along };
+        }
+        if (best) offsets.push(best.d);
+      }
+      const offset = offsets.length ? median(offsets) : 0;
+      if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[glazing] ${roofGid}: bars ${(offset * 1000).toFixed(1)} mm off the glass's middle (${offsets.length} of ${members.length})`);
+      return { bars, panels: plates.length, mullion: { width: median(widths) * s, depth: median(depths) * s, ...(Math.abs(offset) > 0.0005 ? { offset: offset * s } : {}) }, panel: { thickness: (median(glass) || 0.01) * s } };
+    };
     const shapeDz = (() => {
       if (!shapes) return 0;
       const d: number[] = [];
@@ -702,7 +911,7 @@ function sharedRun(to: 'frag' | 'ifc') {
           const thick = Math.max(...across) - Math.min(...across);
           const square = (at: number) => {
             const end = across.filter((_, k) => Math.abs(along[k] - at) < 0.002);
-            return end.length >= 2 && Math.max(...end) - Math.min(...end) > 0.9 * thick;
+            return end.length >= 2 && Math.max(...end) - Math.min(...end) > (typeof process !== 'undefined' && process.env?.RECIPE_END_STEP ? 0.25 : 0.9) * thick;
           };
           const f0 = f;
           if (square(lo)) { f = [f0[0] + d[0] * lo, f0[1] + d[1] * lo]; exact.add('start'); }
@@ -1199,13 +1408,16 @@ function sharedRun(to: 'frag' | 'ifc') {
       const bare = { start: false, end: false, bottom: false, top: false };
       /** Its uprights' middles along its line, inside its ends, where the file draws them (see «…its lines from its bars»). */
       let barsAlong: number[] = [];
+      /** Its ends that are CORNER bars (an L where two walls meet): the bar's sides, metres. */
+      const corners: { start?: { along: number; across: number; at: number[] }; end?: { along: number; across: number; at: number[] } } = {};
       if (shapes && record.item.guid && !Array.isArray((body as { profile?: unknown }).profile)) {
         const kids = [...shapes.elements.values()].filter((el) => el.parent === record.item.guid);
         const boxOf = (gid: string) => {
           const pts = shapePoints(shapes, gid);
           if (!pts.length) return null;
           const t = pts.map((p) => (p[0] - seg.from![0]) * d[0] + (p[1] - seg.from![1]) * d[1]), zz = pts.map((p) => p[2]);
-          return { t0: Math.min(...t), t1: Math.max(...t), z0: Math.min(...zz), z1: Math.max(...zz) };
+          const a = pts.map((p) => (p[0] - seg.from![0]) * -d[1] + (p[1] - seg.from![1]) * d[0]);
+          return { t0: Math.min(...t), t1: Math.max(...t), z0: Math.min(...zz), z1: Math.max(...zz), a0: Math.min(...a), a1: Math.max(...a) };
         };
         const all = kids.map((k) => boxOf(k.gid)).filter((b): b is NonNullable<typeof b> => b !== null);
         const bars = kids.filter((k) => /^IFCMEMBER$/i.test(k.ifcClass)).map((k) => boxOf(k.gid)).filter((b): b is NonNullable<typeof b> => b !== null);
@@ -1216,6 +1428,21 @@ function sharedRun(to: 'frag' | 'ifc') {
           bare.top = !bars.some((b) => flat(b) && Math.abs(b.z1 - Z1) < 0.01);
           bare.start = !bars.some((b) => !flat(b) && Math.abs(b.t0 - T0) < 0.01);
           bare.end = !bars.some((b) => !flat(b) && Math.abs(b.t1 - T1) < 0.01);
+          // 🔴 A CORNER BAR AT AN END (rac_advanced 12-11: 79 «L Corner Mullion», a rectangular bar in their place and every panel by
+          // a corner 8 cm off): an upright on the end twice as wide along the wall as its others, and as deep across.
+          const inner = bars.filter((b) => !flat(b) && b.t0 > T0 + 0.01 && b.t1 < T1 - 0.01).map((b) => b.t1 - b.t0).sort((x, y) => x - y);
+          const usual = inner[Math.floor(inner.length / 2)] ?? halfUp * 2;
+          for (const side of ['start', 'end'] as const) {
+            const atEnd = bars.filter((b) => !flat(b) && (side === 'start' ? Math.abs(b.t0 - T0) < 0.01 : Math.abs(b.t1 - T1) < 0.01));
+            const wide = atEnd.filter((b) => b.t1 - b.t0 > 2 * usual && b.a1 - b.a0 > 2 * usual);
+            if (wide.length && wide.length >= atEnd.length / 2) {
+              const w = wide[0];
+              // (Where it is, plan feet: which end the applier's line starts at is its own business.)
+              const endT = side === 'start' ? T0 : T1;
+              corners[side] = { along: (w.t1 - w.t0) * s, across: (w.a1 - w.a0) * s, at: [(seg.from![0] + d[0] * endT) * s, (seg.from![1] + d[1] * endT) * s] };
+              if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[curtain-corner] ${record.item.guid}: its ${side} a corner bar, ${((w.t1 - w.t0) * 1000).toFixed(0)} x ${((w.a1 - w.a0) * 1000).toFixed(0)} mm`);
+            }
+          }
           barsAlong = [...new Set(bars.filter((b) => !flat(b) && b.t0 > T0 + 0.01 && b.t1 < T1 - 0.01).map((b) => +((b.t0 + b.t1) / 2).toFixed(4)))].sort((x, y) => x - y);
           if (Object.values(bare).some(Boolean) && typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[curtain-bare] ${record.item.guid}: no bar at its ${Object.entries(bare).filter(([, v]) => v).map(([k]) => k).join(', ')}`);
         }
@@ -1238,14 +1465,20 @@ function sharedRun(to: 'frag' | 'ifc') {
       const along = body.lines?.along ?? (fromBars ? barsAlong : ruledAlong);
       const up = body.lines?.up ?? ruled(body.height, n(style.upSpacing), style.upJustify);
       // «horizontal@<up mm>:<along mm>»: the segment of that line starting there is not there.
-      const omit = (body.omitted ?? []).flatMap((one) => {
-        const m = /^(horizontal|vertical)@(-?[\d.]+):(-?[\d.]+)$/.exec(one);
+      // 🔴 A BAR BY ITS KEY, AS THE READER NAMES IT (`curtainMembers`): an upright is «upright@<along>:<up>» — only «vertical» was read,
+      // and every upright a wall has taken out came back as a bar in Revit (rac_advanced's storefronts, one too many each, 12-11).
+      const stationOf = (one: string) => {
+        const m = /^(horizontal|vertical|upright)@(-?[\d.]+):(-?[\d.]+)$/.exec(one);
         if (!m) return [];
         const horizontal = m[1] === 'horizontal';
         const at = Number(m[2]) / 1000 + (horizontal ? b0 : g0);
         const from = Number(m[3]) / 1000 + (horizontal ? g0 : b0);
         return [{ horizontal, at: at * s, from: from * s }];
-      });
+      };
+      const omit = (body.omitted ?? []).flatMap(stationOf);
+      // 🔴 AND THE STRETCHES OF ITS LINES IT HAS TAKEN OUT, ITS PANELS THERE ONE (`merged`): Revit's «remove segment», so the panel is one
+      // as in the file (rac_advanced 12-11: a wall with a door had 74 panels for its 49, every merged pair cut in two).
+      const merge = (((body as { merged?: string[] }).merged) ?? []).flatMap(stationOf);
       // (Its bare sides' border bars, one station per bay along each: the applier takes the type's bar there away. With no
       // bar on any side, a type with no border bars instead — Savoyvilla's entrance glass, r41: its bars would not go.)
       const noBorders = bare.start && bare.end && bare.bottom && bare.top;
@@ -1275,6 +1508,42 @@ function sharedRun(to: 'frag' | 'ifc') {
           shapedPanels.add(panel.gid);
         }
       }
+      // 🔴 ITS PANELS THAT ARE ANOTHER SHEET (rac_advanced 13-11: «System Panel:Solid», 60 mm, among its 25 mm glass, all made glass and
+      // 4 cm off): a plate thicker or thinner than the wall's usual, or standing elsewhere across it, its cell given a panel of its own —
+      // its thickness, and the usual offset moved by how far its middle is from the usual's.
+      let panelOffset = -n(style.panelOffset) * s;
+      const env: Record<string, string | undefined> = typeof process !== 'undefined' ? process.env : {};
+      const others: { along: number; up: number; name: string; thickness: number; offset: number }[] = [];
+      if (shapes && record.item.guid) {
+        const nrm = [-d[1], d[0]];
+        const plates = [...shapes.elements.values()].filter((el) => el.parent === record.item.guid && /^IFCPLATE$/i.test(el.ifcClass) && !shapedPanels.has(el.gid)).flatMap((el) => {
+          const pts = shapePoints(shapes, el.gid);
+          if (pts.length < 4) return [];
+          const ac = pts.map((p) => (p[0] - seg.from![0]) * nrm[0] + (p[1] - seg.from![1]) * nrm[1]);
+          const t0 = Math.min(...ac), t1 = Math.max(...ac);
+          const c = [0, 1, 2].map((k) => pts.reduce((t, p) => t + p[k], 0) / pts.length);
+          return [{ el, thickness: t1 - t0, mid: (t0 + t1) / 2, a: (c[0] - seg.from![0]) * d[0] + (c[1] - seg.from![1]) * d[1], u: c[2] - shapeDz - (level.at + (typeof body.base === 'number' ? body.base : 0)) }];
+        });
+        if (plates.length > 1) {
+          const med = (v: number[]) => [...v].sort((p, q) => p - q)[Math.floor(v.length / 2)]!;
+          const usualT = med(plates.map((p) => p.thickness)), usualMid = med(plates.map((p) => p.mid));
+          const sign = Number(env.RECIPE_PANEL_ACROSS_SIGN ?? 1);
+          // 🔴 ITS PANELS WHERE THE FILE HAS THEM, WHEN ITS STYLE SAYS NOTHING (BLOXHUB 13-11: «B100», a basic wall as the panel, 125 mm,
+          // its middle 37 mm off the wall's line and made on it, every panel 4 cm off): the usual panel's middle off the line, measured.
+          if (Math.abs(n(style.panelOffset)) < 1e-6 && Math.abs(usualMid) > 0.003) {
+            panelOffset = sign * usualMid * s;
+            if (env.RECIPE_TRACE) console.error(`[curtain-panel] ${record.item.guid}: its panels ${(usualMid * 1000).toFixed(0)} mm off its line, by the file`);
+          }
+          for (const p of plates) {
+            if (Math.abs(p.thickness - usualT) < 0.005 && Math.abs(p.mid - usualMid) < 0.005) continue;
+            if (p.a < -0.01 || p.a > L + 0.01 || p.u < -0.01 || p.u > body.height + 0.01) continue;
+            const cellAlong = Math.max(0, ...along.filter((x) => x <= p.a + 1e-6));
+            const cellUp = Math.max(0, ...up.filter((x) => x <= p.u + 1e-6));
+            others.push({ along: (cellAlong + g0) * s, up: (cellUp + b0) * s, name: (p.el.typeName ?? p.el.name ?? 'panel').replace(/:\d+$/, ''), thickness: p.thickness * s, offset: panelOffset + sign * (p.mid - usualMid) * s });
+          }
+          if (others.length && env.RECIPE_TRACE) console.error(`[curtain-others] ${record.item.guid}: ${others.length} panel(s) of another sheet (${[...new Set(others.map((o) => `${o.name} ${(o.thickness / s * 1000).toFixed(0)} mm`))].join(', ')})`);
+        }
+      }
       const attrs: Record<string, string> = {
         CategoryId: CATEGORY.walls,
         Type: nativeOf(record)?.type ?? String(lookRef),
@@ -1283,16 +1552,19 @@ function sharedRun(to: 'frag' | 'ifc') {
         BaseOffset: num(base * s),
         Height: num(height * s),
         Curtain: JSON.stringify({
+          ...(others.length ? { others } : {}),
           along: along.map((a) => (a + g0) * s),
           up: up.map((u) => (u + b0) * s),
           omit,
+          ...(merge.length ? { merge } : {}),
+          ...(corners.start || corners.end ? { corners } : {}),
           empty,
           ...(noBorders ? { noBorders: true } : {}),
           mullion: n(style.uprightWidth) > 0 ? { width: n(style.uprightWidth) * s, depth: n(style.depth) * s } : measured ?? { width: 0, depth: n(style.depth) * s },
           // The glass off the bars' middle: the converter counts it toward the wall's inside,
           // Revit's panel offset toward its outside (measured: racbasic's glass 0.032 m off,
           // on the other side, with the sign as it was).
-          panel: { thickness: glassOf(record.item.guid ?? undefined, d) ?? n(style.panelDepth) * s, offset: -n(style.panelOffset) * s },
+          panel: { thickness: glassOf(record.item.guid ?? undefined, d) ?? n(style.panelDepth) * s, offset: panelOffset },
         }),
       };
       // ITS OUTLINE, where it is not its rectangle (a gable under a roof): the record's, inside
@@ -1343,11 +1615,259 @@ function sharedRun(to: 'frag' | 'ifc') {
       if (add(key(record.id), attrs)) curtainCount++;
     }
 
+    // ---- 2b'. Curtain walls the converter left as their pieces: Revit's own all the same. ----
+    // 🔴 A CURTAIN WALL IS ONE, WHATEVER RULE MADE IT (Antonio 13-11: «que TODO sean entidades nativas lo más cercanas
+    // posibles al IFC original»; Savoyvilla, 7 of its 10 curtain walls refused by the converter's own rule, «no join
+    // condition gives its pieces», came in as 280 generic models): an IFCCURTAINWALL with no curtain record, flat, made
+    // from its pieces — its line along them, its ends and height where its bars' middles are, a grid line at each of its
+    // inner bars, the stretches of line with no bar taken out (or its two panels one, where a panel spans it), a cell
+    // with no panel left empty, its bars and glass as the file has them. Its pieces are then its (`seen`), doors aside.
+    if (shapes) {
+      const env: Record<string, string | undefined> = typeof process !== 'undefined' ? process.env : {};
+      const asRun = new Set(records.filter((r) => r.kind === 'run' && r.params.of === 'curtainWall').map((r) => r.item.guid));
+      const levelList = [...levels.values()].sort((a, b) => a.at - b.at);
+      // (Such a wall is an assembly record of its own — `AssemblyLayer`, «a whole made of parts» — its pieces naming it their parent.)
+      // (Such a wall has no record of its own to go by — its assembly records all hang on one item — so it is found by
+      // its pieces: a whole with no body and no other record, made of panels and bars only, flat (checked below).)
+      const byParent = new Map<string, NonNullable<ReturnType<typeof shapes.elements.get>>[]>();
+      for (const el of shapes.elements.values()) if (el.parent) byParent.set(el.parent, [...(byParent.get(el.parent) ?? []), el]);
+      const recorded = new Set(records.filter((r) => r.kind !== 'assembly' && r.item?.guid).map((r) => r.item.guid));
+      for (const [parent, members] of byParent) {
+        if (asRun.has(parent) || recorded.has(parent) || shapes.elements.has(parent)) continue;
+        if (!members.some((el) => /^IFCPLATE$/i.test(el.ifcClass)) || !members.every((el) => /^IFC(PLATE|MEMBER|DOOR|WINDOW)$/i.test(el.ifcClass))) continue;
+        const cw = { gid: parent, name: null as string | null, typeName: null as string | null };
+        const kids = [...shapes.elements.values()].filter((el) => el.parent === cw.gid);
+        const plateKids = kids.filter((k) => /^IFCPLATE$/i.test(k.ifcClass));
+        const barKids = kids.filter((k) => /^IFCMEMBER$/i.test(k.ifcClass));
+        if (!plateKids.length) continue;
+        const all = [...plateKids, ...barKids].flatMap((k) => shapePoints(shapes, k.gid));
+        if (all.length < 8) continue;
+        // Its direction: the plan's principal axis of its pieces.
+        const mx = all.reduce((t, p) => t + p[0], 0) / all.length, my = all.reduce((t, p) => t + p[1], 0) / all.length;
+        let cxx = 0, cyy = 0, cxy = 0;
+        for (const p of all) { cxx += (p[0] - mx) ** 2; cyy += (p[1] - my) ** 2; cxy += (p[0] - mx) * (p[1] - my); }
+        const ang = 0.5 * Math.atan2(2 * cxy, cxx - cyy);
+        const d = [Math.cos(ang), Math.sin(ang)], nrm = [-d[1], d[0]];
+        const boxOf = (gid: string) => {
+          const pts = shapePoints(shapes, gid);
+          if (!pts.length) return null;
+          const t = pts.map((p) => (p[0] - mx) * d[0] + (p[1] - my) * d[1]), a = pts.map((p) => (p[0] - mx) * nrm[0] + (p[1] - my) * nrm[1]), z = pts.map((p) => p[2] - shapeDz);
+          const T0 = Math.min(...t), T1 = Math.max(...t);
+          // (How much its foot rises from one end to the other: a sill up a ramp is no level bar, its box no section.)
+          const footAt = (end: number) => Math.min(...z.filter((_, i) => Math.abs(t[i]! - end) < 0.02));
+          return { t0: T0, t1: T1, a0: Math.min(...a), a1: Math.max(...a), z0: Math.min(...z), z1: Math.max(...z), rise: Math.abs(footAt(T1) - footAt(T0)) };
+        };
+        const plates = plateKids.map((k) => ({ gid: k.gid, b: boxOf(k.gid) })).filter((x): x is { gid: string; b: NonNullable<ReturnType<typeof boxOf>> } => !!x.b);
+        // (Its bars are the ones touching its panels: a stray bit of bar off its edge — Savoyvilla's 0i2T…, 5 cm at a corner 20 cm above
+        // the glass — would stretch the wall to it. Such a bit is made apart, as its own shape.)
+        const P0t = Math.min(...plates.map((x) => x.b.t0)), P1t = Math.max(...plates.map((x) => x.b.t1));
+        const P0z = Math.min(...plates.map((x) => x.b.z0)), P1z = Math.max(...plates.map((x) => x.b.z1));
+        const strays: string[] = [];
+        const bars = barKids.flatMap((k) => {
+          const b = boxOf(k.gid);
+          if (!b) return [];
+          const near = b.t1 > P0t - 0.08 && b.t0 < P1t + 0.08 && b.z1 > P0z - 0.08 && b.z0 < P1z + 0.08;
+          if (!near) { strays.push(k.gid); return []; }
+          return [b];
+        });
+        const boxes = [...plates.map((x) => x.b), ...bars];
+        const T0 = Math.min(...boxes.map((b) => b.t0)), T1 = Math.max(...boxes.map((b) => b.t1));
+        const Z0 = Math.min(...boxes.map((b) => b.z0)), Z1 = Math.max(...boxes.map((b) => b.z1));
+        const A0 = Math.min(...boxes.map((b) => b.a0)), A1 = Math.max(...boxes.map((b) => b.a1));
+        // (Flat only: a curved or bent one stays its pieces.)
+        // (Flat to within its own bars' depth: Savoyvilla's curved ground floor glass, its panels turning 1.5° each, read as
+        // one line, would come out a chord.)
+        const deepest = Math.max(...boxes.map((b) => b.a1 - b.a0));
+        if (A1 - A0 > Math.max(0.1, 1.6 * deepest) || T1 - T0 < 0.2 || Z1 - Z0 < 0.2) continue;
+        // (Standing, not lying: DACH's «Cristalera», a sloped glass roof of plates and bars, came as a curtain wall of 24 x 334 mm bars,
+        // its pieces 15 cm off — 13-11. A pane standing in a wall is thin across it; a sloped one's plan runs wide.)
+        if (plates.some((x) => x.b.a1 - x.b.a0 > 0.12)) continue;
+        const flat = (b: { t0: number; t1: number; z0: number; z1: number }) => b.t1 - b.t0 > b.z1 - b.z0;
+        const uprights = bars.filter((b) => !flat(b)), rails = bars.filter((b) => flat(b));
+        const med = (v: number[]) => (v.length ? [...v].sort((x, y) => x - y)[Math.floor(v.length / 2)] : 0);
+        const wU = med(uprights.map((b) => b.t1 - b.t0)), wR = med(rails.map((b) => b.z1 - b.z0));
+        const depth = med(bars.map((b) => b.a1 - b.a0));
+        const atStart = uprights.some((b) => Math.abs(b.t0 - T0) < 0.01), atEnd = uprights.some((b) => Math.abs(b.t1 - T1) < 0.01);
+        const atBottom = rails.some((b) => Math.abs(b.z0 - Z0) < 0.01), atTop = rails.some((b) => Math.abs(b.z1 - Z1) < 0.01);
+        // Its line through its bars' middle (its glass's, with none), its span between its border bars' middles.
+        const lineA = bars.length ? med(bars.map((b) => (b.a0 + b.a1) / 2)) : med(plates.map((x) => (x.b.a0 + x.b.a1) / 2));
+        // (Its span to its border bars' OUTER faces: Revit draws a border mullion inside the wall's edge — Savoyvilla 13-11, every
+        // border and every panel 25 mm in, half a bar, when spanned to their middles.)
+        const half = env.RECIPE_CW_SPAN === 'middles' ? 1 : 0;
+        const t0 = T0 + (atStart ? half * wU / 2 : 0), t1 = T1 - (atEnd ? half * wU / 2 : 0);
+        const z0 = Z0 + (atBottom ? half * wR / 2 : 0), z1 = Z1 - (atTop ? half * wR / 2 : 0);
+        const L = t1 - t0, H = z1 - z0;
+        const near = (v: number[], x: number) => v.some((y) => Math.abs(y - x) < 0.02);
+        const along: number[] = [], up: number[] = [];
+        // 🔴 A BORDER BAR IS NO LINE (BLOXHUB 13-11: spanned to the border bars' outer faces, each one's middle came half a bar in — a
+        // line 25 mm from the end, a cell Revit «cannot make, a panel or mullion too small», and all 14,394 changes rolled back).
+        const onTheEnds = (b: { t0: number; t1: number }) => (atStart && Math.abs(b.t0 - T0) < 0.01) || (atEnd && Math.abs(b.t1 - T1) < 0.01);
+        const onTheEdges = (b: { z0: number; z1: number }) => (atBottom && Math.abs(b.z0 - Z0) < 0.01) || (atTop && Math.abs(b.z1 - Z1) < 0.01);
+        // 🔴 …AND A BAR OF SEVERAL PIECES IS ONE LINE (BLOXHUB 13-11: a mullion, its cap and its back plate side by side, three lines
+        // 20 and 30 mm apart, cells Revit refused): the pieces whose stretches across the line touch, one bar, its line their middle.
+        const middles = (spans: [number, number][]) => {
+          const sorted = [...spans].sort((p, q) => p[0] - q[0]);
+          const out: number[] = [];
+          let cur: [number, number] | null = null;
+          for (const sp of sorted) {
+            if (cur && sp[0] <= cur[1] + 0.005) cur[1] = Math.max(cur[1], sp[1]);
+            else { if (cur) out.push((cur[0] + cur[1]) / 2); cur = [sp[0], sp[1]]; }
+          }
+          if (cur) out.push((cur[0] + cur[1]) / 2);
+          return out;
+        };
+        for (const mid of middles(uprights.filter((b) => !onTheEnds(b)).map((b) => [b.t0, b.t1]))) { const m = mid - t0; if (m > 0.02 && m < L - 0.02 && !near(along, m)) along.push(m); }
+        for (const mid of middles(rails.filter((b) => !onTheEdges(b)).map((b) => [b.z0, b.z1]))) { const m = mid - z0; if (m > 0.02 && m < H - 0.02 && !near(up, m)) up.push(m); }
+        // (And where two panels meet with no bar between — Savoyvilla's 0i2T…, a 20 cm strip of panel on top of the glass: a line
+        // there all the same, its stretches with no bar taken out below.)
+        for (const p of plates) for (const q of plates) {
+          if (p === q) continue;
+          if (Math.abs(q.b.z0 - p.b.z1) < 0.06 && Math.min(p.b.t1, q.b.t1) - Math.max(p.b.t0, q.b.t0) > 0.05) { const m = (p.b.z1 + q.b.z0) / 2 - z0; if (m > 0.02 && m < H - 0.02 && !near(up, m)) up.push(m); }
+          if (Math.abs(q.b.t0 - p.b.t1) < 0.06 && Math.min(p.b.z1, q.b.z1) - Math.max(p.b.z0, q.b.z0) > 0.05) { const m = (p.b.t1 + q.b.t0) / 2 - t0; if (m > 0.02 && m < L - 0.02 && !near(along, m)) along.push(m); }
+        }
+        along.sort((x, y) => x - y); up.sort((x, y) => x - y);
+        // 🔴 NO CELL NARROWER THAN A BAR (BLOXHUB 13-11: two lines 20–25 mm apart — a double upright, a panel joint by a bar — and Revit
+        // refused the whole building): lines nearer than that to each other made one, at their middle; one that near an end, gone.
+        const tidy = (v: number[], end: number, least: number) => {
+          const out: number[] = [];
+          for (const x of v) {
+            if (x < least || x > end - least) continue;
+            if (out.length && x - out[out.length - 1]! < least) out[out.length - 1] = (out[out.length - 1]! + x) / 2;
+            else out.push(x);
+          }
+          return out;
+        };
+        const leastCell = Math.max(0.03, 0.5 * Math.max(wU, wR)); // (Half a bar: at a bar and more, Snowdon's storefront lines 64 mm apart, a door's jamb by its upright, came one — 13-11.)
+        along.splice(0, along.length, ...tidy(along, L, leastCell));
+        up.splice(0, up.length, ...tidy(up, H, leastCell));
+        const A = [0, ...along, L], U = [0, ...up, H];
+        const omit: { horizontal: boolean; at: number; from: number }[] = [];
+        const merge: { horizontal: boolean; at: number; from: number }[] = [];
+        // Each stretch of each line, borders too: a bar on it, or it is taken out (two panels one, where one spans it).
+        for (let i = 0; i < A.length; i++) for (let j = 0; j + 1 < U.length; j++) {
+          const a = A[i], mid = z0 + (U[j] + U[j + 1]) / 2;
+          if (uprights.some((b) => Math.abs((b.t0 + b.t1) / 2 - t0 - a) < Math.max(0.02, wU) && b.z0 <= mid && b.z1 >= mid)) continue;
+          const spans = i > 0 && i < A.length - 1 && plates.some((x) => x.b.t0 < t0 + a - 0.05 && x.b.t1 > t0 + a + 0.05 && x.b.z0 <= mid && x.b.z1 >= mid);
+          (spans ? merge : omit).push({ horizontal: false, at: a * s, from: U[j] * s });
+        }
+        for (let j = 0; j < U.length; j++) for (let i = 0; i + 1 < A.length; i++) {
+          const u = U[j], mid = t0 + (A[i] + A[i + 1]) / 2;
+          if (rails.some((b) => Math.abs((b.z0 + b.z1) / 2 - z0 - u) < Math.max(0.02, wR) && b.t0 <= mid && b.t1 >= mid)) continue;
+          const spans = j > 0 && j < U.length - 1 && plates.some((x) => x.b.z0 < z0 + u - 0.05 && x.b.z1 > z0 + u + 0.05 && x.b.t0 <= mid && x.b.t1 >= mid);
+          (spans ? merge : omit).push({ horizontal: true, at: u * s, from: A[i] * s });
+        }
+        const noBorders = !atStart && !atEnd && !atBottom && !atTop;
+        // 🔴 ITS BARS OF ANOTHER SECTION (Snowdon's storefronts 13-11: a 4" x 6¼" sill and 2½" x 6¼" uprights among 2½" x 5" ones, all
+        // made the type's one bar, 151 pieces 3 cm off): each by its middle on the wall (along, up from its foot), and its section.
+        const usualW = wU || wR;
+        const barsOfTheirOwn = bars.flatMap((b) => {
+          const w = flat(b) ? b.z1 - b.z0 : b.t1 - b.t0, dp = b.a1 - b.a0;
+          if (Math.abs(w - usualW) < 0.003 && Math.abs(dp - depth) < 0.003) return [];
+          if (flat(b) && (b as { rise?: number }).rise! > 0.005) return [];
+          return [{ horizontal: flat(b), along: ((b.t0 + b.t1) / 2 - t0) * s, up: ((b.z0 + b.z1) / 2 - z0) * s, width: w * s, depth: dp * s }];
+        });
+        // A cell no panel is in (a door's, or nothing) left empty; a panel that is no plain sheet made as its shape there.
+        const shapedHere = new Set(shapedPanelsOf(shapes, cw.gid, depth || 0.02, nrm).map((p) => p.gid));
+        const empty: { along: number; up: number }[] = [];
+        // (A cell its panels fill only in part is no rectangle's: a stepped or sloped wall — Savoyvilla's glass under its
+        // ramp — kept as its pieces until its outline is given, rather than lose the panels a full cell would hide.)
+        let partial = false;
+        for (let i = 0; i + 1 < A.length; i++) for (let j = 0; j + 1 < U.length; j++) {
+          const ca0 = t0 + A[i], ca1 = t0 + A[i + 1], cz0 = z0 + U[j], cz1 = z0 + U[j + 1];
+          const area = (ca1 - ca0) * (cz1 - cz0);
+          // (By its panels and its bars both: a full cell is all of it, a stepped top leaves a strip — Savoyvilla's 0i2T…, 18 cm.)
+          const covered = Math.min(area, boxes.reduce((sum, b) => sum + Math.max(0, Math.min(ca1, b.t1) - Math.max(ca0, b.t0)) * Math.max(0, Math.min(cz1, b.z1) - Math.max(cz0, b.z0)), 0));
+          if (area > 0 && covered > 0.15 * area && covered < 0.95 * area) partial = true;
+        }
+        // …or, where its pieces' union is one outline, its outline edited to it (Revit's «Edit Profile»): the panels then cut
+        // to it as the file's are.
+        let outline: number[][] | null = null;
+        if (partial) {
+          outline = outlineOfBoxes(boxes.map((b) => [b.t0, b.z0, b.t1, b.z1]));
+          if (!outline) { if (env.RECIPE_TRACE) console.error(`[curtain-pieces] ${cw.gid}: a cell filled in part and no one outline, kept as its pieces`); continue; }
+          // 🔴 ITS CORNERS ON ITS LINES, NOT A HAIR BESIDE THEM (BLOXHUB 13-11: corners 0.4–5 mm from a grid line, a sliver of panel
+          // there, «no es posible crear un panel de muro cortina» at the commit, and the whole building rolled back): a corner within
+          // a centimetre of a line or an end taken onto it.
+          // (Within 10 mm only: taken from 30 mm, Snowdon's stair glazing came with a cell of no area and Revit refused it — 13-11.)
+          const onto = (v: number, marks: number[]) => { for (const m of marks) if (Math.abs(v - m) < 0.01) return m; return v; };
+          const tMarks = [t0, t1, ...along.map((x) => t0 + x)], zMarks = [z0, z1, ...up.map((x) => z0 + x)];
+          outline = outline.map(([t, zz]) => [onto(t, tMarks), onto(zz, zMarks)]);
+          outline = outline.filter((q, i) => { const r = outline![(i + outline!.length - 1) % outline!.length]!; return Math.abs(q[0]! - r[0]!) > 1e-6 || Math.abs(q[1]! - r[1]!) > 1e-6; });
+        }
+        for (let i = 0; i + 1 < A.length; i++) for (let j = 0; j + 1 < U.length; j++) {
+          const ct = t0 + (A[i] + A[i + 1]) / 2, cz = z0 + (U[j] + U[j + 1]) / 2;
+          const inIt = plates.filter((x) => x.b.t0 <= ct && x.b.t1 >= ct && x.b.z0 <= cz && x.b.z1 >= cz);
+          const some = plates.some((x) => x.b.t0 < t0 + A[i + 1] - 0.01 && x.b.t1 > t0 + A[i] + 0.01 && x.b.z0 < z0 + U[j + 1] - 0.01 && x.b.z1 > z0 + U[j] + 0.01 && !shapedHere.has(x.gid));
+          if (outline ? !some : !inIt.length || inIt.every((x) => shapedHere.has(x.gid))) empty.push({ along: A[i] * s, up: U[j] * s });
+        }
+        for (const g of shapedHere) shapedPanels.add(g);
+        for (const g of strays) shapedPanels.add(g);
+        const glass = med(plates.filter((x) => !shapedHere.has(x.gid)).map((x) => x.b.a1 - x.b.a0).filter((t) => t > 0.002 && t < 0.2));
+        const glassA = med(plates.filter((x) => !shapedHere.has(x.gid)).map((x) => (x.b.a0 + x.b.a1) / 2));
+        const level = [...levelList].reverse().find((l) => l.at <= z0 + 0.001) ?? levelList[0];
+        if (!level) continue;
+        const f = [mx + d[0] * t0 + nrm[0] * lineA, my + d[1] * t0 + nrm[1] * lineA];
+        const e = [mx + d[0] * t1 + nrm[0] * lineA, my + d[1] * t1 + nrm[1] * lineA];
+        const z = z0 * s;
+        const named = nativeOf({ item: { attrs: { Name: cw.name ?? (/^IFCMEMBER$/i.test(barKids[0]?.ifcClass ?? '') ? barKids[0].name ?? '' : '') } } });
+        const attrs: Record<string, string> = {
+          CategoryId: CATEGORY.walls,
+          Type: named?.type ?? cw.typeName ?? 'Curtain wall',
+          LocationLine: `${num(f[0] * s)},${num(f[1] * s)},${num(z)};${num(e[0] * s)},${num(e[1] * s)},${num(z)}`,
+          Level: level.name,
+          BaseOffset: num((z0 - level.at) * s),
+          Height: num(H * s),
+          Curtain: JSON.stringify({
+            along: along.map((a) => a * s),
+            up: up.map((u) => u * s),
+            omit: noBorders ? omit.filter((o) => o.at > 1e-6 && Math.abs(o.at - (o.horizontal ? H : L) * s) > 1e-6) : omit,
+            ...(merge.length ? { merge } : {}),
+            empty,
+            ...(noBorders ? { noBorders: true } : {}),
+            ...(barsOfTheirOwn.length ? { bars: barsOfTheirOwn } : {}),
+            mullion: { width: (wU || wR) * s, depth: (depth || glass) * s },
+            panel: { thickness: (glass || 0.02) * s, offset: (env.RECIPE_CW_OFFSET_SIGN === '-1' ? -1 : 1) * (glassA - lineA) * s },
+          }),
+        };
+        {
+          const c = JSON.parse(attrs.Curtain) as { mullion: { width: number; depth: number }; panel?: { thickness?: number }; noBorders?: boolean };
+          const sig = `${Math.round((c.mullion.width / s) * 1000)} x ${Math.round((c.mullion.depth / s) * 1000)}${c.panel?.thickness ? `, ${Math.round((c.panel.thickness / s) * 1000)} mm glass` : ''}${c.noBorders ? ', no borders' : ''}`;
+          const seenSig = curtainTypeMullions.get(attrs.Type);
+          if (seenSig === undefined) curtainTypeMullions.set(attrs.Type, sig);
+          else if (seenSig !== sig) attrs.Type = `${attrs.Type} · ${sig}`;
+        }
+        if (outline) attrs.Profile = JSON.stringify([outline.flatMap(([t, zz]) => [(mx + d[0] * t + nrm[0] * lineA) * s, (my + d[1] * t + nrm[1] * lineA) * s, zz * s])]);
+        if (env.RECIPE_CW_DEBUG && cw.gid.includes(env.RECIPE_CW_DEBUG)) console.error(`[cw-debug] t0 ${t0.toFixed(3)} z0 ${z0.toFixed(3)} L ${L.toFixed(3)} H ${H.toFixed(3)}
+  plates ${plates.map((x) => `${(x.b.t0 - t0).toFixed(2)}..${(x.b.t1 - t0).toFixed(2)}/${(x.b.z0 - z0).toFixed(2)}..${(x.b.z1 - z0).toFixed(2)}`).join(' ')}
+  uprights ${uprights.map((b) => `${(b.t0 - t0).toFixed(2)}..${(b.t1 - t0).toFixed(2)}/${(b.z0 - z0).toFixed(2)}..${(b.z1 - z0).toFixed(2)}`).join(' ')}
+  rails ${rails.map((b) => `${(b.t0 - t0).toFixed(2)}..${(b.t1 - t0).toFixed(2)}/${(b.z0 - z0).toFixed(2)}..${(b.z1 - z0).toFixed(2)}`).join(' ')}`);
+        if (env.RECIPE_TRACE) console.error(`[curtain-pieces] ${cw.gid}: ${(L).toFixed(2)} x ${H.toFixed(2)} m, ${along.length} + ${up.length} lines, ${omit.length} out, ${merge.length} merged, ${empty.length} empty (${shapedHere.size} shaped), bars ${(wU * 1000).toFixed(0)}/${(wR * 1000).toFixed(0)} x ${(depth * 1000).toFixed(0)} mm, glass ${(glass * 1000).toFixed(0)} mm off ${((glassA - lineA) * 1000).toFixed(0)} mm`);
+        if (add(`${picked.fileId}:${cw.gid}:curtainPieces`, attrs)) curtainCount++;
+        curtainRead++;
+      }
+    }
+
     // ---- 2c. Stairs: Revit's own, one run each - straight, or sketched where the record has
     // its sketch (winders). Its family is the one its name starts with (assembled, precast,
     // cast in place), its risers as many as its rise needs at its type's riser at most.
+
     let stairCount = 0;
     let stairRead = 0;
+    /**
+     * 🔴 A STAIR OF SEVERAL FLIGHTS IS ONE STAIR (rac_advanced 12-11: each IfcStair two flights and a landing slab, made as two stairs
+     * and the landing a loose shape — its landings named «…:1», not «… Landing 1»): the flights the file puts in one IfcStair, one
+     * Revit stair of as many runs, its landings the slabs in it.
+     */
+    const stairOfFlight = (gid: string | undefined) => {
+      const parent = gid && shapes ? shapes.elements.get(gid)?.parent : null;
+      // (The IfcStair has no body of its own, so no shape: a flight's parent with none, or an IfcStair.)
+      if (!parent || !shapes) return null;
+      const of = shapes.elements.get(parent);
+      return !of || /^IFCSTAIR$/i.test(of.ifcClass) ? parent : null;
+    };
+    const flightsOf = new Map<string, number>();
+    for (const record of records) if (record.kind === 'stair' && record.params.of === 'stair') { const st = stairOfFlight(record.item.guid ?? undefined); if (st) flightsOf.set(st, (flightsOf.get(st) ?? 0) + 1); }
+    const stairGroups = new Map<string, { record: (typeof records)[number]; spec: Record<string, unknown>; level: string; type: string }[]>();
     // 🔴 ITS WIDTH OFF ITS SHAPE, when its style says none (Conference Center 24-10: the grand stair's two runs came
     // with width 0, «Curve length is too small for Revit's tolerance», not made): the span of its own shape and its
     // flights' across its path.
@@ -1592,8 +2112,116 @@ function sharedRun(to: 'frag' | 'ifc') {
         Stairs: JSON.stringify(spec),
       };
       if (typeof process !== 'undefined' && (process.env?.RECIPE_STAIR === record.item.guid || process.env?.RECIPE_STAIR === "*")) console.error(`[stair-spec] ${attrs.Stairs} style ${JSON.stringify(style)}`);
+      const ofStair = stairOfFlight(record.item.guid ?? undefined);
+      if (ofStair && (flightsOf.get(ofStair) ?? 0) > 1) {
+        if (!stairGroups.has(ofStair)) stairGroups.set(ofStair, []);
+        stairGroups.get(ofStair)!.push({ record, spec, level: level.name, type: attrs.Type });
+        continue;
+      }
       if (add(key(record.id), attrs)) stairCount++;
     }
+    for (const [stairGid, flights] of stairGroups) {
+      const runs = flights.map((f) => f.spec).sort((a, b) => Number(a.base) - Number(b.base));
+      const base = Number(runs[0].base), top = Math.max(...runs.map((r) => Number(r.base) + Number(r.height)));
+      // Its landings: the slabs in it, each by its box in plan, its top and how thick it is.
+      const landings = shapes ? [...shapes.elements.values()].filter((el) => el.parent === stairGid && /^IFCSLAB/i.test(el.ifcClass)).flatMap((el) => {
+        const q = shapePoints(shapes, el.gid);
+        if (q.length < 4) return [];
+        const [x0, x1, y0, y1] = [Math.min(...q.map((v) => v[0])), Math.max(...q.map((v) => v[0])), Math.min(...q.map((v) => v[1])), Math.max(...q.map((v) => v[1]))];
+        const [z0, z1] = [Math.min(...q.map((v) => v[2])) - shapeDz, Math.max(...q.map((v) => v[2])) - shapeDz];
+        return [{ outline: [[x0 * s, y0 * s], [x1 * s, y0 * s], [x1 * s, y1 * s], [x0 * s, y1 * s]], top: z1 * s, thickness: (z1 - z0) * s }];
+      }) : [];
+      // 🔴 ITS STRINGERS, THE MEMBERS IN IT (rac_advanced 12-11: its 36 «Stringer - Paint - 50 mm Width» lost, the stair 10 cm narrow):
+      // the members the file puts in the stair are its side stringers — as wide as they stand out past its flights, as deep as
+      // the thinnest stretch of them (a landing's, level) is tall.
+      const partsOf = (re: RegExp) => (shapes ? [...shapes.elements.values()].filter((el) => el.parent === stairGid && re.test(el.ifcClass)) : []);
+      const box = (els: { gid: string }[]) => {
+        const q = els.flatMap((el) => shapePoints(shapes!, el.gid));
+        return q.length ? [Math.min(...q.map((v) => v[0])), Math.max(...q.map((v) => v[0])), Math.min(...q.map((v) => v[1])), Math.max(...q.map((v) => v[1]))] : null;
+      };
+      const members = partsOf(/^IFCMEMBER/i);
+      let stringers: { width: number; depth: number } | null = null;
+      if (members.length) {
+        const fb = box(partsOf(/^IFCSTAIRFLIGHT/i)), mb = box(members);
+        const out = fb && mb ? [fb[0] - mb[0], mb[1] - fb[1], fb[2] - mb[2], mb[3] - fb[3]].filter((d) => d > 0.005) : [];
+        const tall: number[] = [];
+        for (const el of members) {
+          const at = new Map<string, number[]>();
+          for (const v of shapePoints(shapes!, el.gid)) { const k = `${Math.round(v[0] / 0.02)}|${Math.round(v[1] / 0.02)}`; const z = at.get(k) ?? [Infinity, -Infinity]; at.set(k, [Math.min(z[0], v[2]), Math.max(z[1], v[2])]); }
+          for (const [z0, z1] of at.values()) if (z1 - z0 > 0.05) tall.push(z1 - z0);
+        }
+        // (Its depth across its slope: the tallest it stands, along its flights, times the cosine of their pitch — a cut end
+        // is lower; a level stretch, at its own depth, is no taller than the sloped one so measured.)
+        const byCm = new Map<number, number>(); for (const t of tall) { const k = Math.round(t * 100); byCm.set(k, (byCm.get(k) ?? 0) + 1); }
+        const r0 = runs[0] as { tread?: number; height?: number; risers?: number };
+        const pitch = r0.tread && r0.height && r0.risers ? Math.atan(r0.height / r0.risers / r0.tread) : 0;
+        // Each member across its pitch, along its longer side in plan: the spread of its points square to its slope; a level
+        // one (a landing's), its height. The thinnest is the stringer's depth.
+        const across = members.map((el) => {
+          const q = shapePoints(shapes!, el.gid);
+          if (q.length < 4) return Infinity;
+          const dx = Math.max(...q.map((v) => v[0])) - Math.min(...q.map((v) => v[0])), dy = Math.max(...q.map((v) => v[1])) - Math.min(...q.map((v) => v[1]));
+          const along = q.map((v) => (dx >= dy ? v[0] : v[1]));
+          const zs = q.map((v) => v[2]);
+          const spread = (a: number) => { const t = q.map((_, k) => -Math.sin(a) * along[k] + Math.cos(a) * zs[k]); return Math.max(...t) - Math.min(...t); };
+          return Math.min(spread(pitch), spread(-pitch), spread(0));
+        }).filter((d) => d > 0.05 && d < 2);
+        // (A member that turns — flight, landing, flight in one — has no one slope to be square to: then the height most of it stands.)
+        const mostly = tall.length ? [...byCm].sort((p, q) => q[1] - p[1] || q[0] - p[0])[0][0] / 100 : 0;
+        const fit = across.length ? Math.min(...across) : 0;
+        const depth = Math.round((fit > 0 && fit < 0.6 ? fit : mostly) * 1000) / 1000;
+        if (out.length && depth > 0) stringers = { width: Math.min(...out) * s, depth: depth * s };
+        if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[stair-stringers] ${stairGid}: ${members.length} member(s), out ${out.map((d) => d.toFixed(3)).join('/')}, depth ${depth.toFixed(3)} of ${[...byCm].sort((p, q) => q[1] - p[1]).map(([k, n]) => `${k}cm×${n}`).join(' ')}`);
+      }
+      const spec = {
+        ...runs[0],
+        ...(stringers ? { sizes: { ...((runs[0] as { sizes?: object }).sizes ?? {}), stringerWidth: stringers.width, stringerDepth: stringers.depth } } : {}),
+        base,
+        height: top - base,
+        risers: runs.reduce((t, r) => t + Number(r.risers), 0),
+        runs: runs.map((r) => ({ path: r.path, risers: r.risers, tread: r.tread, width: r.width, endsWithRiser: r.endsWithRiser, base: r.base, height: r.height, sketch: r.sketch })),
+        ...(landings.length ? { landings } : {}),
+      };
+      delete (spec as Record<string, unknown>).sketch;
+      const attrs: Record<string, string> = { CategoryId: CATEGORY.stairs, Type: flights[0].type, Level: flights[0].level, Stairs: JSON.stringify(spec) };
+      if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[stair-group] ${stairGid}: ${runs.length} flight(s), ${landings.length} landing(s), ${spec.risers} risers, ${(top - base) / s} m`);
+      // (Its key the stair's own: its parts — the flights, the landing slabs — are its, not shapes of their own.)
+      if (add(`${picked.fileId}:${stairGid}:stair`, attrs)) stairCount++;
+    }
+    // ---- 2c. Railings: Revit's own, along the file's path. ----
+    // 🔴 A RAILING IS A RAILING (rac_advanced 12-11: its 22 came in as shapes, generic models): the converter's run of it — its path, its
+    // base, its height and its type — as Revit's railing, of the model's type of that name, or one of its height.
+    // 🔴 ONE ON A STAIR GOES ON THAT STAIR (rac_advanced 12-11: its stairs' railings flat at each flight's foot, the original's up their
+    // slope): the stair the file puts it in, its key, for Revit to host it there.
+    const stairKeyOf = new Map<string, string>();
+    for (const record of records) {
+      if (record.kind !== 'stair' || record.params.of !== 'stair') continue;
+      const st = stairOfFlight(record.item.guid ?? undefined);
+      if (st && !stairKeyOf.has(st)) stairKeyOf.set(st, (flightsOf.get(st) ?? 0) > 1 ? `${picked.fileId}:${st}:stair` : key(record.id));
+    }
+    let railingCount = 0, railingRead = 0;
+    for (const record of records) {
+      if (record.kind !== 'run' || record.params.of !== 'railing') continue;
+      railingRead++;
+      const body = innerJson<RunBody & { height?: number }>(record, 'run');
+      const curves = body?.run?.line?.curves ?? [];
+      const level = levels.get(String(body?.level ?? record.params.level ?? ''));
+      if (!curves.length || !level || curves.some((cv) => cv.kind !== 'segment' || !cv.from || !cv.to)) continue;
+      const pts = [curves[0].from!, ...curves.map((cv) => cv.to!)].map((q) => [q[0] * s, q[1] * s]);
+      const lookRef = String(record.params.lookRef ?? record.params.type ?? '');
+      // (Its type the native one the file names, «Family:Type:Id», when it came from Revit; else its style's name.)
+      const typeName = nativeOf(record)?.type ?? lookRef.split(':').pop() ?? lookRef;
+      const parent = record.item.guid && shapes ? shapes.elements.get(record.item.guid)?.parent : null;
+      const onStair = parent ? stairKeyOf.get(parent) : undefined;
+      const attrs: Record<string, string> = {
+        CategoryId: CATEGORY.railings,
+        Type: typeName,
+        Level: level.name,
+        Railing: JSON.stringify({ path: pts, base: (level.at + (Number(body?.base ?? record.params.base) || 0)) * s, height: (Number(body?.height ?? record.params.height) || 0) * s, ...(onStair ? { stair: onStair } : {}) }),
+      };
+      if (add(key(record.id), attrs)) railingCount++;
+    }
+    if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[railings] ${railingCount} of ${railingRead}`);
 
     // ---- 3. Floors, foundation slabs, roofs and ceilings: slabs by their boundary loops. ----
     // Read and written per kind: each is its own row of the rules table.
@@ -1623,7 +2251,35 @@ function sharedRun(to: 'frag' | 'ifc') {
       const body = innerJson<ExtrusionBody>(record, 'extrusion');
       // 🔴 A PROFILE DRAWN STANDING UP IS NO FLOOR'S OUTLINE (GNI model_120 r55: 11 stepped footings «Fundament 60 x 60 x
       // 1.20», their L section on a vertical workplane, laid flat at the origin by Revit or lost): left to its shape.
-      const on = (body as { on?: { u?: number[]; v?: number[] } } | null)?.on;
+      const on = (body as { on?: { u?: number[]; v?: number[]; origin?: number[] } } | null)?.on;
+      // 🔴 A ROOF BY EXTRUSION AS THE CONVERTER READS ONE (`extruded`: its top line drawn in a plane standing up, pushed from where it
+      // starts to where it ends; rac_advanced's butterfly roof «Generic - 400mm», 12-11): Revit's own roof by extrusion. Taken for a
+      // profile standing up, it was left to its two faces' shapes.
+      const extruded = (body as { extruded?: { line?: { curves?: CurveJson[] }; from?: number; to?: number } } | null)?.extruded;
+      if (kind === 'roof' && on && extruded?.line?.curves?.length && typeof extruded.from === 'number' && typeof extruded.to === 'number') {
+        const lvl = levels.get(String(body?.level ?? record.params.level ?? ''));
+        const u = on.u ?? [1, 0, 0], o = on.origin ?? [0, 0, 0];
+        const along = [u[1], -u[0]];
+        const pts = [extruded.line.curves[0].from!, ...extruded.line.curves.map((cv) => cv.to!)].filter(Boolean);
+        const at = (d: number, z: number, t: number) => [(o[0] + u[0] * d + along[0] * t) * s, (o[1] + u[1] * d + along[1] * t) * s, ((lvl?.at ?? 0) + z) * s];
+        if (lvl && pts.length >= 2 && typeof record.params.lookRef === 'string') {
+          const profile = pts.map((p) => at(p[0], p[1], extruded.from!));
+          const plan = [at(pts[0][0], 0, extruded.from), at(pts[pts.length - 1][0], 0, extruded.from), at(pts[pts.length - 1][0], 0, extruded.to), at(pts[0][0], 0, extruded.from === extruded.to ? extruded.to + 1 : extruded.to)].flat();
+          const xattrs: Record<string, string> = {
+            CategoryId: CATEGORY.roofs,
+            Type: nativeOf(record)?.type ?? String(record.params.lookRef),
+            Profile: JSON.stringify([plan]),
+            Level: lvl.name,
+            Extrusion: JSON.stringify({ profile, along, length: (extruded.to - extruded.from) * s }),
+          };
+          const w = thicknessOf(String(record.params.lookRef));
+          if (w) xattrs['Type.Width'] = num(w);
+          slabRead.roof++;
+          if (add(key(record.id), xattrs)) slabMade.roof++;
+          if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[roof-extruded] ${record.item.guid} ${record.params.lookRef}: ${pts.length} corner(s), ${(extruded.to - extruded.from).toFixed(3)} m along`);
+          continue;
+        }
+      }
       if (on && (Math.abs(on.u?.[2] ?? 0) > 1e-3 || Math.abs(on.v?.[2] ?? 0) > 1e-3)) continue;
       // 🔴 A ONE-PLANE ROOF WHOSE LOW SIDE IS A CORNER, NO EDGE (GNI model_98 r55: «FB 100 leer», 14 pieces of a 2-3° deck
       // as IfcSlab, each a slope toward a vertex of its outline; no edge to put Revit's footprint slope on, made flat, 14
@@ -1658,9 +2314,27 @@ function sharedRun(to: 'frag' | 'ifc') {
         }
         return flat.length >= 9 ? flat : null;
       };
-      const outer = loopOf(body?.profile?.outline?.curves);
+      let outer = loopOf(body?.profile?.outline?.curves) as number[];
       if (typeof lookRef !== 'string' || !level || !outer) continue;
-      const loops: number[][] = [outer];
+      // 🔴 AND THE REST OF IT, WHEN THE FILE WRITES IT IN PIECES (BLOXHUB 13-11: a ceiling of two rectangles side by side, the reader's
+      // `regions`, came as its first — 13.6 m of 32.2, 93 ceilings over 30 cm off): its regions joined to its outline where they touch.
+      const regionLoops = ((body as { regions?: { outline?: { curves?: CurveJson[] }; holes?: { curves?: CurveJson[] }[] }[] } | null)?.regions ?? []);
+      const extraLoops: number[][] = [];
+      if (regionLoops.length > 0) {
+        const toPts = (l: number[]) => { const q: number[][] = []; for (let k = 0; k + 2 < l.length; k += 3) q.push([l[k] / s, l[k + 1] / s]); return q; };
+        const fromPts = (q: number[][]) => q.flatMap((p) => [p[0]! * s, p[1]! * s, base * s]);
+        const pieces = [outer, ...regionLoops.map((r) => loopOf(r.outline?.curves)).filter((l): l is number[] => !!l)].map(toPts);
+        const joined = unionOfLoops(pieces);
+        const ccw = (q: number[][]) => q.reduce((a, p, i) => { const r = q[(i + 1) % q.length]!; return a + p[0]! * r[1]! - r[0]! * p[1]!; }, 0) / 2;
+        const outers = joined.filter((q) => ccw(q) > 0).sort((x, y) => ccw(y) - ccw(x));
+        if (outers.length > 0) {
+          outer = fromPts(outers[0]!);
+          for (const q of [...outers.slice(1), ...joined.filter((q) => ccw(q) < 0)]) extraLoops.push(fromPts(q));
+          for (const r of regionLoops) for (const h of r.holes ?? []) { const l = loopOf(h.curves); if (l) extraLoops.push(l); }
+          if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[slab-regions] ${record.item.guid} ${record.item.name ?? ''}: ${pieces.length} pieces → ${outers.length} outline(s), ${joined.length - outers.length} hole(s)`);
+        }
+      }
+      const loops: number[][] = [outer, ...extraLoops];
       // A gable's holes lie ON its face, each corner at the slope's height there: Revit cuts a
       // roof's hole square to the face from where the loop is, and a loop left at the level
       // slid sideways up the slope and across the ridge ("overlapping lines").
@@ -1730,6 +2404,26 @@ function sharedRun(to: 'frag' | 'ifc') {
         const layers = shapes.elements.get(record.item.guid)?.layers;
         const sum = layers?.reduce((t, l) => t + (l.thickness > 0 ? l.thickness : 0), 0) ?? 0;
         if (sum > 0 && (!width || Math.abs(sum * s - width) > 0.2 * width)) width = sum * s;
+        // 🔴 A FLAT ROOF AS THICK AS ITS BODY, where that is more than its layers (12-11, rac_advanced's «Concrete Deck - Tapered Insulation»:
+        // its layers 0.25 m, its tapered insulation up to 0.40; made by its layers it came 15 cm short of its top). (Its falls themselves are
+        // Revit's shape editing, not made yet.)
+        const slopes = (body as { slopes?: unknown[] } | null)?.slopes;
+        if (!(Array.isArray(slopes) && slopes.some((x) => typeof x === 'number'))) {
+          const q = shapePoints(shapes, record.item.guid);
+          if (q.length) {
+            const h = (Math.max(...q.map((p) => p[2])) - Math.min(...q.map((p) => p[2]))) * s;
+            if (width && h > width * 1.05 && h < width * 3) width = h;
+          }
+        }
+      }
+      // 🔴 A ROOF OF GLASS IS GLAZING, NOT A SLAB (rac_advanced 12-11: its three «Sloped Glazing», each 14 panels and 40 bars in
+      // the file, came as solid roofs, not a pane of glass among them): Revit's own sloped glazing, a bar where the file has each.
+      if (kind === 'roof' && shapes && record.item.guid) {
+        const glazing = glazingOf(record.item.guid);
+        if (glazing) {
+          attrs.Glazing = JSON.stringify(glazing);
+          if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[glazing] ${record.item.guid} ${record.item.name ?? ''}: ${glazing.bars.length} bar(s), ${glazing.panels} panel(s), bar ${(glazing.mullion.width / s * 1000).toFixed(0)} x ${(glazing.mullion.depth / s * 1000).toFixed(0)} mm`);
+        }
       }
       if (width) attrs['Type.Width'] = num(width);
       // 🔴 ONE TYPE, ONE WIDTH, as a wall's (GNI model_78's «Foundation Slab», 50, 15 and 12 cm: made by the first, the
@@ -1948,6 +2642,21 @@ function sharedRun(to: 'frag' | 'ifc') {
         instanceCount++;
     }
 
+    // ---- 5a'. REINFORCING BARS AS REBAR (13-11: school_str's 619, DACH's 195, all generic models where Revit has them as rebar in
+    // their host): each bar by its axis (feet) and its diameter; the applier finds the host it lies in and the bar type of that size.
+    let rebarCount = 0;
+    if (shapes && env0.RECIPE_REBAR !== '0')
+      for (const el of shapes.elements.values()) {
+        if (!el.rebar || el.rebar.path.length < 2) continue;
+        const attrs: Record<string, string> = {
+          CategoryId: CATEGORY.rebar,
+          Type: (el.typeName ?? el.objectType ?? el.name ?? 'Rebar').replace(/^.*?:\s*/, '').trim() || 'Rebar',
+          Rebar: JSON.stringify({ diameter: 2 * el.rebar.radius * s, path: el.rebar.path.map((p) => [p[0] * s, p[1] * s, p[2] * s]) }),
+        };
+        if (add(`${picked.fileId}:${el.gid}:rebar`, attrs)) rebarCount++;
+      }
+    if (rebarCount && env0.RECIPE_TRACE) console.error(`[rebar] ${rebarCount} bar(s) as rebar`);
+
     // ---- 5b. Everything else with a body, as FAMILIES made from the file's own shapes. ----
     // 🔴 (Antonio, 21-10: «llegar al 100 %… comparar el brep o la mesh y que sea igual… definiendo familias»).
     // Whatever no step above builds natively (doors and windows, furniture, fixtures, proxies, columns, railings,
@@ -1955,6 +2664,7 @@ function sharedRun(to: 'frag' | 'ifc') {
     // element's frame, placed where the file has each. Doors and windows in the wall whose opening they fill.
     if (shapedPanels.size && typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[shaped-panels] ${shapedPanels.size} curtain panel(s) made as families of their shape`);
     const shaped = shapes ? familiesFromShapes(shapes, seen, picked.fileId, shapedPanels).filter((one) => !voidForms.some((shaft) => shaft.guid && one.key.includes(shaft.guid))) : [];
+    if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) { const by: Record<string, number> = {}; for (const one of shaped) by[one.attrs.ShapeCategory] = (by[one.attrs.ShapeCategory] ?? 0) + 1; console.error(`[shaped-categories] ${JSON.stringify(by)}`); }
     // (RECIPE_GID=<gid>: what one shaped element is sent as, its shape left out.)
     if (typeof process !== 'undefined' && process.env?.RECIPE_GID)
       for (const one of shaped.filter((x) => x.key.includes(process.env!.RECIPE_GID!))) console.error(`[shaped] ${one.key} at ${one.at} turn ${one.rotationDeg} host ${one.host} ${JSON.stringify({ ...one.attrs, Shape: one.attrs.Shape ? '…' : undefined })}`);

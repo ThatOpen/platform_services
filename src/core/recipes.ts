@@ -203,6 +203,10 @@ export interface SourceShapes {
       host: string | null;
       /** A column the file says bears load (Pset_ColumnCommon.LoadBearing). */
       loadBearing?: boolean;
+      /** Its classification's code (Uniformat, as Revit writes its assembly code). */
+      classification?: string;
+      /** A reinforcing bar's axis (world metres, z up) and its radius: made a native rebar. */
+      rebar?: { path: readonly (readonly [number, number, number])[]; radius: number };
       opening?: string | null;
       pieces: { geometry: number; matrix: number[] }[];
       /** Its layer stack as the file declares it, metres, in the file's order; flipped: laid against its axis. */

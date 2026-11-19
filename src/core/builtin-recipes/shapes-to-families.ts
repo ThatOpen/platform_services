@@ -23,6 +23,8 @@ export const SHAPE_CATEGORY: Readonly<Record<string, string>> = {
   IFCSANITARYTERMINAL: 'OST_PlumbingFixtures',
   IFCFLOWTERMINAL: 'OST_PlumbingFixtures',
   IFCCOLUMN: 'OST_Columns',
+  // (A beam is structural framing, as Revit holds it: rac_advanced's 38 came in as generic models, 12-11.)
+  IFCBEAM: 'OST_StructuralFraming',
   IFCFOOTING: 'OST_StructuralFoundation',
   IFCGEOGRAPHICELEMENT: 'OST_Site',
   IFCELECTRICAPPLIANCE: 'OST_ElectricalEquipment',
@@ -30,6 +32,57 @@ export const SHAPE_CATEGORY: Readonly<Record<string, string>> = {
   IFCUNITARYEQUIPMENT: 'OST_MechanicalEquipment',
 };
 const GENERIC = 'OST_GenericModel';
+
+/**
+ * 🔴 THE REVIT CATEGORY AN ELEMENT'S NAME STARTS WITH (Antonio 13-11, «que TODO sean entidades nativas lo más cercanas
+ * posibles al IFC original»; school_str: 175 piles and pile caps, 22 truss chords and 2 stiffeners came in as generic
+ * models): an IFC exported from Revit with «Category : Family : Type» names says the category itself. Only the ones a
+ * loadable family can be (a railing, a stair, rebar cannot), in the languages Revit exports.
+ */
+const CATEGORY_OF_LABEL: Readonly<Record<string, string>> = {
+  'structural foundations': 'OST_StructuralFoundation', 'cimentación estructural': 'OST_StructuralFoundation', 'tragwerksfundamente': 'OST_StructuralFoundation', 'fondations': 'OST_StructuralFoundation',
+  'structural framing': 'OST_StructuralFraming', 'armazón estructural': 'OST_StructuralFraming', 'tragwerk': 'OST_StructuralFraming', 'ossature': 'OST_StructuralFraming',
+  'structural columns': 'OST_StructuralColumns', 'pilares estructurales': 'OST_StructuralColumns', 'tragwerksstützen': 'OST_StructuralColumns', 'poteaux porteurs': 'OST_StructuralColumns',
+  'structural stiffeners': 'OST_StructuralStiffener', 'rigidizadores estructurales': 'OST_StructuralStiffener',
+  'columns': 'OST_Columns', 'pilares': 'OST_Columns', 'stützen': 'OST_Columns', 'poteaux': 'OST_Columns',
+  'furniture': 'OST_Furniture', 'mobiliario': 'OST_Furniture', 'möbel': 'OST_Furniture', 'mobilier': 'OST_Furniture',
+  'casework': 'OST_Casework', 'mueble de obra': 'OST_Casework', 'mobiliario fijo': 'OST_Casework',
+  'plumbing fixtures': 'OST_PlumbingFixtures', 'aparatos sanitarios': 'OST_PlumbingFixtures', 'sanitärinstallationen': 'OST_PlumbingFixtures',
+  'lighting fixtures': 'OST_LightingFixtures', 'luminarias': 'OST_LightingFixtures', 'leuchten': 'OST_LightingFixtures',
+  'specialty equipment': 'OST_SpecialityEquipment', 'equipos especializados': 'OST_SpecialityEquipment',
+  'mechanical equipment': 'OST_MechanicalEquipment', 'equipos mecánicos': 'OST_MechanicalEquipment',
+  'electrical equipment': 'OST_ElectricalEquipment', 'equipos eléctricos': 'OST_ElectricalEquipment',
+  'electrical fixtures': 'OST_ElectricalFixtures', 'aparatos eléctricos': 'OST_ElectricalFixtures',
+  'planting': 'OST_Planting', 'vegetación': 'OST_Planting', 'entourage': 'OST_Entourage', 'site': 'OST_Site', 'emplazamiento': 'OST_Site',
+  'parking': 'OST_Parking', 'aparcamiento': 'OST_Parking', 'doors': 'OST_Doors', 'puertas': 'OST_Doors', 'windows': 'OST_Windows', 'ventanas': 'OST_Windows',
+  'generic models': 'OST_GenericModel', 'modelos genéricos': 'OST_GenericModel',
+};
+/** The loadable-family category a «Category : Family : Type» name says, or none. */
+export const categoryOfName = (name: string | null | undefined): string | undefined => {
+  if (!name || !/\s:\s/.test(name)) return undefined;
+  return CATEGORY_OF_LABEL[name.split(':')[0].trim().toLowerCase()];
+};
+/**
+ * 🔴 THE CATEGORY ITS CLASSIFICATION SAYS, for one its class leaves a generic model (13-11: Snowdon's 1068 proxies, refrigerators,
+ * cabinets, plants, lamps, all generic models; Revit writes each element's Uniformat assembly code, and that code says what it is):
+ * by its longest Uniformat prefix, as Revit's own assembly codes sort its categories.
+ */
+const CATEGORY_OF_UNIFORMAT: readonly (readonly [string, string])[] = [
+  ['G2050', 'OST_Planting'],
+  ['C10302', 'OST_SpecialityEquipment'], ['C10304', 'OST_Casework'],
+  ['E2010', 'OST_Casework'], ['E2020', 'OST_Furniture'],
+  ['E10', 'OST_SpecialityEquipment'], ['D1010', 'OST_SpecialityEquipment'],
+  ['D2010', 'OST_PlumbingFixtures'],
+  ['D30', 'OST_MechanicalEquipment'],
+  ['D5010', 'OST_ElectricalEquipment'], ['D5020', 'OST_LightingFixtures'],
+];
+export const categoryOfUniformat = (code: string | null | undefined): string | undefined => {
+  if (!code) return undefined;
+  const c = code.trim().toUpperCase();
+  return CATEGORY_OF_UNIFORMAT.filter(([prefix]) => c.startsWith(prefix)).sort((a, b) => b[0].length - a[0].length)[0]?.[1];
+};
+/** Whether a name starts with a Revit category label («Structural Foundations : M_Pile : 500mm»). */
+export const startsWithACategory = (name: string | null | undefined): boolean => categoryOfName(name) !== undefined || /^(walls|muros|floors|suelos|roofs|cubiertas|stairs|escaleras|railings|barandillas|structural rebar|armadura estructural|ceilings|techos|curtain panels|paneles de muro cortina|curtain wall mullions|montantes de muro cortina)\s*:/i.test(name ?? '');
 
 /** What is never a family: spaces, openings, annotations, the site (a terrain, not a thing). */
 const NOT_A_THING = new Set(['IFCSPACE', 'IFCOPENINGELEMENT', 'IFCSITE', 'IFCANNOTATION', 'IFCGRID', 'IFCVIRTUALELEMENT', 'IFCBUILDING', 'IFCBUILDINGSTOREY']);
@@ -89,7 +142,9 @@ export function familiesFromShapes(shapes: SourceShapes, written: ReadonlySet<st
     // in (Savoyvilla's «结构柱» pilotis: 27 of 39 lost their part inside the walls, 23-10).
     // (Or bears load, as the file says: racbasic's L-angles, made architectural, joined to the roof and cut 30 cm short.)
     const structural = /^IFCCOLUMN$/i.test(el.ifcClass) && (el.loadBearing || /structural|estructural|结构柱|tragend|tragwerk/i.test(`${el.typeName ?? ''} ${el.objectType ?? ''} ${el.name ?? ''}`));
-    const category = structural ? 'OST_StructuralColumns' : SHAPE_CATEGORY[el.ifcClass.toUpperCase()] ?? GENERIC;
+    const said = categoryOfName(el.name) ?? categoryOfName(el.objectType);
+    const byClass = (said && said !== GENERIC ? said : undefined) ?? SHAPE_CATEGORY[el.ifcClass.toUpperCase()] ?? GENERIC;
+    const category = structural ? 'OST_StructuralColumns' : byClass === GENERIC ? categoryOfUniformat(el.classification) ?? GENERIC : byClass;
 
     // The frame: the first piece's placement, if it is upright and unmirrored only its turn about Z.
     const first = parts(el.pieces[0].matrix);
@@ -753,8 +808,10 @@ export function shapedPanelsOf(shapes: SourceShapes, curtainGid: string, _sheet:
         const area = Math.hypot(n[0], n[1], n[2]);
         if (area > best) { best = area; bn = n.map((v) => v / area); }
       }
+      if (typeof process !== 'undefined' && process.env?.RECIPE_CW_DEBUG && curtainGid.includes(process.env.RECIPE_CW_DEBUG)) console.error(`[tilt-debug] ${el.gid} n ${bn?.map((v) => v.toFixed(3))} wall ${wallNormal.map((v) => v.toFixed(3))}`);
       if (bn && Math.abs(bn[0] * wallNormal[0] + bn[1] * wallNormal[1]) < 0.996) { out.push({ gid: el.gid, centre: [(mn[0] + mx[0]) / 2, (mn[1] + mx[1]) / 2, (mn[2] + mx[2]) / 2] }); continue; }
     }
+    if (typeof process !== 'undefined' && process.env?.RECIPE_CW_DEBUG && curtainGid.includes(process.env.RECIPE_CW_DEBUG)) console.error(`[panel-debug] ${el.gid} pieces ${el.pieces.length} tris ${tris} plain ${plain}`);
     if (plain) continue;
     out.push({ gid: el.gid, centre: [(mn[0] + mx[0]) / 2, (mn[1] + mx[1]) / 2, (mn[2] + mx[2]) / 2] });
   }

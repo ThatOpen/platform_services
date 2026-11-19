@@ -118,6 +118,24 @@ describe('PlatformClient — bearer-configured EngineServicesClient', () => {
       expect(client.context.projectId).toBe('proj-1');
       expect(client.context.accessToken).toBe('ctx-jwt');
     });
+
+    it('sends the token the context holds now, renewed after it was made', async () => {
+      const context = {
+        appId: 'app-1',
+        projectId: 'proj-1',
+        accessToken: 'old-jwt',
+        apiUrl: API,
+      };
+      (globalThis as unknown as { window: object }).window = {
+        __THATOPEN_CONTEXT__: context,
+      };
+      const client = PlatformClient.fromPlatformContext();
+      context.accessToken = 'renewed-jwt';
+      const resolve = (
+        client as unknown as { resolveAccessToken: () => Promise<string> }
+      ).resolveAccessToken.bind(client);
+      expect(await resolve()).toBe('renewed-jwt');
+    });
   });
 
   it('always authenticates with Bearer regardless of props', async () => {
