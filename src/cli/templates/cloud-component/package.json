@@ -10,7 +10,7 @@
     "publish": "thatopen publish"
   },
   "dependencies": {
-    "@thatopen/components": "~3.4.0",
+    "@thatopen/components": "^3.6.0",
     "@thatopen/services": "^{{VERSION}}",
     "three": "^0.182.0"
   },

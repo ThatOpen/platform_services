@@ -14,7 +14,14 @@ export default defineConfig({
       // Optional peers, resolved from the CONSUMER's node_modules at the
       // moment an operation is built — bundling them here would ship the
       // whole fragments schema to every app that never authors one.
-      external: ['flatbuffers', '@thatopen/fragments'],
+      external: [
+        'flatbuffers',
+        '@thatopen/fragments',
+        // three's examples (fat lines, controls…) are the app's, like three: bundled here they are the WebGL ones,
+        // and an app on the public engine 3.6, which runs three's WebGPU build, failed setting up on them
+        // (`UniformsLib.line` of an undefined UniformsLib). Left external, the app resolves them, WebGPU or not.
+        /^three\//,
+      ],
       output: {
         assetFileNames: 'assets/[name][extname]',
         entryFileNames: '[name].[format].js',

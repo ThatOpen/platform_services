@@ -35,19 +35,8 @@ export const createCommand = new Command('create')
       process.exit(1);
     }
 
-    // The templates currently depend on engine APIs that only exist in the beta
-    // libraries. Until the public engine catches up (October release),
-    // scaffolding without --beta would produce a project that doesn't type-check
-    // or run — so require --beta explicitly for every template.
-    if (!opts.beta) {
-      console.error(
-        'Non-beta projects are not available yet.\n\n' +
-        `  thatopen create ${projectName} --beta\n\n` +
-        'The templates currently require the beta engine libraries. Public ' +
-        '(non-beta) engine support is coming with the October release.',
-      );
-      process.exit(1);
-    }
+    // Without --beta the project uses the public engine libraries (@thatopen/*), which anyone can install; with it, a
+    // Founding Member gets the beta ones (@thatopen-platform/*-beta) through the private registry.
 
     const isCloud = template === 'cloud-component';
     const projectKind = isCloud ? 'cloud component' : 'app';
