@@ -1,8 +1,8 @@
 /**
- * A Rhino layer becomes Revit family instances: the built-in form of the one
+ * A the other modelling tool layer becomes the modelling tool family instances: the built-in form of the one
  * conversion proven end to end (flow, 2026-07-30). Each object of the chosen
- * layer that declares a `Position` asks for an instance of the chosen Revit
- * type where it stands - the porch colonnade: Rhino drives WHERE, Revit owns
+ * layer that declares a `Position` asks for an instance of the chosen the modelling tool
+ * type where it stands - the porch colonnade: the other modelling tool drives WHERE, the modelling tool owns
  * WHAT.
  */
 import { UpToDate, type Recipe, type RecipeContext } from '../recipes';
@@ -34,20 +34,20 @@ const METRES_PER_UNIT: Record<string, number> = {
 };
 
 /** A family type of the target, as the target publishes it. */
-interface RevitType {
+interface NativeType {
   categoryId: string;
   family: string;
   type: string;
 }
 
 interface Settings {
-  /** The Rhino layer that drives placement. */
+  /** The other modelling tool layer that drives placement. */
   layer: string;
   /**
-   * The Revit type every placed object becomes. Unsaid: each object is made as a family of its own shape (one per
-   * shape; a prism, one per profile with its length an instance parameter), standing where Rhino has it.
+   * The modelling tool type every placed object becomes. Unsaid: each object is made as a family of its own shape (one per
+   * shape; a prism, one per profile with its length an instance parameter), standing where the other modelling tool has it.
    */
-  instanceType?: RevitType;
+  instanceType?: NativeType;
 }
 
 const NAME = 'rhino-to-revit';
@@ -62,11 +62,11 @@ function positionOf(item: FragItem): [number, number, number] | null {
   return [parts[0], parts[1], parts[2]];
 }
 
-export const rhinoToRevit: Recipe<Settings> = {
+export const layerToNative: Recipe<Settings> = {
   name: NAME,
-  title: 'Rhino to Revit',
+  title: 'Layer to native model',
   description:
-    'Places in Revit an instance of a chosen type at each placed object of a Rhino layer.',
+    'Places in the modelling tool an instance of a chosen type at each placed object of a layer.',
   to: 'revit',
   inputs: ['rhino-model'],
   source: { kind: 'project-file', extensions: ['frag'] },
@@ -75,12 +75,12 @@ export const rhinoToRevit: Recipe<Settings> = {
     properties: {
       layer: {
         type: 'string',
-        title: 'Rhino layer',
+        title: 'Layer',
         'x-existing': { of: 'layer', from: 'source' },
       },
       instanceType: {
         type: 'object',
-        title: 'Revit type',
+        title: 'Type',
         'x-existing': { of: 'family-type', from: 'target' },
       },
     },
@@ -96,7 +96,7 @@ export const rhinoToRevit: Recipe<Settings> = {
       writes: 'That instance moved to where the object is now',
     },
     {
-      reads: 'Instances whose object is gone from Rhino',
+      reads: 'Instances whose object is gone from the source',
       writes: 'That instance removed',
     },
     { reads: 'Everything on other layers', writes: 'Nothing' },
@@ -104,28 +104,28 @@ export const rhinoToRevit: Recipe<Settings> = {
   doc: `
 ## What it does
 
-It reads a model published from Rhino and places in Revit instances of one
+It reads a model published from a shape modeller and places in the modelling tool instances of one
 type: one where each placed object of a layer stands. It never touches the
-Rhino model. In Revit: That Open > Select recipe, then Update.
+the shape modeller model. In the modelling tool: That Open > Select recipe, then Update.
 
 ## It reconciles, it does not push
 
-Apply it again after the Rhino model changed and it writes only the
+Apply it again after the source model changed and it writes only the
 difference: new objects become new instances, moved objects move theirs, and
 an object that is gone has its instance removed. It only ever removes an
-instance it made itself - elements a person made in Revit are invisible to
+instance it made itself - elements a person made in the modelling tool are invisible to
 it. What it made is remembered with the model's That Open data.
 
 ## What it assumes
 
-- The Rhino model declares its units. One that does not is refused, not guessed.
+- The shape modeller model declares its units. One that does not is refused, not guessed.
 - Both models are Z up. A different axis convention is refused.
-- The Revit type exists in the target. Revit matches a type exactly and
+- The modelling tool type exists in the target. the modelling tool matches a type exactly and
   refuses the whole apply when one is missing.
 
 ## What it does not know
 
-Where an object becomes an instance, Revit decides the level: the nearest one
+Where an object becomes an instance, the modelling tool decides the level: the nearest one
 at or below the point. For a level-based family the level wins over the
 point's height.
 `,
@@ -139,7 +139,7 @@ point's height.
       { shapes: !instanceType },
     );
     if (!instanceType && !shapes)
-      throw new Error('Choose the Revit type: this app cannot read the shapes of the Rhino model to make its own families.');
+      throw new Error('Choose the type: this app cannot read the shapes of the source model to make its own families.');
 
     // Refused rather than guessed: a length read in the wrong unit is off by
     // a thousand and still looks plausible.
@@ -182,7 +182,7 @@ point's height.
     const moves: { instance: string; object: string; position: [number, number, number] }[] = [];
     // 🔴 FROM THEIR OWN SHAPES, WHEN NO TYPE IS CHOSEN (VSL 16-11: the architect's 82 façade fins, «as native elements»): the
     // layer's objects made as families of their shape, the same way an IFC's are (`familiesFromShapes`): one per shape, a
-    // prism one per profile with its length an instance parameter, each standing at its base where Rhino has it. Kept when
+    // prism one per profile with its length an instance parameter, each standing at its base where the other modelling tool has it. Kept when
     // what it asks is what it was made from; made again when the object changed.
     if (!instanceType && shapes) {
       const onLayer = new Set(contents.items.filter((it) => it.guid && (it.attrs.Layer ?? '') === layer).map((it) => it.guid!));
@@ -272,7 +272,7 @@ point's height.
       removed ? `${removed} gone` : '',
     ].filter(Boolean);
     return {
-      title: `From Rhino: ${words.join(', ')}`,
+      title: `From the source: ${words.join(', ')}`,
       verb: operation.summary,
       targets: total,
       payload: new Blob([(await operation.build(context.opId)) as BlobPart]),

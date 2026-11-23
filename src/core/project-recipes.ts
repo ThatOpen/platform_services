@@ -314,7 +314,7 @@ function toBase64(text: string): string {
 /**
  * The changes a run asks for, as data a person (or an AI checking its recipe) can read: one entry per
  * change, in order, with its verb, the element it targets (for set and remove), the source it answers to,
- * and what it writes. No Revit needed: this is what the plugin would apply.
+ * and what it writes. No the modelling tool needed: this is what the plugin would apply.
  */
 export async function describeChanges(payload: Blob | Uint8Array): Promise<{
   envelope: Record<string, unknown>;

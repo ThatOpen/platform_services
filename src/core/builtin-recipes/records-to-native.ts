@@ -1,7 +1,7 @@
 /**
- * The platform's own records become Revit change requests: one engine, two
- * recipes. `frag-to-revit` reads a model made or edited here (Designer);
- * `ifc-to-revit` reads the frag an IFC was converted into. Same records,
+ * The platform's own records become the modelling tool change requests: one engine, two
+ * recipes. `frag-to-the modelling tool` reads a model made or edited here (Designer);
+ * `ifc-to-the modelling tool` reads the frag an IFC was converted into. Same records,
  * same rules - the only difference is where the file came from, and the
  * recipe saying so to the person.
  *
@@ -17,7 +17,7 @@
  *
  * CONVENTIONS, stated once: records are metres and radians, plane [x, y]
  * with height as the third coordinate, levels referenced as `datum:N` and
- * resolved to names; changes are written in Revit's own terms - feet,
+ * resolved to names; changes are written in the modelling tool's own terms - feet,
  * degrees, types by exact name. Record ids are DOCUMENT-scoped, so every
  * reconcile key carries the source file's id next to them.
  */
@@ -36,7 +36,7 @@ import {
 } from './shared';
 import { categoryOfName, extentAcross, familiesFromShapes, startsWithACategory, openingsFromShapes, pointsOf as shapePoints, roofOverWall, roomsFromShapes, shapedPanelsOf, wallTopOf } from './shapes-to-families';
 
-/** Revit's own category ids, printed from RevitAPI.dll - never guessed. */
+/** the modelling tool's own category ids, printed from the modelling tool's API - never guessed. */
 const CATEGORY = {
   levels: '-2000240',
   walls: '-2000011',
@@ -51,8 +51,8 @@ const CATEGORY = {
 
 /**
  * The native family and type a record's element had where it was authored, when the file says:
- * an IFC exported from Revit names every element "Family:Type:ElementId". A model that came FROM
- * Revit goes back with its own type names; anything else keeps the record's style name.
+ * an IFC exported from the modelling tool names every element "Family:Type:ElementId". A model that came FROM
+ * the modelling tool goes back with its own type names; anything else keeps the record's style name.
  */
 /**
  * 🔴 THE UNION OF LOOPS THAT TOUCH (BLOXHUB 13-11: a ceiling written as two rectangles side by side, «CL-UB03.02», read as its
@@ -151,7 +151,7 @@ function outlineOfBoxes(boxes: number[][]): number[][] | null {
 function nativeOf(record: { item: { attrs: Record<string, string> } }): { family: string; type: string } | null {
   let name = record.item.attrs.Name;
   if (typeof name !== 'string') return null;
-  // (A name that starts with its Revit category, «Structural Foundations : M_Pile : 500mm»: the family is the second.)
+  // (A name that starts with its the modelling tool category, «Structural Foundations : M_Pile : 500mm»: the family is the second.)
   if (startsWithACategory(name)) {
     name = name.slice(name.indexOf(':') + 1);
     // (Such names carry no element id at the end: «Family : Type».)
@@ -168,7 +168,7 @@ function nativeOf(record: { item: { attrs: Record<string, string> } }): { family
 }
 
 /**
- * What a slab record is in Revit, by the family it came from: a floor, a roof made by its
+ * What a slab record is in the modelling tool, by the family it came from: a floor, a roof made by its
  * footprint, a foundation slab, or something this recipe does not make as a slab (a pad, a stair's
  * landing). Without a native name it is a floor, as before.
  */
@@ -189,23 +189,23 @@ function slabKind(record: { item: { attrs: Record<string, string> } }): 'floor' 
 }
 
 /** A family type of the target, as the target publishes it. */
-interface RevitType {
+interface NativeType {
   categoryId: string;
   family: string;
   type: string;
 }
 
 interface Settings {
-  /** The Revit type columns get, when style names are not trusted. */
-  columnType?: RevitType;
-  /** The Revit door and window types the model's hosted doors and windows get, when style names are not trusted. */
-  doorType?: RevitType;
-  windowType?: RevitType;
+  /** The modelling tool type columns get, when style names are not trusted. */
+  columnType?: NativeType;
+  /** The modelling tool door and window types the model's hosted doors and windows get, when style names are not trusted. */
+  doorType?: NativeType;
+  windowType?: NativeType;
   /**
    * Trust the records' own style names: `lookRef` "Family:Type" becomes the
-   * change's Family and Type verbatim, for columns and instances. Revit
+   * change's Family and Type verbatim, for columns and instances. the modelling tool
    * matches a type exactly and refuses the whole request when one is missing
-   * - right for a model that came FROM this Revit, wrong for anything else.
+   * - right for a model that came FROM this the modelling tool, wrong for anything else.
    * (Walls and floors always go by their style name: system types are named
    * identity, and the applier makes a missing one from the carried width.)
    */
@@ -270,7 +270,7 @@ const num = (v: number) => String(v);
 
 // A wall outline without its crumbs: a corner whose triangle with its neighbours is under 2 cm²
 // and that sits on an edge under 2 cm goes (Schependomlaan's 5 «balkonopstand» carry a notch 1 cm
-// high and 6 to 34 mm wide at their foot, and Revit deletes each wall as «line too short»).
+// high and 6 to 34 mm wide at their foot, and the modelling tool deletes each wall as «line too short»).
 // Straight-through corners left behind go too.
 function withoutSlivers(loop: [number, number][]): [number, number][] {
   const pts = loop.slice();
@@ -293,7 +293,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       context.input as PickedFile | undefined,
     );
     const records = recordsOf(contents.items);
-    // WHICH FRAME THE COORDINATES ARE IN. An IFC exported from Revit in shared coordinates says
+    // WHICH FRAME THE COORDINATES ARE IN. An IFC exported from the modelling tool in shared coordinates says
     // so in its header («CoordinateBase: Shared Coordinates», localised). Those positions are the
     // project's SHARED ones, not the target's internal ones: every change is marked so, and the
     // applier converts through the target's own shared location. A target that shares
@@ -304,7 +304,7 @@ function sharedRun(to: 'frag' | 'ifc') {
     // AND WHICH SHARED LOCATION THAT IS: the IFC's site stands at it. Sent with every change, so a
     // target that shares no coordinates yet (a new document, its location the default one) is given
     // it by the applier before anything is built, and the building lands square to its axes. Without
-    // it a new document got racbasic turned 37° and Revit rolled the request back (17-10).
+    // it a new document got racbasic turned 37° and the modelling tool rolled the request back (17-10).
     // `SharedAt` = "east,north,elevation" in feet and the angle in degrees.
     const sharedAt =
       sharedFrame && site
@@ -335,14 +335,14 @@ function sharedRun(to: 'frag' | 'ifc') {
     const env0: Record<string, string | undefined> = typeof process !== 'undefined' ? process.env : {};
     const prints = new Map<string, string>();
     const made = whatItMadeBefore(context, prints);
-    context.progress('Writing the changes for Revit');
+    context.progress('Writing the changes for the modelling tool');
     const operation = new OperationBuilder({
       project: context.projectId,
       document: context.target.docId ?? '',
       baseCommit: context.target.version ?? 0,
       author,
     });
-    // Records are metres; Revit is feet. Plane [x, y] + height is Revit
+    // Records are metres; the modelling tool is feet. Plane [x, y] + height is the modelling tool
     // [x, y, z] directly - both are Z up in these records.
     const s = FEET_PER_METRE;
     // 🔴 A SOURCE KEY SURVIVES A NEW VERSION OF THE FILE (Antonio, 18-10: a changed IFC is
@@ -519,7 +519,7 @@ function sharedRun(to: 'frag' | 'ifc') {
     const wallTypeWidths = new Map<string, number>();
     /** Each wall type's layers as its first wall's body stacked them, where the file declares none («…as its body stacks them»). */
     const pieceLayersOf = new Map<string, string>();
-    /** Every slab's and roof's keys and box in the file's shape coordinates (for a wall's added strip, «…as Revit can make
+    /** Every slab's and roof's keys and box in the file's shape coordinates (for a wall's added strip, «…as the modelling tool can make
      * it»): its record's, made as a floor, and its shape's, made as a family from it — whichever this operation makes. */
     let slabBoxesMade: { keys: string[]; box: number[] }[] | null = null;
     const slabBoxes = () => (slabBoxesMade ??= !shapes ? [] : [...shapes.elements.values()].filter((el) => /^IFC(SLAB|ROOF)/i.test(el.ifcClass)).flatMap((el) => {
@@ -578,9 +578,9 @@ function sharedRun(to: 'frag' | 'ifc') {
       );
     }
 
-    // WHERE A WALL MEETS ANOTHER IT ENDS ON THE OTHER'S LINE, as Revit draws it: the records
+    // WHERE A WALL MEETS ANOTHER IT ENDS ON THE OTHER'S LINE, as the modelling tool draws it: the records
     // carry each wall's line cut back to the faces it meets, and say which ends meet (`meetsAt`).
-    // Such an end goes back to where its line crosses the line of the wall it meets, and Revit,
+    // Such an end goes back to where its line crosses the line of the wall it meets, and the modelling tool,
     // allowed to join it there, cleans the corner as the original did.
     const cross = (a: Seg, b: Seg): [number, number] | null => {
       const d1 = [a.to[0] - a.from[0], a.to[1] - a.from[1]], d2 = [b.to[0] - b.from[0], b.to[1] - b.from[1]];
@@ -719,7 +719,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       return each[Math.floor(each.length / 2)] * s;
     };
     // 🔴 ITS MULLIONS AS THE FILE HAS THEM, when its type says none (Conference Center 24-10: every curtain wall's
-    // upright width read 0, so Revit drew no mullion, and 397 of its 1245 members had nothing to be): the median bar
+    // upright width read 0, so the modelling tool drew no mullion, and 397 of its 1245 members had nothing to be): the median bar
     // of its own members, its face (the narrower of along and up) and its depth (across the wall).
     const mullionOf = (curtainGid: string | undefined, d: number[]): { width: number; depth: number } | null => {
       if (!shapes || !curtainGid) return null;
@@ -791,7 +791,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       }
       const glass = plates.map((el) => shapePoints(shapes, el.gid)).filter((pts) => pts.length >= 4).map((pts) => axisOf(pts).sides[0]);
       /**
-       * 🔴 ITS BARS ON ITS GLASS, AS THE FILE LAYS THEM (rac_advanced 13-11: the file's 30 mm bars sit on the glass, Revit's were
+       * 🔴 ITS BARS ON ITS GLASS, AS THE FILE LAYS THEM (rac_advanced 13-11: the file's 30 mm bars sit on the glass, the modelling tool's were
        * centred in it, every bar 3 cm under the file's and each pane 4 cm off): how far each bar's axis is from the middle of the
        * pane under it, along the pane's upper side; the median, for the bar type's offset.
        */
@@ -857,7 +857,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       const level = levels.get(String(body.level ?? record.params.level ?? ''))!;
       const lookRef = record.params.lookRef as string;
       // (An arc keeps the ends the converter gave it, unjoined: the extension to a meeting is along its chord, and
-      // Revit, joining it, trimmed its ends and moved its neighbours — Savoyvilla's 13 arcs, twins as families, off.)
+      // the modelling tool, joining it, trimmed its ends and moved its neighbours — Savoyvilla's 13 arcs, twins as families, off.)
       let { from: f, to: e } = sg.arcMid ? { from: sg.from, to: sg.to } : extended.get(sg)!;
       // (A stub its joins trimmed to nothing — Savoyvilla 24-10: two 12 cm walls, both ends cut back by half their
       // 12 cm, «LocationLine is missing or not two points» — keeps its own line.)
@@ -875,7 +875,7 @@ function sharedRun(to: 'frag' | 'ifc') {
             const t = plane?.through, k = plane?.keep;
             if (!t || !k) return null;
             const dn = d[0] * k[0] + d[1] * k[1];
-            if (Math.abs(dn) < 0.5) return null; // (a slanted cut is a mitre's: Revit's join makes it)
+            if (Math.abs(dn) < 0.5) return null; // (a slanted cut is a mitre's: the modelling tool's join makes it)
             return ((t[0] - p[0]) * k[0] + (t[1] - p[1]) * k[1]) / dn;
           };
           const ts = record.params.wantedAtStart === 'square' ? onTo(f, cuts.start?.[0]) : null;
@@ -894,10 +894,10 @@ function sharedRun(to: 'frag' | 'ifc') {
           if (typeof process !== 'undefined' && process.env?.RECIPE_WALL?.split(",").includes(record.item.guid ?? "")) console.error(`[wall-cut] ${record.item.guid}: start ${ts?.toFixed(3)} end ${te?.toFixed(3)}`);
         }
       }
-      // 🔴 A SQUARE END WHERE THE FILE'S SHAPE ENDS, UNJOINED. Which wall runs through a corner is Revit's join order,
+      // 🔴 A SQUARE END WHERE THE FILE'S SHAPE ENDS, UNJOINED. Which wall runs through a corner is the modelling tool's join order,
       // which the API cannot set (13-10): racbasic's corner walls came out the other way round, 0.2 m long and short.
       // The file's own shape says where each end is; a square end goes exactly there and is left unjoined, so the
-      // corner is the file's whatever Revit would choose. A slanted end (a mitre) keeps Revit's join.
+      // corner is the file's whatever the modelling tool would choose. A slanted end (a mitre) keeps the modelling tool's join.
       const exact = new Set<string>(cutBack);
       // (Not for an arc: what is read off its shape below assumes a straight wall.)
       const shapeOfWall = !sg.arcMid && shapes && record.item.guid && segs.filter((o) => o.record === record).length === 1 ? shapes.elements.get(record.item.guid) : undefined;
@@ -922,7 +922,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         }
       }
       // A run's `base` is RELATIVE to its level (run:0 of racbasic: Level 2 at 3.0 m,
-      // base -0.3, built 2.7..9.2), so it is Revit's base offset as it stands.
+      // base -0.3, built 2.7..9.2), so it is the modelling tool's base offset as it stands.
       const z = (level.at + base) * s;
       const line = `${num(f[0] * s)},${num(f[1] * s)},${num(z)};` + `${num(e[0] * s)},${num(e[1] * s)},${num(z)}`;
       const attrs: Record<string, string> = {
@@ -938,33 +938,33 @@ function sharedRun(to: 'frag' | 'ifc') {
       // (Cut by: each cutter's source key, and the id of the one made before — a checkpoint's kept wall.)
       const cutters = cutBy.get(sg);
       if (cutters) attrs.CutBy = cutters.flatMap((b) => { const k = `${key(b.record.id)}#${b.i}`; const before = made.get(k); return before ? [k, before] : [k]; }).join('|');
-      // Which ends Revit may join: only those that meet another wall where it was authored.
-      // Every end the record says meets another wall may join it, moved or not: Revit's cleanup
+      // Which ends the modelling tool may join: only those that meet another wall where it was authored.
+      // Every end the record says meets another wall may join it, moved or not: the modelling tool's cleanup
       // there is part of the wall (racbasic's foundation wall reaches 0.101 m past its line).
       const joins = sg.arcMid ? [] : [f !== sg.from || sg.joinStart ? 'start' : '', e !== sg.to || sg.joinEnd ? 'end' : ''].filter((end) => Boolean(end) && !exact.has(end));
       if (joins.length) attrs.JoinEnds = joins.join(',');
-      // How each joined end meets: a mitre where the record wants one (Revit's Wall Joins).
+      // How each joined end meets: a mitre where the record wants one (the modelling tool's Wall Joins).
       const mitres = joins.filter((end) => record.params[end === 'start' ? 'wantedAtStart' : 'wantedAtEnd'] === 'mitre');
       if (mitres.length) attrs.Mitre = mitres.join(',');
-      // (Which wall goes on through a corner is NOT said here: reordering Revit's
+      // (Which wall goes on through a corner is NOT said here: reordering the modelling tool's
       // ElementsAtJoin by the record's cut-back ends left 628523 as it was and broke two
-      // more, measured 13-10. Revit's join order still waits for a way to set it.)
+      // more, measured 13-10. the modelling tool's join order still waits for a way to set it.)
       // Its top tied to a level, as it was authored: the height then follows the level.
       const top = levels.get(String(record.params.topLevel ?? ''));
       if (top) {
         attrs.TopLevel = top.name;
         attrs.TopOffset = num((level.at + base + height - top.at) * s);
       }
-      // AN ELEVATION THAT IS NOT A RECTANGLE (Revit's Edit Profile, or a top cut by a roof the
+      // AN ELEVATION THAT IS NOT A RECTANGLE (the modelling tool's Edit Profile, or a top cut by a roof the
       // converter already folded in): the outline, [along, up] from the line's start and the
       // base, laid in the wall's vertical plane. Its first and last stations go where the ends
       // went, so an end extended to a meeting carries the outline with it.
       const given = (body as { profile?: [number, number][] }).profile;
       let profile = Array.isArray(given) ? withoutSlivers(given) : given;
       // 🔴 (A rectangle over its whole line and height says nothing a plain wall does not — and a wall by its outline is
-      // one Revit will not mitre nor join: Schependomlaan 24-10, 40 «HSB-element» walls squared at their mitred ends.)
+      // one the modelling tool will not mitre nor join: Schependomlaan 24-10, 40 «HSB-element» walls squared at their mitred ends.)
       // (Only where it wants a mitre: elsewhere its outline keeps its ends where the file has them, and as a plain wall
-      // Revit trimmed Conference's partitions a thickness short at their joins, 12 walls off, r35.)
+      // the modelling tool trimmed Conference's partitions a thickness short at their joins, 12 walls off, r35.)
       const mitred = record.params.wantedAtStart === 'mitre' || record.params.wantedAtEnd === 'mitre';
       if (mitred && Array.isArray(profile) && profile.length === 4) {
         const L0 = Math.hypot(sg.to[0] - sg.from[0], sg.to[1] - sg.from[1]), h0 = body.height!;
@@ -973,9 +973,9 @@ function sharedRun(to: 'frag' | 'ifc') {
         if (corners.every(([a, z]) => a && z) && new Set(corners.map(([a, z]) => `${a}${z}`)).size === 4) profile = undefined;
       }
       // 🔴 A NOTCH ITS DOOR FILLS, ON A WALL WHOSE LAYERS GO ON ABOVE OR BELOW IT (GNI model_176 30-10: «SW» walls whose
-      // outline is their box less the notch of the door in them, their 5 cm finish going on 20 cm above; Revit keeps a
+      // outline is their box less the notch of the door in them, their 5 cm finish going on 20 cm above; the modelling tool keeps a
       // wall by its outline from extending a layer, «TopExtension read-only», 47 walls «off»): a plain wall, each door
-      // and window cutting its own. (And one whose outline is only its box, there for its ends: Revit's join cleans those.)
+      // and window cutting its own. (And one whose outline is only its box, there for its ends: the modelling tool's join cleans those.)
       if (typeof process !== 'undefined' && process.env?.RECIPE_LAYER_EXT && Array.isArray(profile) && profile.length >= 4 && shapes && record.item.guid && typeof body.height === 'number') {
         const def = (() => { try { return JSON.parse(String(styles.get(lookRef)?.params?.definition ?? 'null')); } catch { return null; } })() as { layers?: { topExtension?: number; baseExtension?: number }[] } | null;
         if ((def?.layers ?? []).some((l) => (l.topExtension ?? 0) > 0.001 || (l.baseExtension ?? 0) > 0.001)) {
@@ -1001,14 +1001,14 @@ function sharedRun(to: 'frag' | 'ifc') {
         const dir = [(sg.to[0] - sg.from[0]) / L, (sg.to[1] - sg.from[1]) / L];
         const flat: number[] = [];
         // Where the ends went, along the line: an end vertex keeps following its edge that is
-        // not upright (a sloped top goes on sloping), or Revit, trimming back to the joint,
+        // not upright (a sloped top goes on sloping), or the modelling tool, trimming back to the joint,
         // leaves the slope's end off (racbasic's CL_W1 493612: 3 cm at each end).
         let ext0 = -((f[0] - sg.from[0]) * dir[0] + (f[1] - sg.from[1]) * dir[1]);
         let ext1 = (e[0] - sg.to[0]) * dir[0] + (e[1] - sg.to[1]) * dir[1];
         const baseExt0 = ext0, baseExt1 = ext1;
-        // (Measured r56: model_150 96.7 → 99.7. A wall by its outline Revit does not carry on at a join — GNI model_150
+        // (Measured r56: model_150 96.7 → 99.7. A wall by its outline the modelling tool does not carry on at a join — GNI model_150
         // r55, 25 «Wall 11.5» partitions with a door notch, each corner left open between the axis it stopped at and the
-        // face of the wall it meets — so a joined end's outline goes on to that wall's far face; Revit trims the other.)
+        // face of the wall it meets — so a joined end's outline goes on to that wall's far face; the modelling tool trims the other.)
         {
           const half = metHalf.get(sg);
           const faced: string[] = [];
@@ -1039,7 +1039,7 @@ function sharedRun(to: 'frag' | 'ifc') {
           }
           return [along, height] as [number, number];
         });
-        // 🔴 NEVER AN OUTLINE THAT CROSSES ITSELF (GNI model_119 r56/r57a: Revit itself died in Wall.Create, an access
+        // 🔴 NEVER AN OUTLINE THAT CROSSES ITSELF (GNI model_119 r56/r57a: the modelling tool itself died in Wall.Create, an access
         // violation, twice): an end moved past a station inside it — a door's notch near the end — folds it. Then the
         // ends where they were, and else the file's own.
         const simple = (pts: [number, number][]) => {
@@ -1074,7 +1074,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         for (const v of flatOf(outline)) flat.push(v);
         attrs.Profile = JSON.stringify([flat]);
         // 🔴 A SLIT FROM ITS FOOT NEARLY TO ITS TOP IS TWO WALLS (GNI model_71 r58: «SW - 035/045», 10 cm slits up to 20 cm
-        // under the top; Revit «No es posible crear extrusión» and deleted both walls): its box either side of the slit, a
+        // under the top; the modelling tool «No es posible crear extrusión» and deleted both walls): its box either side of the slit, a
         // wall of each — the strip over the slit left out. (Measured r63: model_71 89.2 → 91.0; on no reference model.)
         if (outline.length === 8) {
           const zs = outline.map(([, u]) => u), top = Math.max(...zs), low = Math.min(...zs);
@@ -1092,9 +1092,9 @@ function sharedRun(to: 'frag' | 'ifc') {
         delete attrs.TopLevel;
         delete attrs.TopOffset;
       }
-      // Its top attached to a roof (Revit's Attach Top), when that roof is made too.
+      // Its top attached to a roof (the modelling tool's Attach Top), when that roof is made too.
       const attachedTo = record.params.topAttachedTo;
-      // ON A ROOF'S TOP FACE (a gable end): Revit attaches a wall to a roof's underside only, and
+      // ON A ROOF'S TOP FACE (a gable end): the modelling tool attaches a wall to a roof's underside only, and
       // the original is that wall with its profile edited to the gable. So is this one: its
       // outline is the roof's top over its line - each eave, the ridge where the line crosses it.
       const onTop = record.params.topAttachedAt === 'top' || (body as { topAttachedAt?: string }).topAttachedAt === 'top';
@@ -1122,14 +1122,14 @@ function sharedRun(to: 'frag' | 'ifc') {
         : shapes && record.item.guid ? roofOverWall(shapes, record.item.guid, roofGids) : undefined;
       if (attachTo && !attrs.Profile) { attrs.AttachTop = key(attachTo); const before = made.get(key(attachTo)); if (before) attrs.AttachTopMade = before; }
       if (attachTo && typeof attachedTo !== 'string' && typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[attach] ${record.item.guid} ${record.item.name ?? ''} → ${attachTo}`);
-      // 🔴 ITS TOP AS ITS SHAPE DRAWS IT, when nothing above said it (an edited profile Revit exported as polygonal
+      // 🔴 ITS TOP AS ITS SHAPE DRAWS IT, when nothing above said it (an edited profile the modelling tool exported as polygonal
       // openings with nothing in them: racbasic's 530178, 6.3 m³ for 1.2; see `wallTopOf`).
       if (!attrs.Profile && !attrs.AttachTop && shapeOfWall) {
         // (Its whole outline first, when nothing is hosted in it and the outline is the wall: a top read alone stands
         // on a flat foot, and Savoyvilla's wall beside the ramp, cut from below by it, came 7.7 m³ for 3.6, 24-10.)
         const hostedIn = [...shapes!.elements.values()].filter((o) => o.host === record.item.guid && !/^IFCOPENINGELEMENT$/i.test(o.ifcClass));
         let whole = wallTopOf(shapes!, record.item.guid!, f, e, true);
-        // (Never an edge of millimetres — Schependomlaan's balcony upstands, «la línea es demasiado corta», and Revit
+        // (Never an edge of millimetres — Schependomlaan's balcony upstands, «la línea es demasiado corta», and the modelling tool
         // deleted them: corners nearer than 2 cm to the last kept one merged; a hole left with less than three, gone.)
         const merged = (loop: [number, number][]) => {
           const out: [number, number][] = [];
@@ -1151,7 +1151,7 @@ function sharedRun(to: 'frag' | 'ifc') {
           }).filter((b): b is number[] => b !== null);
           const filled = (hole: [number, number][]) => {
             const a0 = Math.min(...hole.map((h) => h[0])), a1 = Math.max(...hole.map((h) => h[0])), z0 = Math.min(...hole.map((h) => h[1])), z1 = Math.max(...hole.map((h) => h[1]));
-            // (Any of them in it at all: a hole two windows share, cut as a rectangle, and Revit deleted both — racbasic
+            // (Any of them in it at all: a hole two windows share, cut as a rectangle, and the modelling tool deleted both — racbasic
             // and Savoyvilla r36, 5 windows missing.)
             return boxes.some((b) => Math.min(a1, b[1]) - Math.max(a0, b[0]) > 0.01 && Math.min(z1, b[3]) - Math.max(z0, b[2]) > 0.01);
           };
@@ -1190,7 +1190,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       } else if (attrs.Profile && shapeOfWall && !attrs.AttachTop) {
         // 🔴 A PROFILE THE CONVERTER GAVE, AND THE HOLES ITS FACE SHOWS (racbasic 24-10: a SIP gable wall that is mostly
         // one pentagonal window, 6.3 m³ for 1.2: the gable came, the window, a non-rectangular opening, never did).
-        // Only for a wall whose hosted things are empty openings; the applier cuts what Revit's outline will not take.
+        // Only for a wall whose hosted things are empty openings; the applier cuts what the modelling tool's outline will not take.
         const hosted = [...shapes!.elements.values()].some((o) => o.host === record.item.guid && !/^IFCOPENINGELEMENT$/i.test(o.ifcClass));
         const whole = !hosted ? wallTopOf(shapes!, record.item.guid!, f, e, true) : null;
         if (whole?.holes?.length && !whole.pieces?.length) {
@@ -1282,9 +1282,9 @@ function sharedRun(to: 'frag' | 'ifc') {
         else if (Math.abs(seen - width) > 0.001) attrs.Type = `${attrs.Type} · ${Math.round((width / s) * 1000)} mm`;
       }
       // ITS LAYERS, as the file declares them (the original's compound wall: a face between each two, which a
-      // one-layer type has not; racbasic's partitions 6 cm off the original everywhere, 21-10). Revit lists them
+      // one-layer type has not; racbasic's partitions 6 cm off the original everywhere, 21-10). the modelling tool lists them
       // from the exterior, the side left of the line; the file stacks them from the line's right, and a usage
-      // against its axis is the same type flipped (one type for every wall of it, as in Revit).
+      // against its axis is the same type flipped (one type for every wall of it, as in the modelling tool).
       const declared = record.item.guid ? shapes?.elements.get(record.item.guid) : undefined;
       if (declared?.layers && declared.layers.length > 1) {
         attrs['Type.Layers'] = JSON.stringify([...declared.layers].reverse().map((l) => [+num(l.thickness * s), l.material ?? '', l.function ?? '']));
@@ -1329,15 +1329,15 @@ function sharedRun(to: 'frag' | 'ifc') {
       // 🔴 A LAYER THAT GOES ON ABOVE OR BELOW THE WALL (GNI model_176, Archicad 26 «SW - 0xx»: a 5 cm cladding up to
       // 3.2 m on a 25 cm structure up to 3.0, one 30 cm wall up to 3.2 before, a strip too many on each; the converter
       // since e64534d2a: `topExtension` / `baseExtension` on its style's layers): its type's layers from the style,
-      // exterior first, each with its extension; Revit's extendable layer and the wall's extension distances.
+      // exterior first, each with its extension; the modelling tool's extendable layer and the wall's extension distances.
       if (!attrs['Type.Layers'] && typeof process !== 'undefined' && process.env?.RECIPE_LAYER_EXT) {
         const def =(() => { try { return JSON.parse(String(styles.get(lookRef)?.params?.definition ?? 'null')); } catch { return null; } })() as { layers?: { thickness?: number; material?: string; function?: string; topExtension?: number; baseExtension?: number }[] } | null;
         const ls = def?.layers ?? [];
         if (ls.length > 1 && ls.some((l) => (l.topExtension ?? 0) > 0.001 || (l.baseExtension ?? 0) > 0.001)) {
           attrs['Type.Layers'] = JSON.stringify(ls.map((l) => [+num((l.thickness ?? 0) * s), l.material ?? '', l.function ?? '', +num((l.topExtension ?? 0) * s), +num((l.baseExtension ?? 0) * s)]));
           const top = Math.max(...ls.map((l) => l.topExtension ?? 0)), bottom = Math.max(...ls.map((l) => l.baseExtension ?? 0));
-          // 🔴 …AS REVIT CAN MAKE IT: THE WALL UP TO ITS FINISH'S TOP, CUT BY THE SLAB ITS STRUCTURE STOPS AT (GNI model_176
-          // r60y: Revit's API refuses an extendable layer on any structure not already vertically compound, and it cannot
+          // 🔴 …AS THE MODELLING TOOL CAN MAKE IT: THE WALL UP TO ITS FINISH'S TOP, CUT BY THE SLAB ITS STRUCTURE STOPS AT (GNI model_176
+          // r60y: the modelling tool's API refuses an extendable layer on any structure not already vertically compound, and it cannot
           // make one): its height on by the extension, plain layers, and Join Geometry with each slab its added strip runs
           // into, the slab cutting — its structure stops under the slab, its finish, past the slab's edge, goes on.
           const slabsIn = (z0: number, z1: number) => {
@@ -1367,10 +1367,10 @@ function sharedRun(to: 'frag' | 'ifc') {
       pieceProfiles.forEach((profile, k) => { if (add(`${key(record.id)}#${sg.i}p${k + 1}`, { ...attrs, Profile: profile })) wallCount++; });
     }
 
-    // ---- 2b. Curtain walls: Revit's own system, its grid line by line. ----
+    // ---- 2b. Curtain walls: the modelling tool's own system, its grid line by line. ----
     // A run of the converter spans the curtain wall INSIDE its border bars: half a bar short at
     // each end, at the bottom and at the top (measured on racbasic: every wall 0.04 m short and
-    // 0.04 m low, its lines 0.02 m early, against Revit's own). Revit's wall spans the bars'
+    // 0.04 m low, its lines 0.02 m early, against the modelling tool's own). the modelling tool's wall spans the bars'
     // middles, so the run grows by half a bar each way and its lines move with its start.
     // Lines the record leaves out are its type's rule (`asTheType` in the converter): every
     // spacing from where the justification puts the first, ends left out.
@@ -1404,7 +1404,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       const measured = n(style.uprightWidth) > 0 ? null : mullionOf(record.item.guid ?? undefined, d);
       const halfUp = (n(style.uprightWidth) || (measured ? measured.width / s : 0)) / 2;
       const halfAcross = (n(style.horizontalWidth) || (measured ? measured.width / s : 0)) / 2;
-      // 🔴 A SIDE WITH NO BAR (Savoyvilla 24-10: its entrance glass has none at its foot, Revit's type a bar on every
+      // 🔴 A SIDE WITH NO BAR (Savoyvilla 24-10: its entrance glass has none at its foot, the modelling tool's type a bar on every
       // side: the panels 25 mm high, the uprights 25 mm low): the sides whose border the file's own members do not run
       // along, not grown by half a bar and their border bars taken away. Only for a wall the file gives members for,
       // and not one by its outline.
@@ -1457,7 +1457,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       const base = (typeof body.base === 'number' ? body.base : 0) - b0;
       const height = body.height + b0 + b1;
       const z = (level.at + base) * s;
-      // 🔴 …ITS LINES FROM ITS BARS, where the record says none (GNI model_0_arc r58: a Revit «Curtain System», its grid
+      // 🔴 …ITS LINES FROM ITS BARS, where the record says none (GNI model_0_arc r58: a the modelling tool «Curtain System», its grid
       // laid over the whole system, our wall's own centred rule half a bay off: 40 uprights and 14 panels 13.9 cm «off»):
       // its uprights' middles, when the type's rule puts a line anywhere none is. (Measured r66: model_0_arc 97.3 → 100;
       // on none of Duplex, Savoyvilla, racbasic, GNI 203/67/70/150.)
@@ -1469,7 +1469,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       const up = body.lines?.up ?? ruled(body.height, n(style.upSpacing), style.upJustify);
       // «horizontal@<up mm>:<along mm>»: the segment of that line starting there is not there.
       // 🔴 A BAR BY ITS KEY, AS THE READER NAMES IT (`curtainMembers`): an upright is «upright@<along>:<up>» — only «vertical» was read,
-      // and every upright a wall has taken out came back as a bar in Revit (rac_advanced's storefronts, one too many each, 12-11).
+      // and every upright a wall has taken out came back as a bar in the modelling tool (rac_advanced's storefronts, one too many each, 12-11).
       const stationOf = (one: string) => {
         const m = /^(horizontal|vertical|upright)@(-?[\d.]+):(-?[\d.]+)$/.exec(one);
         if (!m) return [];
@@ -1479,7 +1479,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         return [{ horizontal, at: at * s, from: from * s }];
       };
       const omit = (body.omitted ?? []).flatMap(stationOf);
-      // 🔴 AND THE STRETCHES OF ITS LINES IT HAS TAKEN OUT, ITS PANELS THERE ONE (`merged`): Revit's «remove segment», so the panel is one
+      // 🔴 AND THE STRETCHES OF ITS LINES IT HAS TAKEN OUT, ITS PANELS THERE ONE (`merged`): the modelling tool's «remove segment», so the panel is one
       // as in the file (rac_advanced 12-11: a wall with a door had 74 panels for its 49, every merged pair cut in two).
       const merge = (((body as { merged?: string[] }).merged) ?? []).flatMap(stationOf);
       // (Its bare sides' border bars, one station per bay along each: the applier takes the type's bar there away. With no
@@ -1565,7 +1565,7 @@ function sharedRun(to: 'frag' | 'ifc') {
           ...(noBorders ? { noBorders: true } : {}),
           mullion: n(style.uprightWidth) > 0 ? { width: n(style.uprightWidth) * s, depth: n(style.depth) * s } : measured ?? { width: 0, depth: n(style.depth) * s },
           // The glass off the bars' middle: the converter counts it toward the wall's inside,
-          // Revit's panel offset toward its outside (measured: racbasic's glass 0.032 m off,
+          // the modelling tool's panel offset toward its outside (measured: racbasic's glass 0.032 m off,
           // on the other side, with the sign as it was).
           panel: { thickness: glassOf(record.item.guid ?? undefined, d) ?? n(style.panelDepth) * s, offset: panelOffset },
         }),
@@ -1618,7 +1618,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       if (add(key(record.id), attrs)) curtainCount++;
     }
 
-    // ---- 2b'. Curtain walls the converter left as their pieces: Revit's own all the same. ----
+    // ---- 2b'. Curtain walls the converter left as their pieces: the modelling tool's own all the same. ----
     // 🔴 A CURTAIN WALL IS ONE, WHATEVER RULE MADE IT (Antonio 13-11: «que TODO sean entidades nativas lo más cercanas
     // posibles al IFC original»; Savoyvilla, 7 of its 10 curtain walls refused by the converter's own rule, «no join
     // condition gives its pieces», came in as 280 generic models): an IFCCURTAINWALL with no curtain record, flat, made
@@ -1694,7 +1694,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         const atBottom = rails.some((b) => Math.abs(b.z0 - Z0) < 0.01), atTop = rails.some((b) => Math.abs(b.z1 - Z1) < 0.01);
         // Its line through its bars' middle (its glass's, with none), its span between its border bars' middles.
         const lineA = bars.length ? med(bars.map((b) => (b.a0 + b.a1) / 2)) : med(plates.map((x) => (x.b.a0 + x.b.a1) / 2));
-        // (Its span to its border bars' OUTER faces: Revit draws a border mullion inside the wall's edge — Savoyvilla 13-11, every
+        // (Its span to its border bars' OUTER faces: the modelling tool draws a border mullion inside the wall's edge — Savoyvilla 13-11, every
         // border and every panel 25 mm in, half a bar, when spanned to their middles.)
         const half = env.RECIPE_CW_SPAN === 'middles' ? 1 : 0;
         const t0 = T0 + (atStart ? half * wU / 2 : 0), t1 = T1 - (atEnd ? half * wU / 2 : 0);
@@ -1703,11 +1703,11 @@ function sharedRun(to: 'frag' | 'ifc') {
         const near = (v: number[], x: number) => v.some((y) => Math.abs(y - x) < 0.02);
         const along: number[] = [], up: number[] = [];
         // 🔴 A BORDER BAR IS NO LINE (BLOXHUB 13-11: spanned to the border bars' outer faces, each one's middle came half a bar in — a
-        // line 25 mm from the end, a cell Revit «cannot make, a panel or mullion too small», and all 14,394 changes rolled back).
+        // line 25 mm from the end, a cell the modelling tool «cannot make, a panel or mullion too small», and all 14,394 changes rolled back).
         const onTheEnds = (b: { t0: number; t1: number }) => (atStart && Math.abs(b.t0 - T0) < 0.01) || (atEnd && Math.abs(b.t1 - T1) < 0.01);
         const onTheEdges = (b: { z0: number; z1: number }) => (atBottom && Math.abs(b.z0 - Z0) < 0.01) || (atTop && Math.abs(b.z1 - Z1) < 0.01);
         // 🔴 …AND A BAR OF SEVERAL PIECES IS ONE LINE (BLOXHUB 13-11: a mullion, its cap and its back plate side by side, three lines
-        // 20 and 30 mm apart, cells Revit refused): the pieces whose stretches across the line touch, one bar, its line their middle.
+        // 20 and 30 mm apart, cells the modelling tool refused): the pieces whose stretches across the line touch, one bar, its line their middle.
         const middles = (spans: [number, number][]) => {
           const sorted = [...spans].sort((p, q) => p[0] - q[0]);
           const out: number[] = [];
@@ -1729,7 +1729,7 @@ function sharedRun(to: 'frag' | 'ifc') {
           if (Math.abs(q.b.t0 - p.b.t1) < 0.06 && Math.min(p.b.z1, q.b.z1) - Math.max(p.b.z0, q.b.z0) > 0.05) { const m = (p.b.t1 + q.b.t0) / 2 - t0; if (m > 0.02 && m < L - 0.02 && !near(along, m)) along.push(m); }
         }
         along.sort((x, y) => x - y); up.sort((x, y) => x - y);
-        // 🔴 NO CELL NARROWER THAN A BAR (BLOXHUB 13-11: two lines 20–25 mm apart — a double upright, a panel joint by a bar — and Revit
+        // 🔴 NO CELL NARROWER THAN A BAR (BLOXHUB 13-11: two lines 20–25 mm apart — a double upright, a panel joint by a bar — and the modelling tool
         // refused the whole building): lines nearer than that to each other made one, at their middle; one that near an end, gone.
         const tidy = (v: number[], end: number, least: number) => {
           const out: number[] = [];
@@ -1782,7 +1782,7 @@ function sharedRun(to: 'frag' | 'ifc') {
           const covered = Math.min(area, boxes.reduce((sum, b) => sum + Math.max(0, Math.min(ca1, b.t1) - Math.max(ca0, b.t0)) * Math.max(0, Math.min(cz1, b.z1) - Math.max(cz0, b.z0)), 0));
           if (area > 0 && covered > 0.15 * area && covered < 0.95 * area) partial = true;
         }
-        // …or, where its pieces' union is one outline, its outline edited to it (Revit's «Edit Profile»): the panels then cut
+        // …or, where its pieces' union is one outline, its outline edited to it (the modelling tool's «Edit Profile»): the panels then cut
         // to it as the file's are.
         let outline: number[][] | null = null;
         if (partial) {
@@ -1791,7 +1791,7 @@ function sharedRun(to: 'frag' | 'ifc') {
           // 🔴 ITS CORNERS ON ITS LINES, NOT A HAIR BESIDE THEM (BLOXHUB 13-11: corners 0.4–5 mm from a grid line, a sliver of panel
           // there, «no es posible crear un panel de muro cortina» at the commit, and the whole building rolled back): a corner within
           // a centimetre of a line or an end taken onto it.
-          // (Within 10 mm only: taken from 30 mm, Snowdon's stair glazing came with a cell of no area and Revit refused it — 13-11.)
+          // (Within 10 mm only: taken from 30 mm, Snowdon's stair glazing came with a cell of no area and the modelling tool refused it — 13-11.)
           const onto = (v: number, marks: number[]) => { for (const m of marks) if (Math.abs(v - m) < 0.01) return m; return v; };
           const tMarks = [t0, t1, ...along.map((x) => t0 + x)], zMarks = [z0, z1, ...up.map((x) => z0 + x)];
           outline = outline.map(([t, zz]) => [onto(t, tMarks), onto(zz, zMarks)]);
@@ -1850,7 +1850,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       }
     }
 
-    // ---- 2c. Stairs: Revit's own, one run each - straight, or sketched where the record has
+    // ---- 2c. Stairs: the modelling tool's own, one run each - straight, or sketched where the record has
     // its sketch (winders). Its family is the one its name starts with (assembled, precast,
     // cast in place), its risers as many as its rise needs at its type's riser at most.
 
@@ -1859,7 +1859,7 @@ function sharedRun(to: 'frag' | 'ifc') {
     /**
      * 🔴 A STAIR OF SEVERAL FLIGHTS IS ONE STAIR (rac_advanced 12-11: each IfcStair two flights and a landing slab, made as two stairs
      * and the landing a loose shape — its landings named «…:1», not «… Landing 1»): the flights the file puts in one IfcStair, one
-     * Revit stair of as many runs, its landings the slabs in it.
+     * the modelling tool stair of as many runs, its landings the slabs in it.
      */
     const stairOfFlight = (gid: string | undefined) => {
       const parent = gid && shapes ? shapes.elements.get(gid)?.parent : null;
@@ -1872,7 +1872,7 @@ function sharedRun(to: 'frag' | 'ifc') {
     for (const record of records) if (record.kind === 'stair' && record.params.of === 'stair') { const st = stairOfFlight(record.item.guid ?? undefined); if (st) flightsOf.set(st, (flightsOf.get(st) ?? 0) + 1); }
     const stairGroups = new Map<string, { record: (typeof records)[number]; spec: Record<string, unknown>; level: string; type: string }[]>();
     // 🔴 ITS WIDTH OFF ITS SHAPE, when its style says none (Conference Center 24-10: the grand stair's two runs came
-    // with width 0, «Curve length is too small for Revit's tolerance», not made): the span of its own shape and its
+    // with width 0, «Curve length is too small for the modelling tool's tolerance», not made): the span of its own shape and its
     // flights' across its path.
     const widthOfStair = (gid: string | undefined, start: number[], end: number[]): number | null => {
       if (!shapes || !gid) return null;
@@ -1898,7 +1898,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       if (!body?.start || !body.end || !(Number(body.rise) > 0) || !level || !style) continue;
       const n = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0);
       const rise = Number(body.rise);
-      // (A style with no maximum riser: as many as the sketch draws, else Revit's 18 cm. BLOXHUB 24-10: rise / 0, an
+      // (A style with no maximum riser: as many as the sketch draws, else the modelling tool's 18 cm. BLOXHUB 24-10: rise / 0, an
       // Infinity that went as null, «could not be converted to Int32», a stair of nothing.)
       const maxRiser = n(style.maxRiser) > 0 ? n(style.maxRiser) : body.sketch?.risers?.length ? rise / (body.sketch.risers.length + 1) : 0.18;
       const risers = Math.max(1, Math.ceil(rise / maxRiser - 1e-6));
@@ -1937,7 +1937,7 @@ function sharedRun(to: 'frag' | 'ifc') {
           const top = Math.max(...pts.map((q) => q[2])) - shapeDz, full = level.at + n(record.params.base) + rise;
           return full - top > 0.5 * (rise / risers) && full - top < 1.5 * (rise / risers);
         })(),
-        // Its type's sizes, as the style has them: Revit keeps the risers under the type's
+        // Its type's sizes, as the style has them: the modelling tool keeps the risers under the type's
         // maximum (racbasic: a 180 mm template type gave a 3.0 m stair a riser more, 3.22 m).
         sizes: {
           maxRiser: Math.ceil((rise / risers) * 1000 - 1e-6) / 1000 * s,
@@ -1949,7 +1949,7 @@ function sharedRun(to: 'frag' | 'ifc') {
           riserThickness: style.construction === 'assembled' ? n(style.riserThickness) * s : 0,
           notchExtension: n(style.notchExtension) * s,
           notchThickness: n(style.notchThickness) * s,
-          // (Its nosing, where the style says: Revit's template keeps 20 mm, GNI model_54's treads 2 cm off, 25-10.)
+          // (Its nosing, where the style says: the modelling tool's template keeps 20 mm, GNI model_54's treads 2 cm off, 25-10.)
           ...(style.nosing !== undefined && Number.isFinite(Number(style.nosing)) ? { nosing: Number(style.nosing) * s } : {}),
         },
       };
@@ -2024,16 +2024,16 @@ function sharedRun(to: 'frag' | 'ifc') {
         };
         const sides = [...chain(1, endEdge), ...chain((endEdge + 1) % b.length, 0)];
         if (typeof process !== "undefined" && process.env?.RECIPE_STAIR === record.item.guid) console.error(`[stair-sketch] end edge ${endEdge} of ${b.length}`);
-        // Revit counts every riser line as a riser: the end edge is not one (the run ends on a
+        // the modelling tool counts every riser line as a riser: the end edge is not one (the run ends on a
         // tread), so it goes as the walk line's end only (measured: with it, 17 risers, 3.19 m).
         const riserLines = sketch.risers.map(([a, c]) => [p(a), p(c)]);
         const endLine = [p(b[endEdge]), p(b[(endEdge + 1) % b.length])];
-        // The walk line: through every riser's middle, first to last - Revit refuses one that goes
+        // The walk line: through every riser's middle, first to last - the modelling tool refuses one that goes
         // on past the last riser ("the path must connect the start and end riser lines").
         void endLine;
         const walk = riserLines.map(([a, c]) => [(a[0] + c[0]) / 2, (a[1] + c[1]) / 2]);
         spec.sketch = { boundary: sides, risers: riserLines, path: walk };
-        // (Should Revit refuse the sketch: straight from its first riser to its last, as wide as its first.)
+        // (Should the modelling tool refuse the sketch: straight from its first riser to its last, as wide as its first.)
         spec.path = [walk[0], walk[walk.length - 1]];
         if (!spec.width) spec.width = Math.hypot(riserLines[0][1][0] - riserLines[0][0][0], riserLines[0][1][1] - riserLines[0][0][1]);
         if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) {
@@ -2041,7 +2041,7 @@ function sharedRun(to: 'frag' | 'ifc') {
           console.error(`[stair] ${record.item.guid} ${record.item.name ?? ''}: ${sides.length} sides (shortest ${(Math.min(...sides.map(len)) * 1000).toFixed(2)} mm), ${riserLines.length} risers (shortest ${(Math.min(...riserLines.map(len)) * 1000).toFixed(2)} mm), walk ${walk.length} points (shortest step ${(Math.min(...walk.slice(1).map((q, k) => len([walk[k], q]))) * 1000).toFixed(2)} mm)`);
         }
         // Its going is what the riser lines say, the shortest between two in a row that are
-        // parallel; the style's (racbasic: 0.375 against Revit's 0.25) is the winders' too.
+        // parallel; the style's (racbasic: 0.375 against the modelling tool's 0.25) is the winders' too.
         let going = Infinity;
         for (let k = 0; k + 1 < sketch.risers.length; k++) {
           const [a1, a2] = sketch.risers[k], [b1, b2] = sketch.risers[k + 1];
@@ -2191,11 +2191,11 @@ function sharedRun(to: 'frag' | 'ifc') {
       // (Its key the stair's own: its parts — the flights, the landing slabs — are its, not shapes of their own.)
       if (add(`${picked.fileId}:${stairGid}:stair`, attrs)) stairCount++;
     }
-    // ---- 2c. Railings: Revit's own, along the file's path. ----
+    // ---- 2c. Railings: the modelling tool's own, along the file's path. ----
     // 🔴 A RAILING IS A RAILING (rac_advanced 12-11: its 22 came in as shapes, generic models): the converter's run of it — its path, its
-    // base, its height and its type — as Revit's railing, of the model's type of that name, or one of its height.
+    // base, its height and its type — as the modelling tool's railing, of the model's type of that name, or one of its height.
     // 🔴 ONE ON A STAIR GOES ON THAT STAIR (rac_advanced 12-11: its stairs' railings flat at each flight's foot, the original's up their
-    // slope): the stair the file puts it in, its key, for Revit to host it there.
+    // slope): the stair the file puts it in, its key, for the modelling tool to host it there.
     const stairKeyOf = new Map<string, string>();
     for (const record of records) {
       if (record.kind !== 'stair' || record.params.of !== 'stair') continue;
@@ -2212,7 +2212,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       if (!curves.length || !level || curves.some((cv) => cv.kind !== 'segment' || !cv.from || !cv.to)) continue;
       const pts = [curves[0].from!, ...curves.map((cv) => cv.to!)].map((q) => [q[0] * s, q[1] * s]);
       const lookRef = String(record.params.lookRef ?? record.params.type ?? '');
-      // (Its type the native one the file names, «Family:Type:Id», when it came from Revit; else its style's name.)
+      // (Its type the native one the file names, «Family:Type:Id», when it came from the modelling tool; else its style's name.)
       const typeName = nativeOf(record)?.type ?? lookRef.split(':').pop() ?? lookRef;
       const parent = record.item.guid && shapes ? shapes.elements.get(record.item.guid)?.parent : null;
       const onStair = parent ? stairKeyOf.get(parent) : undefined;
@@ -2231,8 +2231,8 @@ function sharedRun(to: 'frag' | 'ifc') {
     const slabTypeWidths = new Map<string, number>();
     const slabRead = { floor: 0, foundation: 0, roof: 0, ceiling: 0 };
     const slabMade = { floor: 0, foundation: 0, roof: 0, ceiling: 0 };
-    // 🔴 A SHAFT DRAWN IN THE MODELLER IS A VOID FORM (`opening.shaft`, a void that cuts what it crosses, Revit's Opening): no
-    // thing of its own, and a hole in each slab its height goes through (Antonio 1-11, the guion: «her Revit has the opening.
+    // 🔴 A SHAFT DRAWN IN THE MODELLER IS A VOID FORM (`opening.shaft`, a void that cuts what it crosses, the modelling tool's Opening): no
+    // thing of its own, and a hole in each slab its height goes through (Antonio 1-11, the guion: «her the modelling tool has the opening.
     // Native»). Written as a thing, it came as a solid box in the shaft, the floor whole around it.
     const voidForms = records.flatMap((one) => {
       if (one.kind !== 'extrusion' || one.params.of !== 'form') return [];
@@ -2248,15 +2248,15 @@ function sharedRun(to: 'frag' | 'ifc') {
       if (record.kind !== 'extrusion' || (of !== 'slab' && of !== 'roof' && of !== 'covering')) continue;
       let kind = of === 'covering' ? 'ceiling' : of === 'roof' ? 'roof' : slabKind(record);
       if (kind === 'other') continue;
-      // 🔴 A RAMP IS NO FLOOR: Revit makes no ramp through its API, and a ramp's sloped flight as a floor came to nothing
+      // 🔴 A RAMP IS NO FLOOR: the modelling tool makes no ramp through its API, and a ramp's sloped flight as a floor came to nothing
       // (Savoyvilla 24-10: its 4 flights missing, BLOXHUB's made from their shapes all twins). Left to its shape.
       if (shapes && record.item.guid && /^IFCRAMP(FLIGHT)?$/i.test(shapes.elements.get(record.item.guid)?.ifcClass ?? '')) continue;
       const body = innerJson<ExtrusionBody>(record, 'extrusion');
       // 🔴 A PROFILE DRAWN STANDING UP IS NO FLOOR'S OUTLINE (GNI model_120 r55: 11 stepped footings «Fundament 60 x 60 x
-      // 1.20», their L section on a vertical workplane, laid flat at the origin by Revit or lost): left to its shape.
+      // 1.20», their L section on a vertical workplane, laid flat at the origin by the modelling tool or lost): left to its shape.
       const on = (body as { on?: { u?: number[]; v?: number[]; origin?: number[] } } | null)?.on;
       // 🔴 A ROOF BY EXTRUSION AS THE CONVERTER READS ONE (`extruded`: its top line drawn in a plane standing up, pushed from where it
-      // starts to where it ends; rac_advanced's butterfly roof «Generic - 400mm», 12-11): Revit's own roof by extrusion. Taken for a
+      // starts to where it ends; rac_advanced's butterfly roof «Generic - 400mm», 12-11): the modelling tool's own roof by extrusion. Taken for a
       // profile standing up, it was left to its two faces' shapes.
       const extruded = (body as { extruded?: { line?: { curves?: CurveJson[] }; from?: number; to?: number } } | null)?.extruded;
       if (kind === 'roof' && on && extruded?.line?.curves?.length && typeof extruded.from === 'number' && typeof extruded.to === 'number') {
@@ -2285,8 +2285,8 @@ function sharedRun(to: 'frag' | 'ifc') {
       }
       if (on && (Math.abs(on.u?.[2] ?? 0) > 1e-3 || Math.abs(on.v?.[2] ?? 0) > 1e-3)) continue;
       // 🔴 A ONE-PLANE ROOF WHOSE LOW SIDE IS A CORNER, NO EDGE (GNI model_98 r55: «FB 100 leer», 14 pieces of a 2-3° deck
-      // as IfcSlab, each a slope toward a vertex of its outline; no edge to put Revit's footprint slope on, made flat, 14
-      // «off» at 4 to 20 cm): a sloped floor — Revit's slope arrow takes any direction. (Measured r61: model_98 96.5 → 98.4,
+      // as IfcSlab, each a slope toward a vertex of its outline; no edge to put the modelling tool's footprint slope on, made flat, 14
+      // «off» at 4 to 20 cm): a sloped floor — the modelling tool's slope arrow takes any direction. (Measured r61: model_98 96.5 → 98.4,
       // the 8 off → twin; on nothing else of Duplex, Savoyvilla, racbasic, DACH, Schependomlaan, GNI 18/28/166.)
       if (kind === 'roof' && !gableOf(record)) {
         const pl = (body as { slope?: { toward?: number; by?: number }; slopes?: unknown[] } | null);
@@ -2338,7 +2338,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         }
       }
       const loops: number[][] = [outer, ...extraLoops];
-      // A gable's holes lie ON its face, each corner at the slope's height there: Revit cuts a
+      // A gable's holes lie ON its face, each corner at the slope's height there: the modelling tool cuts a
       // roof's hole square to the face from where the loop is, and a loop left at the level
       // slid sideways up the slope and across the ridge ("overlapping lines").
       const holeGable = kind === 'roof' ? gableOf(record) : null;
@@ -2359,7 +2359,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         const pts = o.filter((p, k) => k === 0 || Math.hypot(p[0] - o[k - 1][0], p[1] - o[k - 1][1]) > 1e-4);
         if (pts.length > 3 && Math.hypot(pts[0][0] - pts[pts.length - 1][0], pts[0][1] - pts[pts.length - 1][1]) < 1e-4) pts.pop();
         if (pts.length < 3) continue;
-        // (Only one wholly inside its outline: a hole across its edge, and Revit refuses the whole floor.)
+        // (Only one wholly inside its outline: a hole across its edge, and the modelling tool refuses the whole floor.)
         const inside = (x: number, y: number) => {
           let c = false;
           for (let i = 0, j = outer.length / 3 - 1; i < outer.length / 3; j = i++) {
@@ -2409,7 +2409,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         if (sum > 0 && (!width || Math.abs(sum * s - width) > 0.2 * width)) width = sum * s;
         // 🔴 A FLAT ROOF AS THICK AS ITS BODY, where that is more than its layers (12-11, rac_advanced's «Concrete Deck - Tapered Insulation»:
         // its layers 0.25 m, its tapered insulation up to 0.40; made by its layers it came 15 cm short of its top). (Its falls themselves are
-        // Revit's shape editing, not made yet.)
+        // the modelling tool's shape editing, not made yet.)
         const slopes = (body as { slopes?: unknown[] } | null)?.slopes;
         if (!(Array.isArray(slopes) && slopes.some((x) => typeof x === 'number'))) {
           const q = shapePoints(shapes, record.item.guid);
@@ -2420,7 +2420,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         }
       }
       // 🔴 A ROOF OF GLASS IS GLAZING, NOT A SLAB (rac_advanced 12-11: its three «Sloped Glazing», each 14 panels and 40 bars in
-      // the file, came as solid roofs, not a pane of glass among them): Revit's own sloped glazing, a bar where the file has each.
+      // the file, came as solid roofs, not a pane of glass among them): the modelling tool's own sloped glazing, a bar where the file has each.
       if (kind === 'roof' && shapes && record.item.guid) {
         const glazing = glazingOf(record.item.guid);
         if (glazing) {
@@ -2437,7 +2437,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         else if (Math.abs(seen - width) > 0.001) attrs.Type = `${attrs.Type} · ${Math.round((width / s) * 1000)} mm`;
       }
       // 🔴 CUT BY THE WALLS THAT STAND IN IT (GNI model_176 30-10: «SLA - 001», 200 mm of structure and a 100 mm finish
-      // short of every wall, its walls standing on the structure): Join Geometry, each wall cutting, as Revit's walls cut
+      // short of every wall, its walls standing on the structure): Join Geometry, each wall cutting, as the modelling tool's walls cut
       // a floor's finish; the floor whole under them, 10 cm too many at every wall before.
       if (kind === 'floor' && shapes && record.item.guid) {
         const q = shapePoints(shapes, record.item.guid);
@@ -2476,13 +2476,13 @@ function sharedRun(to: 'frag' | 'ifc') {
         const slopes = (body as { slopes?: (number | null)[] } | null)?.slopes;
         if (kind === 'roof' && Array.isArray(slopes) && slopes.some((x) => typeof x === 'number')) {
           attrs.Slopes = JSON.stringify(slopes.map((x) => (typeof x === 'number' ? x : null)));
-          // 🔴 ITS BASE IS THE TOP AT THE EAVES (measured below), and Revit's footprint roof stands on its bottom there:
+          // 🔴 ITS BASE IS THE TOP AT THE EAVES (measured below), and the modelling tool's footprint roof stands on its bottom there:
           // down by its thickness measured plumb, t·√(1+p²) (DACH: all 15 sloped roofs 0.17 m off their slope, 23-10).
           const p = Math.max(...slopes.filter((x): x is number => typeof x === 'number').map((x) => Math.abs(x)));
           if (width && p > 0) attrs.BaseOffset = num(base * s - width * Math.sqrt(1 + p * p));
           // 🔴 ITS EAVES CUT AS THE FILE CUTS THEM (GNI model_28 25-10: a 30° hip roof «Ziegeldach 360», its top at the
           // eaves right, its lowest point 0.29 m higher than a plumb cut's — a 15 cm cut square to the slope and a level
-          // soffit, Revit's «Two Cut - Square» with that fascia depth; set on its base, the ridge went 0.29 m high).
+          // soffit, the modelling tool's «Two Cut - Square» with that fascia depth; set on its base, the ridge went 0.29 m high).
           // Its lowest points inside its outline: square; at it: plumb. The fascia from how far above them its top is.
           const roofPts = shapes && record.item.guid ? shapePoints(shapes, record.item.guid) : [];
           if (width && p > 0 && roofPts.length >= 4) {
@@ -2501,7 +2501,7 @@ function sharedRun(to: 'frag' | 'ifc') {
           }
           if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[roof] ${record.item.guid} ${lookRef}: slopes ${JSON.stringify(slopes)} base ${base} width ${width} edges ${loops[0] ? loops[0].length / 3 : 0} profile ${JSON.stringify(loops[0]?.map((v) => +v.toFixed(2)))}`);
         }
-        // A GABLE - four edges, two opposite ones sloping - is Revit's ROOF BY EXTRUSION: its
+        // A GABLE - four edges, two opposite ones sloping - is the modelling tool's ROOF BY EXTRUSION: its
         // ridge profile drawn across, pushed along the eaves. A footprint roof cannot be it: its
         // one base is the bottom at every eave, and the record's base is the TOP at the eaves
         // (measured on racbasic: footprint 0.29 m high, the roof's thickness up its slope), so
@@ -2519,7 +2519,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         }
         // 🔴 A ROOF THAT IS ONE SLOPED SLAB (GNI model_18 25-10: «Titanzink - Eindeckung», 30°, its pieces as IfcSlab, made
         // flat — the slope it said went unread): a mono-pitch, its slope on the edge at the low side, square to the slope.
-        // The record's `base` is its bottom there, where Revit's footprint stands; `by` is the angle, Revit wants rise/run.
+        // The record's `base` is its bottom there, where the modelling tool's footprint stands; `by` is the angle, the modelling tool wants rise/run.
         const plane = (body as { slope?: { toward?: number; by?: number } } | null)?.slope;
         const curves = body?.profile?.outline?.curves ?? [];
         if (kind === 'roof' && !gable && !attrs.Slopes && plane && typeof plane.by === 'number' && Math.abs(plane.by) > 1e-3 && typeof plane.toward === 'number' && curves.length >= 3) {
@@ -2542,7 +2542,7 @@ function sharedRun(to: 'frag' | 'ifc') {
           if (typeof process !== 'undefined' && process.env?.RECIPE_TRACE) console.error(`[roof-plane] ${record.item.guid} ${lookRef}: ${(plane.by * 180 / Math.PI).toFixed(1)}° toward ${(plane.toward * 180 / Math.PI).toFixed(1)}°, eaves ${JSON.stringify(eaves)}`);
         }
       } else if (width) {
-        // A slab's `base` is its BOTTOM face, relative to its level; Revit places a floor by its
+        // A slab's `base` is its BOTTOM face, relative to its level; the modelling tool places a floor by its
         // TOP face (height offset from level), and ignores the profile's z.
         attrs.HeightOffset = num(base * s + width);
         // 🔴 A SLOPED ONE (DACH's gravel, 5°: made flat at its high side, 24-10): its arrow from its lowest corner up
@@ -2555,7 +2555,7 @@ function sharedRun(to: 'frag' | 'ifc') {
           const proj = pts.map((p) => p[0] * d[0] + p[1] * d[1]);
           const lo = Math.min(...proj), hi = Math.max(...proj);
           const tail = pts[proj.indexOf(lo)];
-          // (`by` is the angle — model_18's 30° came as 0.5236 — and Revit's slope rise over run: alike at 5°, not at 30°.)
+          // (`by` is the angle — model_18's 30° came as 0.5236 — and the modelling tool's slope rise over run: alike at 5°, not at 30°.)
           const rise = Math.tan(slope.by);
           if (hi - lo > 1e-3) {
             attrs.Slope = num(rise);
@@ -2621,15 +2621,15 @@ function sharedRun(to: 'frag' | 'ifc') {
     for (const record of records) {
       if (record.kind !== 'familyInstance') continue;
       if (record.params.host || innerJson<InstanceBody>(record, 'instance')?.host) {
-        // 🔴 A HOSTED DOOR OR WINDOW, IN THE WALL IT IS IN (Antonio 15-11, the Revit video: «faltan las puertas»): placed as
-        // an existing Revit type, in the wall this run made for its host (the applier finds it by its source key), at the
+        // 🔴 A HOSTED DOOR OR WINDOW, IN THE WALL IT IS IN (Antonio 15-11, the modelling tool video: «faltan las puertas»): placed as
+        // an existing the modelling tool type, in the wall this run made for its host (the applier finds it by its source key), at the
         // point the record has. The type: its own style name when style names are trusted, else the recipe's door or
         // window type. With neither, counted and not guessed (the applier refuses a type it does not have).
         const body = innerJson<InstanceBody & { hole?: string }>(record, 'instance');
         const hostId = String(record.params.host ?? body?.host ?? '');
         // 🔴 WHERE IT STANDS IS ITS HOLE'S (Designer 15-11: a door's `placement` is [0,0,0]; its `hostedCut` says `along`, metres
         // from the start of its host's line to the hole's edge, and `width`): the middle of the hole, on the host's line, in
-        // the segment of the run it falls in (each segment is its own wall in Revit, `<run>#<i>`).
+        // the segment of the run it falls in (each segment is its own wall in the modelling tool, `<run>#<i>`).
         const hole = body?.hole ? records.find((one) => one.id === body.hole) : undefined;
         const hostRun = records.find((one) => one.id === hostId);
         let at = body?.placement?.at;
@@ -2696,7 +2696,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         instanceCount++;
     }
 
-    // ---- 5a'. REINFORCING BARS AS REBAR (13-11: school_str's 619, DACH's 195, all generic models where Revit has them as rebar in
+    // ---- 5a'. REINFORCING BARS AS REBAR (13-11: school_str's 619, DACH's 195, all generic models where the modelling tool has them as rebar in
     // their host): each bar by its axis (feet) and its diameter; the applier finds the host it lies in and the bar type of that size.
     let rebarCount = 0;
     if (shapes && env0.RECIPE_REBAR !== '0')
@@ -2708,7 +2708,7 @@ function sharedRun(to: 'frag' | 'ifc') {
           Rebar: JSON.stringify({
             diameter: 2 * el.rebar.radius * s,
             path: el.rebar.path.map((p) => [p[0] * s, p[1] * s, p[2] * s]),
-            // (The others of its set, when it is one: the applier lays them out as Revit's bar set.)
+            // (The others of its set, when it is one: the applier lays them out as the modelling tool's bar set.)
             ...((el.rebar.paths?.length ?? 0) > 1 ? { others: el.rebar.paths!.slice(1).map((one) => one.map((p) => [p[0] * s, p[1] * s, p[2] * s])) } : {}),
           }),
         };
@@ -2761,7 +2761,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       )
         shapeCount++;
     }
-    // The openings nothing fills, cut in their walls (Revit's Wall Opening): racbasic's kitchen niche left its
+    // The openings nothing fills, cut in their walls (the modelling tool's Wall Opening): racbasic's kitchen niche left its
     // timber wall twice the IFC's volume (21-10).
     if (shapes) {
       for (const o of openingsFromShapes(shapes, seen, picked.fileId)) {
@@ -2782,7 +2782,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         add(o.key, { WallOpening: o.box.map((v, i) => num((i % 3 === 2 ? v - shapeDz : v) * s)).join(','), ...(made.get(o.host) ? { HostMade: made.get(o.host)! } : {}) }, { host: o.host });
       }
     }
-    // The rooms, last: each where its space's floor is, bounded by the walls as Revit bounds a room (21-10: the
+    // The rooms, last: each where its space's floor is, bounded by the walls as the modelling tool bounds a room (21-10: the
     // originals hold 14 and 91 of them, and nothing made one).
     if (shapes) {
       for (const r of roomsFromShapes(shapes, picked.fileId)) {
@@ -2848,7 +2848,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       removed ? `${removed} gone` : '',
     ].filter(Boolean);
     return {
-      title: `${to === 'ifc' ? 'IFC' : 'Model'} to Revit: ${words.join(', ')}`,
+      title: `${to === 'ifc' ? 'IFC' : 'Model'} to native model: ${words.join(', ')}`,
       verb: operation.summary,
       targets: operation.length,
       payload: new Blob([(await operation.build(context.opId)) as BlobPart]),
@@ -2878,15 +2878,15 @@ const sharedSchema = {
     columnType: {
       type: 'object',
       title: 'Column type',
-      // Revit's id of the Columns category: `Category` is a name in the
-      // language of whoever installed Revit, and cannot be compared.
+      // the modelling tool's id of the Columns category: `Category` is a name in the
+      // language of whoever installed the modelling tool, and cannot be compared.
       'x-existing': {
         of: 'family-type',
         from: 'target',
         where: { CategoryId: '-2001330' },
       },
     },
-    // (Doors and windows hosted in the model's walls: the type each gets, from those the Revit model has.)
+    // (Doors and windows hosted in the model's walls: the type each gets, from those the native model has.)
     doorType: {
       type: 'object',
       title: 'Door type',
@@ -2918,14 +2918,14 @@ const sharedSchema = {
 // One row per step of the run, in the order of its `ruleTallies` (Antonio, 17-10: the table
 // still said stairs, roofs and curtain walls waited, long after the applier built them).
 const sharedRules = [
-  { reads: 'Levels (datums)', writes: 'The same level in Revit, ensured by name' },
+  { reads: 'Levels (datums)', writes: 'The same level in the modelling tool, ensured by name' },
   { reads: 'Wall runs, one per straight segment', writes: 'A native wall: line, type (made from its width when missing), level, height, joins; its edited profile or its top on a roof' },
-  { reads: 'Curtain wall runs', writes: "Revit's curtain wall: its grid lines, mullions and panels" },
+  { reads: 'Curtain wall runs', writes: "The modelling tool's curtain wall: its grid lines, mullions and panels" },
   { reads: 'Slabs: floors and foundation slabs', writes: 'A native floor or foundation slab from the profile, holes included' },
   { reads: 'Roofs', writes: 'A footprint roof with its sloping edges, or a roof by extrusion for a gable' },
   { reads: 'Ceilings (coverings)', writes: 'A native ceiling from the profile, hung at its drop' },
   { reads: 'Stairs', writes: 'A native stair: a straight or sketched run, with its landings' },
-  { reads: 'Column records (members)', writes: 'A Revit column at each, on its level' },
+  { reads: 'Column records (members)', writes: 'A native column at each, on its level' },
   { reads: 'Free-standing family instances', writes: 'When turned on: a new instance of the same-named type, placed and turned' },
   { reads: 'Everything else with a body: doors, windows, furniture, fixtures, proxies, columns, railings', writes: "A family made from the file's own shape, one per shape, placed where the file has it (doors and windows in their wall)" },
   { reads: 'Things this recipe made whose record is gone', writes: 'That element removed' },
@@ -2935,16 +2935,16 @@ const sharedRules = [
 const sharedDoc = `
 ## How to use it
 
-In Revit, with the That Open plugin: **That Open > Select recipe**, pick this
+In the modelling tool, with the That Open plugin: **That Open > Select recipe**, pick this
 one and its source, then **Update**. It runs there and then: the model
-is read, and Revit gets the building in one transaction (Ctrl+Z undoes all of
+is read, and the modelling tool gets the building in one transaction (Ctrl+Z undoes all of
 it). Apply it again whenever the source changes: only the difference is
 written. Publish to That Open as usual, and the document's history shows the
 step, with the recipe and the version of the source it read.
 
 ## What it does
 
-It reads the platform's records and builds in Revit the building they
+It reads the platform's records and builds in the modelling tool the building they
 describe - levels, walls, curtain walls, floors, roofs, ceilings, stairs,
 columns and (opting in) free-standing instances, levels first. Everything is
 made NATIVELY: real walls on real levels, never imported meshes.
@@ -2954,7 +2954,7 @@ made NATIVELY: real walls on real levels, never imported meshes.
 Walls: the location line per straight segment, the type by its exact name
 (with its width, so a missing type is created by duplication), the level by
 name, base offset, height and which ends join; an edited profile, or a top
-attached to a roof. Curtain walls: Revit's own system, its grid lines,
+attached to a roof. Curtain walls: the modelling tool's own system, its grid lines,
 mullions and panels. Floors, foundation slabs and ceilings: the boundary
 loops, holes included. Roofs: by footprint with their sloping edges, or by
 extrusion for a gable. Stairs: a straight or sketched run, with its landings.
@@ -2966,7 +2966,7 @@ elevation - ENSURED, so a level the model already has is simply used.
 Apply it again and it writes only the difference: new records are made, a
 changed one is made again from its new version, and one that is gone has its
 element removed. It only ever touches what it made itself; elements a person
-made in Revit are invisible to it. What it made is remembered with the
+made in the modelling tool are invisible to it. What it made is remembered with the
 model's That Open data.
 
 ## What still waits
@@ -2977,16 +2977,16 @@ are read and counted, and their rule row says so.
 
 ## Units and axes
 
-Records are metres and radians, Z up; Revit gets feet and degrees. Types are
-matched exactly by name; Revit refuses the whole apply when a loadable type is
+Records are metres and radians, Z up; the modelling tool gets feet and degrees. Types are
+matched exactly by name; the modelling tool refuses the whole apply when a loadable type is
 missing (system types are created from their width instead).
 `;
 
-export const fragToRevit: Recipe<Settings> = {
+export const platformModelToNative: Recipe<Settings> = {
   name: 'frag-to-revit',
-  title: 'Platform model to Revit',
+  title: 'Platform model to native model',
   description:
-    'Builds in Revit the platform records of a .frag: levels, walls, curtain walls, floors, roofs, ceilings, stairs, columns, instances.',
+    'Builds in the modelling tool the platform records of a .frag: levels, walls, curtain walls, floors, roofs, ceilings, stairs, columns, instances.',
   to: 'revit',
   inputs: ['frag-model'],
   source: { kind: 'project-file', extensions: ['frag'] },
@@ -2996,12 +2996,12 @@ export const fragToRevit: Recipe<Settings> = {
   run: sharedRun('frag'),
 };
 
-export const ifcToRevit: Recipe<Settings> = {
-  ...fragToRevit,
+export const ifcToNative: Recipe<Settings> = {
+  ...platformModelToNative,
   name: 'ifc-to-revit',
-  title: 'IFC to Revit',
+  title: 'IFC to native model',
   description:
-    'Builds an IFC of the project in Revit as native elements: levels, walls, floors, roofs, stairs, curtain walls, columns, instances.',
+    'Builds an IFC of the project in the modelling tool as native elements: levels, walls, floors, roofs, stairs, curtain walls, columns, instances.',
   inputs: ['ifc-model'],
   source: { kind: 'project-file', extensions: ['ifc'] },
   doc:
@@ -3010,7 +3010,7 @@ export const ifcToRevit: Recipe<Settings> = {
 
 It reads the IFC file itself, the version uploaded last. Its first step
 converts it into the platform's records - what each element is, not only its
-shape - and Revit gets those. Nothing has to be prepared before.
+shape - and the modelling tool gets those. Nothing has to be prepared before.
 ` + sharedDoc,
   run: sharedRun('ifc'),
 };

@@ -1,7 +1,7 @@
 /**
  * What every built-in recipe shares: reading the platform's own semantic
  * records out of a .frag, finding what a recipe already made, and the unit
- * and axis conversions into Revit.
+ * and axis conversions into the modelling tool.
  *
  * THE RECORDS. A .frag that went through the platform's editable converter
  * (or was modelled here) carries each element as JSON inside two item
@@ -12,8 +12,8 @@
  * attributes - and the recipes refuse it by name rather than guess.
  *
  * UNITS AND AXES. Records are in METRES and radians; curve points are plane
- * [x, y] and placements [x, y, height]. Revit's API is FEET, Z up - so
- * [x, y, h] maps to Revit [x*s, y*s, h*s] with s = feet-per-metre. Item ids
+ * [x, y] and placements [x, y, height]. the modelling tool's API is FEET, Z up - so
+ * [x, y, h] maps to the modelling tool [x*s, y*s, h*s] with s = feet-per-metre. Item ids
  * like `run:0` are DOCUMENT-scoped, not GUIDs: a reconcile key must carry the
  * source file's identity next to them.
  */
@@ -24,7 +24,7 @@ import { readFrag, type FragItem } from '../frag-items';
 export const ELEMENT_FIELD = 'Element';
 export const CARRIED_FIELD = 'Carried';
 
-/** Revit's internal length unit: where every position has to end up. */
+/** the modelling tool's internal length unit: where every position has to end up. */
 export const FEET_PER_METRE = 1 / 0.3048;
 
 /** One semantic record, as saved: `params` carries the kind-specific fields. */
@@ -161,7 +161,7 @@ export type PickedFile = PickedSource;
  * file they uploaded and nothing else.
  */
 /**
- * A STREAMED .frag's contents, or null when the bytes are a whole file (15-11, the Revit video: what Designer saves is a
+ * A STREAMED .frag's contents, or null when the bytes are a whole file (15-11, the modelling tool video: what Designer saves is a
  * version record — `{ entry, parts: { container, sidecar, lod } }`, each a range of a hidden object — and `readFrag`
  * read that JSON as a deflated model, which the browser reports as «Failed to fetch»). Each object is downloaded once,
  * its ranges cut out, and the host's reader (`client.recipes.provideStreamedReader`) says what they hold.
@@ -209,7 +209,7 @@ async function streamedContents(context: RecipeContext<unknown>, bytes: Uint8Arr
 export async function readPickedFrag(
   context: RecipeContext<unknown>,
   picked: PickedFile | undefined,
-  /** Also a whole .frag's shapes, when the host reads them (`provideShapes('frag')`): a Rhino model's objects made as families. */
+  /** Also a whole .frag's shapes, when the host reads them (`provideShapes('frag')`): a the other modelling tool model's objects made as families. */
   options?: { shapes?: boolean },
 ) {
   if (!picked?.fileId) throw new Error('Choose the model file to read.');
@@ -251,7 +251,7 @@ export async function readPickedFrag(
   }
   const contents = streamed ?? (await readFrag(bytes));
   // 🔴 THE SHAPES IN THE RECORDS' FRAME (Snowdon 13-11: its floors built at the origin, its families 417 km away, and walls
-  // stretched from one to the other — past Revit's 32 km, every shape there was garbage). A file far from its origin is read
+  // stretched from one to the other — past the modelling tool's 32 km, every shape there was garbage). A file far from its origin is read
   // moved to it, records and items alike, and its mark keeps how far (`thatOpenModelling.origin`, metres, in plan: the
   // records are the file's points less it); the shapes are read where the file says, so they are moved the same way here,
   // once, for every recipe that reads them.
@@ -287,8 +287,8 @@ const moveBar = (bar: Bar, to: (p: readonly [number, number, number]) => readonl
 /**
  * Where an IFC's site stands in the coordinates it was written in: its origin
  * (metres) and the angle of its X axis (degrees, counter-clockwise). An IFC
- * Revit writes in shared coordinates places its site exactly at the source
- * model's shared location (racbasic: -19.82 m, -18.81 m, 37°), so a Revit
+ * the modelling tool writes in shared coordinates places its site exactly at the source
+ * model's shared location (racbasic: -19.82 m, -18.81 m, 37°), so a the modelling tool
  * document that shares no coordinates yet can be given the same location and
  * receive the building square to its own axes.
  */

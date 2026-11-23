@@ -12,7 +12,7 @@ import type { SourceShapes } from '../recipes';
 
 export const FEET = 1 / 0.3048;
 
-/** The class of an IFC element → the category (Revit's built-in category name) its family is made in. */
+/** The class of an IFC element → the category (the modelling tool's built-in category name) its family is made in. */
 export const SHAPE_CATEGORY: Readonly<Record<string, string>> = {
   IFCDOOR: 'OST_Doors',
   IFCWINDOW: 'OST_Windows',
@@ -23,7 +23,7 @@ export const SHAPE_CATEGORY: Readonly<Record<string, string>> = {
   IFCSANITARYTERMINAL: 'OST_PlumbingFixtures',
   IFCFLOWTERMINAL: 'OST_PlumbingFixtures',
   IFCCOLUMN: 'OST_Columns',
-  // (A beam is structural framing, as Revit holds it: rac_advanced's 38 came in as generic models, 12-11.)
+  // (A beam is structural framing, as the modelling tool holds it: rac_advanced's 38 came in as generic models, 12-11.)
   IFCBEAM: 'OST_StructuralFraming',
   IFCFOOTING: 'OST_StructuralFoundation',
   IFCGEOGRAPHICELEMENT: 'OST_Site',
@@ -34,10 +34,10 @@ export const SHAPE_CATEGORY: Readonly<Record<string, string>> = {
 const GENERIC = 'OST_GenericModel';
 
 /**
- * 🔴 THE REVIT CATEGORY AN ELEMENT'S NAME STARTS WITH (Antonio 13-11, «que TODO sean entidades nativas lo más cercanas
+ * 🔴 THE THE MODELLING TOOL CATEGORY AN ELEMENT'S NAME STARTS WITH (Antonio 13-11, «que TODO sean entidades nativas lo más cercanas
  * posibles al IFC original»; school_str: 175 piles and pile caps, 22 truss chords and 2 stiffeners came in as generic
- * models): an IFC exported from Revit with «Category : Family : Type» names says the category itself. Only the ones a
- * loadable family can be (a railing, a stair, rebar cannot), in the languages Revit exports.
+ * models): an IFC exported from the modelling tool with «Category : Family : Type» names says the category itself. Only the ones a
+ * loadable family can be (a railing, a stair, rebar cannot), in the languages the modelling tool exports.
  */
 const CATEGORY_OF_LABEL: Readonly<Record<string, string>> = {
   'structural foundations': 'OST_StructuralFoundation', 'cimentación estructural': 'OST_StructuralFoundation', 'tragwerksfundamente': 'OST_StructuralFoundation', 'fondations': 'OST_StructuralFoundation',
@@ -64,8 +64,8 @@ export const categoryOfName = (name: string | null | undefined): string | undefi
 };
 /**
  * 🔴 THE CATEGORY ITS CLASSIFICATION SAYS, for one its class leaves a generic model (13-11: Snowdon's 1068 proxies, refrigerators,
- * cabinets, plants, lamps, all generic models; Revit writes each element's Uniformat assembly code, and that code says what it is):
- * by its longest Uniformat prefix, as Revit's own assembly codes sort its categories.
+ * cabinets, plants, lamps, all generic models; the modelling tool writes each element's Uniformat assembly code, and that code says what it is):
+ * by its longest Uniformat prefix, as the modelling tool's own assembly codes sort its categories.
  */
 const CATEGORY_OF_UNIFORMAT: readonly (readonly [string, string])[] = [
   ['G2050', 'OST_Planting'],
@@ -81,7 +81,7 @@ export const categoryOfUniformat = (code: string | null | undefined): string | u
   const c = code.trim().toUpperCase();
   return CATEGORY_OF_UNIFORMAT.filter(([prefix]) => c.startsWith(prefix)).sort((a, b) => b[0].length - a[0].length)[0]?.[1];
 };
-/** Whether a name starts with a Revit category label («Structural Foundations : M_Pile : 500mm»). */
+/** Whether a name starts with a the modelling tool category label («Structural Foundations : M_Pile : 500mm»). */
 export const startsWithACategory = (name: string | null | undefined): boolean => categoryOfName(name) !== undefined || /^(walls|muros|floors|suelos|roofs|cubiertas|stairs|escaleras|railings|barandillas|structural rebar|armadura estructural|ceilings|techos|curtain panels|paneles de muro cortina|curtain wall mullions|montantes de muro cortina)\s*:/i.test(name ?? '');
 
 /** What is never a family: spaces, openings, annotations, the site (a terrain, not a thing). */
@@ -133,7 +133,7 @@ export function familiesFromShapes(shapes: SourceShapes, written: ReadonlySet<st
   for (const el of shapes.elements.values()) {
     if (writtenGids.has(el.gid) || NOT_A_THING.has(el.ifcClass.toUpperCase())) continue;
     // A part of something written is that thing's (a curtain wall's mullions and panels), except a door or window
-    // in it: Revit's curtain wall takes no door from the file, so it is made as the door it is (racbasic: 5 doors of
+    // in it: the modelling tool's curtain wall takes no door from the file, so it is made as the door it is (racbasic: 5 doors of
     // curtain walls missing, 21-10).
     // (And a curtain wall's panel that is no plain sheet, its cell left empty: `alsoParts`, see `shapedPanelsOf`.)
     if (el.parent && writtenGids.has(el.parent) && !/^IFC(DOOR|WINDOW)$/i.test(el.ifcClass) && !alsoParts?.has(el.gid)) continue;
@@ -160,7 +160,7 @@ export function familiesFromShapes(shapes: SourceShapes, written: ReadonlySet<st
     const angle = upright ? Math.atan2(first.x[1], first.x[0]) : flat ? Math.atan2(flat[1], flat[0]) : 0;
     const c = Math.cos(-angle), sn = Math.sin(-angle);
     const at = [first.t[0], first.t[1], first.t[2]];
-    // 🔴 A COLUMN'S BODY AT ITS OWN HEIGHT: Revit holds a column family's free-form body at the project's zero
+    // 🔴 A COLUMN'S BODY AT ITS OWN HEIGHT: the modelling tool holds a column family's free-form body at the project's zero
     // whatever its base, offsets, point or a move say (measured 21-10: racbasic's L column 3 m low, its concrete one
     // 2.9 m, nothing moved them). So the family's frame is at zero height and the body where the file has it.
     // (Superseded: a column is now made as a free family, `ColumnFree`, which stands where it is put; its frame is
@@ -173,7 +173,7 @@ export function familiesFromShapes(shapes: SourceShapes, written: ReadonlySet<st
     };
 
     // The shape in that frame, and its key: the geometries and each piece's placement relative to the frame.
-    // One solid per piece: a body Revit closes on its own, where all of them in one set of faces may not close.
+    // One solid per piece: a body the modelling tool closes on its own, where all of them in one set of faces may not close.
     const pieces: { v: number[]; t: number[] }[] = [];
     const keyParts: string[] = [category];
     for (const piece of el.pieces) {
@@ -237,7 +237,7 @@ export function familiesFromShapes(shapes: SourceShapes, written: ReadonlySet<st
       out.push({ key: `${fileId}:${el.gid}:shape`, attrs: pattrs, at: start, rotationDeg: ((angle + canon.turn) * 180) / Math.PI });
       continue;
     }
-    // THE SAME SHAPE, WHEREVER IT CAME FROM. A file may write each element its own copy of a geometry (Revit's
+    // THE SAME SHAPE, WHEREVER IT CAME FROM. A file may write each element its own copy of a geometry (the modelling tool's
     // IFC export does, for piles of one type), so geometries' ids alone made one family per pile. The key is the
     // shape itself in the family's frame (to the millimetre), so equal shapes share a family however they were written.
     const shapeKey = `${category}|${pieces
@@ -290,7 +290,7 @@ export function familiesFromShapes(shapes: SourceShapes, written: ReadonlySet<st
         }
       }
       // 🔴 A STEPPED OPENING (a rebate: GNI model_54 25-10, 35 walls 5 cm off around their windows): narrower at the
-      // face than inside; Revit's family cuts one rectangle, so that rectangle is the narrowest slice of it across the
+      // face than inside; the modelling tool's family cuts one rectangle, so that rectangle is the narrowest slice of it across the
       // wall (the face's frame the window sits in), through it all across. A box: every slice the same.
       {
         const fam = openingParts(shapes, opening.gid).flatMap((part) => part.pts).map((p) => toFamily(p).map((v) => v * FEET));
@@ -325,7 +325,7 @@ export function familiesFromShapes(shapes: SourceShapes, written: ReadonlySet<st
       }
       if (Number.isFinite(mn[0])) attrs.Opening = [...mn, ...mx].map((v) => round(v, 1e-5)).join(',');
       // (TRIAL, off unless RECIPE_CUT_LOST: whether its wall's mesh draws the hole — some of the wall's corners inside
-      // the opening's box, above the wall's foot — for the applier to cut the wall when Revit, unable to cut it, takes
+      // the opening's box, above the wall's foot — for the applier to cut the wall when the modelling tool, unable to cut it, takes
       // the hosted door away: GNI model_28, 3 of 3 placed again free-standing, their walls whole, twice the IFC's volume.
       // Not where the file's wall has no hole: model_89's walls are whole in the IFC too.)
       if (typeof process !== 'undefined' && process.env?.RECIPE_CUT_LOST && el.host && Number.isFinite(mn[0])) {
@@ -351,7 +351,7 @@ export function familiesFromShapes(shapes: SourceShapes, written: ReadonlySet<st
   return out;
 }
 
-/** A family name Revit takes: no characters it refuses, not empty, not too long. */
+/** A family name the modelling tool takes: no characters it refuses, not empty, not too long. */
 function clean(name: string): string {
   const plain = name.replace(/[\\:{}[\]|;<>?`~]/g, '-').replace(/\s+/g, ' ').trim();
   return (plain || 'Shape').slice(0, 120);
@@ -384,13 +384,13 @@ export function openingsFromShapes(shapes: SourceShapes, written: ReadonlySet<st
     const host = wallKey.get(el.host);
     const trace = typeof process !== 'undefined' && process.env?.RECIPE_TRACE;
     if (!host) { if (trace) console.error(`[opening] ${el.gid}: its wall ${el.host} not written as a run`); continue; }
-    // 🔴 EACH PIECE ITS OWN OPENING: Revit writes a wall's edited profile as one opening of several extrusions
+    // 🔴 EACH PIECE ITS OWN OPENING: the modelling tool writes a wall's edited profile as one opening of several extrusions
     // (Savoyvilla: walls twice the IFC's volume, their two-box openings failing the rectangle test as a whole, 23-10).
     // (And the pieces of one geometry that touch nothing of each other, apart: web-ifc may give the two as one.)
     for (const part of openingParts(shapes, el.gid)) {
     const pts = part.pts;
     if (pts.length < 4) continue;
-    // A RECTANGLE IN THE WALL, or not cut: Revit cuts a wall only with rectangles, and the extent of an opening under
+    // A RECTANGLE IN THE WALL, or not cut: the modelling tool cuts a wall only with rectangles, and the extent of an opening under
     // a sloped top cut half its wall away (racbasic's SIP gable wall: 0.61 m³ for the IFC's 1.19; 21-10). Its volume
     // against its box along the wall's axis says.
     const axis = wallAxis(pointsOf(shapes, el.host));
@@ -592,7 +592,7 @@ export function prismOf(piece: { v: number[]; t: number[] }): { axis: number; fr
 /**
  * The rooms: each IfcSpace as a point inside its floor (the middle of the largest triangle of its bottom), its bottom
  * and its height (metres, the file's frame), its number (Name) and name (LongName). A room is the walls' to bound, as
- * in Revit: placed at that point after them, it takes their outline.
+ * in the modelling tool: placed at that point after them, it takes their outline.
  */
 export function roomsFromShapes(shapes: SourceShapes, fileId: string): { key: string; at: [number, number, number]; height: number; number: string; name: string }[] {
   const out: { key: string; at: [number, number, number]; height: number; number: string; name: string }[] = [];
@@ -780,7 +780,7 @@ export function pointsOf(shapes: SourceShapes, gid: string, only?: number): numb
 
 /**
  * 🔴 A CURTAIN WALL'S PANELS THAT ARE NO PLAIN SHEET (24-10: DACH's 155 louvre panels, «Lamellenelement», and the
- * Conference Center's 158 came out as Revit's flat glass): each with the point its shape is centred on, for the
+ * Conference Center's 158 came out as the modelling tool's flat glass): each with the point its shape is centred on, for the
  * curtain wall to leave its cell empty and the panel to be made as a family of its own shape. Plain: one box (12
  * triangles); `sheet`, the panel's own thickness, kept for when one box is not enough to tell.
  */
@@ -794,7 +794,7 @@ export function shapedPanelsOf(shapes: SourceShapes, curtainGid: string, _sheet:
     for (const piece of el.pieces) tris += (shapes.geometries.get(piece.geometry)?.tris.length ?? 0) / 3;
     const mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
     for (const p of pts) for (let k = 0; k < 3; k++) { mn[k] = Math.min(mn[k], p[k]); mx[k] = Math.max(mx[k], p[k]); }
-    // (One box: what Revit's own system panel is; anything more drawn is the panel's own shape.)
+    // (One box: what the modelling tool's own system panel is; anything more drawn is the panel's own shape.)
     const plain = el.pieces.length === 1 && tris <= 12;
     // (Nor one box turned out of the wall's plane: a louvre's blade, DACH's «Lamellenelement», tilted.)
     if (plain && wallNormal) {
@@ -819,7 +819,7 @@ export function shapedPanelsOf(shapes: SourceShapes, curtainGid: string, _sheet:
 }
 
 /**
- * 🔴 A WALL'S TOP AS ITS SHAPE DRAWS IT (24-10: Revit exports an edited profile as the wall's box less polygonal
+ * 🔴 A WALL'S TOP AS ITS SHAPE DRAWS IT (24-10: the modelling tool exports an edited profile as the wall's box less polygonal
  * openings with nothing in them, which the converter does not read as an elevation; racbasic's 530178 came out 6.3 m³
  * for 1.2, Savoyvilla's walls twice their volume). Read off the wall's own mesh, its holes already cut: the face that
  * looks out along its normal, outermost, flattened onto [along, z] from `from`; its outline's upper chain, from its

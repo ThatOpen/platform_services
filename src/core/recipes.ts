@@ -50,7 +50,7 @@ export interface ExistingLookup {
    * Narrows the candidates: attribute equals value, against the attribute
    * names EXACTLY as the native application publishes them, no case
    * normalization. Prefer the stable machine fields over display names —
-   * Revit's `Category` text is localized per install ("Armazón estructural"),
+   * the modelling tool's `Category` text is localized per install ("Armazón estructural"),
    * so a column filter is `{ CategoryId: '-2001330' }`, never
    * `{ Category: 'Columns' }`.
    */
@@ -59,15 +59,15 @@ export interface ExistingLookup {
 
 /** What a recipe declares about itself. Shown in catalogs, checked by apps. */
 export interface RecipeManifest {
-  /** Machine name, unique in a catalog: 'rhino-points-to-revit-columns'. */
+  /** Machine name, unique in a catalog: 'points-to-columns'. */
   name: string;
-  /** The human name a list shows: 'Rhino points to Revit columns'. */
+  /** The human name a list shows: 'the other modelling tool points to the modelling tool columns'. */
   title?: string;
   /** The one sentence a non-programmer reads: what it converts into what. */
   description: string;
   /** The long-form explanation an app renders, as markdown. */
   doc?: string;
-  /** The native application whose language it writes: 'revit', 'autocad'… */
+  /** The native application whose language it writes: 'revit', 'a drawing tool'… */
   to: string;
   /** The input kinds it understands: 'rhino-model', 'platform-elements', 'points', 'csv'… */
   inputs: string[];
@@ -98,7 +98,7 @@ export interface RecipeManifest {
 
 /** One thing this recipe made in the target before, as the target remembers it. */
 export interface RecipeMade {
-  /** The target's id of what was made (Revit's UniqueId). */
+  /** The target's id of what was made (the modelling tool's UniqueId). */
   id: string;
   /** The fingerprint of what it was made from (`flow:print`): unchanged source, nothing to do. */
   print?: string;
@@ -204,7 +204,7 @@ export interface SourceShapes {
       host: string | null;
       /** A column the file says bears load (Pset_ColumnCommon.LoadBearing). */
       loadBearing?: boolean;
-      /** Its classification's code (Uniformat, as Revit writes its assembly code). */
+      /** Its classification's code (Uniformat, as the modelling tool writes its assembly code). */
       classification?: string;
       /** A reinforcing bar's axis (world metres, z up) and its radius: made a native rebar. */
       rebar?: { path: readonly (readonly [number, number, number])[]; paths?: readonly (readonly (readonly [number, number, number])[])[]; radius: number };
@@ -219,7 +219,7 @@ export interface SourceShapes {
 export type ShapesReader = (bytes: Uint8Array, name: string) => Promise<SourceShapes>;
 
 /**
- * 🔴 A STREAMED .frag READ AS A WHOLE ONE IS (15-11, the Revit video: Designer saves every new document streamed, and a
+ * 🔴 A STREAMED .frag READ AS A WHOLE ONE IS (15-11, the modelling tool video: Designer saves every new document streamed, and a
  * recipe pointed at it downloaded its version record — a small JSON naming the pieces — and choked on it). The pieces
  * are gathered here (`readPickedFrag`); what they SAY needs the fragments library, which the SDK does not carry: the
  * host that has it provides this, answering what `readFrag` answers for a whole file.
