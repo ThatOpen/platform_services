@@ -1,5 +1,11 @@
 # thatopen-services
 
+## 0.36.0
+
+### Minor Changes
+
+- aef9e00: Sign in through the browser: `thatopen login` without a token, and `EngineServicesClient.signInWithBrowser`.
+
 ## 0.35.0
 
 ### Minor Changes
