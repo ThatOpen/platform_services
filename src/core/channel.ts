@@ -322,7 +322,7 @@ export class CollabRoom<E extends object = AnyChannelEvents> extends ChannelRoom
 }
 
 /**
- * Commands from this account's external tools — a CLI, an MCP server, a Revit
+ * Commands from this account's external tools — a CLI, an MCP server, an authoring-tool
  * plugin — of one `kind`, or of every kind when none is given.
  *
  * `C` maps each command name to `{ payload, reply }`, so a handler's argument

@@ -172,7 +172,7 @@ export class PlatformClient extends EngineServicesClient {
   /**
    * The platform channel, from inside an app: a collaboration room shared with
    * other users of the app, and rooms for commands from external tools (a CLI,
-   * an MCP server, a Revit plugin). Typed, and built on the `postMessage`
+   * an MCP server, an authoring-tool plugin). Typed, and built on the `postMessage`
    * contract with the platform shell — the app never opens a socket.
    *
    * Only available in an app running in the platform's iframe; reading it

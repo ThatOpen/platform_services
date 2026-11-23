@@ -17,7 +17,7 @@
  * as given, in the TARGET application's own terms and units, because data
  * that gets translated on the way in has to be untranslated on the way out
  * and the day somebody forgets a field nothing complains. Deciding what a
- * Rhino layer means in Revit is the recipe's job; this only carries the
+ * modelling tool's layer means in the authoring tool is the recipe's job; this only carries the
  * answer.
  *
  * DEPENDENCIES, loaded at build() time and declared as OPTIONAL PEERS:
@@ -95,7 +95,7 @@ export interface Placement {
   rotationDeg?: number;
   /**
    * The id of the object that caused this change, in the AUTHOR's own terms —
-   * a Rhino guid, a row of a spreadsheet, whatever asked for it. Optional, and
+   * a modelling tool's guid, a row of a spreadsheet, whatever asked for it. Optional, and
    * only useful to whoever wrote it: pass it when you expect to come back and
    * find what you created.
    */

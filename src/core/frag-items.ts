@@ -18,7 +18,7 @@ type FragmentsSchema = typeof import('@thatopen/fragments');
 
 export interface FragItem {
   localId: number;
-  /** The publisher's own id for this thing — a Rhino object guid, a Revit UniqueId. */
+  /** The publisher's own id for this thing — a modelling tool's object guid, an authoring tool's UniqueId. */
   guid: string | null;
   category: string | null;
   attrs: Record<string, string>;

@@ -433,7 +433,7 @@ function canonicalPrism(prism: { axis: number; loops: [number, number][][] }): {
     const r = q.map(([a, b]) => Math.hypot(a, b));
     const mean = r.reduce((x, y) => x + y, 0) / r.length;
     if (q.length < 8 || mean <= 0 || r.some((x) => Math.abs(x - mean) > 0.02 * mean)) return q;
-    // 🔴 And evenly spaced round it (BLOXHUB's 85 «WC Ceiling Slot», a 150 x 100 U of 2 mm, its 8 corners all near one
+    // 🔴 And evenly spaced round it (a client model's 85 «WC Ceiling Slot», a 150 x 100 U of 2 mm, its 8 corners all near one
     // radius, were made solid octagons, 30 times their volume, 24-10): each step a 1/n turn, to a tenth of it.
     const step = (2 * Math.PI) / q.length;
     for (let i = 0; i < q.length; i++) {
@@ -923,7 +923,7 @@ export function wallTopOf(shapes: SourceShapes, gid: string, from: number[], to:
   const lo = Math.min(...best.map((p) => p[0])), hi = Math.max(...best.map((p) => p[0]));
   const bottom = Math.min(...best.map((p) => p[1])), topZ = Math.max(...best.map((p) => p[1]));
   if (!(hi - lo > 0.1) || !(topZ - bottom > 0.1)) return null;
-  // 🔴 OR ITS WHOLE OUTLINE, asked for a wall nothing is hosted in (BLOXHUB 24-10: K102 walls with a notch at their
+  // 🔴 OR ITS WHOLE OUTLINE, asked for a wall nothing is hosted in (a client's model 24-10: K102 walls with a notch at their
   // end half way up, made whole boxes, 0.91 m³ for 0.52): the outline as it is, its straight-through corners left out;
   // null when it is a plain rectangle.
   if (wholeOutline) {

@@ -2,7 +2,7 @@
  * Documents: the platform's unit of content.
  *
  * EVERY DOCUMENT IS A FOLDER. A "file" a person sees in the CDE — a PDF, a
- * Revit model, a point cloud — is stored as a folder holding one or more
+ * native authoring-tool model, a point cloud — is stored as a folder holding one or more
  * actual files, plus a small descriptor (`document.json`) that says which file
  * is the document's NATIVE form and which files are its VIEWS (the
  * representations a viewer can render). The folder is an internal storage
@@ -263,7 +263,7 @@ export class ProjectDocuments {
     const wanted =
       options?.name ?? fileName.replace(/\.[^.]+$/, '') ?? fileName;
 
-    // 🔴 ONE NAME, ONE DOCUMENT IN THE PROJECT (3-11, as Forma and ACC): two «Structural» documents broke the clash
+    // 🔴 ONE NAME, ONE DOCUMENT IN THE PROJECT (3-11, as other CDEs do): two «Structural» documents broke the clash
     // query, `openNamed` and the changed-model notice, each app taking a different one. A name another document already
     // has gets « (2)», « (3)»… And never into another document's folder: the platform answers a folder of a name that is
     // already there with that folder, and a second upload went into it and overwrote its descriptor.

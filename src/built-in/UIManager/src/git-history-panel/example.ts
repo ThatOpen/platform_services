@@ -1,8 +1,8 @@
 /* MD
   ## git-history-panel
   ---
-  `top-git-history` is a GitKraken-style commit timeline for the **revit-flow**
-  feature. It lists the commits pushed by the Revit add-in (newest first) and,
+  `top-git-history` is a git-client-style commit timeline for the **revit-flow**
+  feature. It lists the commits pushed by the authoring tool's add-in (newest first) and,
   when you click a commit, drives the shared 3D viewer to color that commit's
   changed elements — created green, modified blue, deleted red — on the loaded
   baseline model.

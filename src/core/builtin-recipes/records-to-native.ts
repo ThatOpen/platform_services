@@ -55,7 +55,7 @@ const CATEGORY = {
  * the modelling tool goes back with its own type names; anything else keeps the record's style name.
  */
 /**
- * 🔴 THE UNION OF LOOPS THAT TOUCH (BLOXHUB 13-11: a ceiling written as two rectangles side by side, «CL-UB03.02», read as its
+ * 🔴 THE UNION OF LOOPS THAT TOUCH (a client's model 13-11: a ceiling written as two rectangles side by side, «CL-UB03.02», read as its
  * first, 13.6 m of its 32.2): each loop turned counter-clockwise, every side split where another's corner lies on it, the sides
  * met once each way taken away (they are inside), the rest chained again; corners that do not turn dropped. Plan points; the
  * loops that come out, the outer ones counter-clockwise and any hole clockwise.
@@ -505,7 +505,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         const attrs = { CategoryId: CATEGORY.levels, Name: level.name, Elevation: num(level.at * s) };
         // 🔴 THE SAME LEVEL IS THE SAME LEVEL, whatever key the new version gives it: a level has no element of its own, it goes
         // by the thing it hangs on, and that thing changing asked to delete the level and everything on it (1-11, a shaft
-        // drawn: 10 levels of BLOXHUB «to remove», with their doors and ceilings).
+        // drawn: 10 levels of a client's model «to remove», with their doors and ceilings).
         const print = printOf({ attrs: sharedFrame ? { ...attrs, Frame: 'shared', ...(sharedAt ? { SharedAt: sharedAt } : {}) } : attrs, placement: {} });
         const madeAs = [...prints].find(([one, was]) => was === print && made.has(one))?.[0];
         if (add(madeAs ?? key(datumId), attrs)) levelCount++;
@@ -1531,7 +1531,7 @@ function sharedRun(to: 'frag' | 'ifc') {
           const med = (v: number[]) => [...v].sort((p, q) => p - q)[Math.floor(v.length / 2)]!;
           const usualT = med(plates.map((p) => p.thickness)), usualMid = med(plates.map((p) => p.mid));
           const sign = Number(env.RECIPE_PANEL_ACROSS_SIGN ?? 1);
-          // 🔴 ITS PANELS WHERE THE FILE HAS THEM, WHEN ITS STYLE SAYS NOTHING (BLOXHUB 13-11: «B100», a basic wall as the panel, 125 mm,
+          // 🔴 ITS PANELS WHERE THE FILE HAS THEM, WHEN ITS STYLE SAYS NOTHING (a client's model 13-11: «B100», a basic wall as the panel, 125 mm,
           // its middle 37 mm off the wall's line and made on it, every panel 4 cm off): the usual panel's middle off the line, measured.
           if (Math.abs(n(style.panelOffset)) < 1e-6 && Math.abs(usualMid) > 0.003) {
             panelOffset = sign * usualMid * s;
@@ -1702,11 +1702,11 @@ function sharedRun(to: 'frag' | 'ifc') {
         const L = t1 - t0, H = z1 - z0;
         const near = (v: number[], x: number) => v.some((y) => Math.abs(y - x) < 0.02);
         const along: number[] = [], up: number[] = [];
-        // 🔴 A BORDER BAR IS NO LINE (BLOXHUB 13-11: spanned to the border bars' outer faces, each one's middle came half a bar in — a
+        // 🔴 A BORDER BAR IS NO LINE (a client's model 13-11: spanned to the border bars' outer faces, each one's middle came half a bar in — a
         // line 25 mm from the end, a cell the modelling tool «cannot make, a panel or mullion too small», and all 14,394 changes rolled back).
         const onTheEnds = (b: { t0: number; t1: number }) => (atStart && Math.abs(b.t0 - T0) < 0.01) || (atEnd && Math.abs(b.t1 - T1) < 0.01);
         const onTheEdges = (b: { z0: number; z1: number }) => (atBottom && Math.abs(b.z0 - Z0) < 0.01) || (atTop && Math.abs(b.z1 - Z1) < 0.01);
-        // 🔴 …AND A BAR OF SEVERAL PIECES IS ONE LINE (BLOXHUB 13-11: a mullion, its cap and its back plate side by side, three lines
+        // 🔴 …AND A BAR OF SEVERAL PIECES IS ONE LINE (a client's model 13-11: a mullion, its cap and its back plate side by side, three lines
         // 20 and 30 mm apart, cells the modelling tool refused): the pieces whose stretches across the line touch, one bar, its line their middle.
         const middles = (spans: [number, number][]) => {
           const sorted = [...spans].sort((p, q) => p[0] - q[0]);
@@ -1729,7 +1729,7 @@ function sharedRun(to: 'frag' | 'ifc') {
           if (Math.abs(q.b.t0 - p.b.t1) < 0.06 && Math.min(p.b.z1, q.b.z1) - Math.max(p.b.z0, q.b.z0) > 0.05) { const m = (p.b.t1 + q.b.t0) / 2 - t0; if (m > 0.02 && m < L - 0.02 && !near(along, m)) along.push(m); }
         }
         along.sort((x, y) => x - y); up.sort((x, y) => x - y);
-        // 🔴 NO CELL NARROWER THAN A BAR (BLOXHUB 13-11: two lines 20–25 mm apart — a double upright, a panel joint by a bar — and the modelling tool
+        // 🔴 NO CELL NARROWER THAN A BAR (a client's model 13-11: two lines 20–25 mm apart — a double upright, a panel joint by a bar — and the modelling tool
         // refused the whole building): lines nearer than that to each other made one, at their middle; one that near an end, gone.
         const tidy = (v: number[], end: number, least: number) => {
           const out: number[] = [];
@@ -1788,7 +1788,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         if (partial) {
           outline = outlineOfBoxes(boxes.map((b) => [b.t0, b.z0, b.t1, b.z1]));
           if (!outline) { if (env.RECIPE_TRACE) console.error(`[curtain-pieces] ${cw.gid}: a cell filled in part and no one outline, kept as its pieces`); continue; }
-          // 🔴 ITS CORNERS ON ITS LINES, NOT A HAIR BESIDE THEM (BLOXHUB 13-11: corners 0.4–5 mm from a grid line, a sliver of panel
+          // 🔴 ITS CORNERS ON ITS LINES, NOT A HAIR BESIDE THEM (a client's model 13-11: corners 0.4–5 mm from a grid line, a sliver of panel
           // there, «no es posible crear un panel de muro cortina» at the commit, and the whole building rolled back): a corner within
           // a centimetre of a line or an end taken onto it.
           // (Within 10 mm only: taken from 30 mm, Snowdon's stair glazing came with a cell of no area and the modelling tool refused it — 13-11.)
@@ -1898,7 +1898,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       if (!body?.start || !body.end || !(Number(body.rise) > 0) || !level || !style) continue;
       const n = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0);
       const rise = Number(body.rise);
-      // (A style with no maximum riser: as many as the sketch draws, else the modelling tool's 18 cm. BLOXHUB 24-10: rise / 0, an
+      // (A style with no maximum riser: as many as the sketch draws, else the modelling tool's 18 cm. a client's model 24-10: rise / 0, an
       // Infinity that went as null, «could not be converted to Int32», a stair of nothing.)
       const maxRiser = n(style.maxRiser) > 0 ? n(style.maxRiser) : body.sketch?.risers?.length ? rise / (body.sketch.risers.length + 1) : 0.18;
       const risers = Math.max(1, Math.ceil(rise / maxRiser - 1e-6));
@@ -2249,7 +2249,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       let kind = of === 'covering' ? 'ceiling' : of === 'roof' ? 'roof' : slabKind(record);
       if (kind === 'other') continue;
       // 🔴 A RAMP IS NO FLOOR: the modelling tool makes no ramp through its API, and a ramp's sloped flight as a floor came to nothing
-      // (Savoyvilla 24-10: its 4 flights missing, BLOXHUB's made from their shapes all twins). Left to its shape.
+      // (Savoyvilla 24-10: its 4 flights missing, a client model's made from their shapes all twins). Left to its shape.
       if (shapes && record.item.guid && /^IFCRAMP(FLIGHT)?$/i.test(shapes.elements.get(record.item.guid)?.ifcClass ?? '')) continue;
       const body = innerJson<ExtrusionBody>(record, 'extrusion');
       // 🔴 A PROFILE DRAWN STANDING UP IS NO FLOOR'S OUTLINE (GNI model_120 r55: 11 stepped footings «Fundament 60 x 60 x
@@ -2319,7 +2319,7 @@ function sharedRun(to: 'frag' | 'ifc') {
       };
       let outer = loopOf(body?.profile?.outline?.curves) as number[];
       if (typeof lookRef !== 'string' || !level || !outer) continue;
-      // 🔴 AND THE REST OF IT, WHEN THE FILE WRITES IT IN PIECES (BLOXHUB 13-11: a ceiling of two rectangles side by side, the reader's
+      // 🔴 AND THE REST OF IT, WHEN THE FILE WRITES IT IN PIECES (a client's model 13-11: a ceiling of two rectangles side by side, the reader's
       // `regions`, came as its first — 13.6 m of 32.2, 93 ceilings over 30 cm off): its regions joined to its outline where they touch.
       const regionLoops = ((body as { regions?: { outline?: { curves?: CurveJson[] }; holes?: { curves?: CurveJson[] }[] }[] } | null)?.regions ?? []);
       const extraLoops: number[][] = [];
@@ -2374,7 +2374,7 @@ function sharedRun(to: 'frag' | 'ifc') {
         const box = (q: number[][]) => [Math.min(...q.map((p) => p[0])), Math.min(...q.map((p) => p[1])), Math.max(...q.map((p) => p[0])), Math.max(...q.map((p) => p[1]))];
         const flatPts = (l: number[]) => { const q: number[][] = []; for (let k = 0; k + 2 < l.length; k += 3) q.push([l[k] / s, l[k + 1] / s]); return q; };
         const mine = box(pts);
-        // (By its real shape where the boxes meet: a shaft beside a stepped stair well is inside the well's box and clear of it, BLOXHUB 1-11.)
+        // (By its real shape where the boxes meet: a shaft beside a stepped stair well is inside the well's box and clear of it, a client's model 1-11.)
         const inLoop = (q: number[][], x: number, y: number) => { let c = false; for (let i = 0, j = q.length - 1; i < q.length; j = i++) if ((q[i][1] > y) !== (q[j][1] > y) && x < ((q[j][0] - q[i][0]) * (y - q[i][1])) / (q[j][1] - q[i][1]) + q[i][0]) c = !c; return c; };
         const toEdge = (p: number[], a: number[], b: number[]) => { const dx = b[0] - a[0], dy = b[1] - a[1], u = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (dx * dx + dy * dy || 1))); return Math.hypot(p[0] - (a[0] + u * dx), p[1] - (a[1] + u * dy)); };
         const nearLoop = (q: number[][], r: number[][]) => q.some((p) => inLoop(r, p[0], p[1]) || r.some((a, k) => toEdge(p, a, r[(k + 1) % r.length]) < 0.01));

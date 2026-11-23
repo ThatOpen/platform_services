@@ -2062,7 +2062,7 @@ export const GISManager = { uuid: 'd8f3a1c2-6b4e-4f9a-8c1d-2e7b5a9f3c60' } as ty
 export interface RevitFlowChange {
     /** create → element added, update → geometry/data changed, delete → removed. */
     type: "create" | "update" | "delete" | string;
-    /** Revit UniqueId (GUID). Resolves to a fragments localId via getLocalIdsByGuids. */
+    /** The authoring tool's UniqueId (GUID). Resolves to a fragments localId via getLocalIdsByGuids. */
     uniqueId: string;
 }
 /** Per-commit change tallies, mirrored from the add-in's `counts` block. */
@@ -2072,7 +2072,7 @@ export interface RevitFlowCounts {
     removed: number;
 }
 /**
- * A revit-flow commit — one push of changes from the Revit add-in. `id` is a
+ * A revit-flow commit — one push of changes from the authoring tool's add-in. `id` is a
  * monotonic integer; `parent` points at the previous commit (null for the
  * root). The first commit is the baseline: its geometry IS the visible model
  * file. Later commits carry only their delta geometry, in a HIDDEN .frag whose
@@ -2082,8 +2082,8 @@ export interface RevitFlowCommit {
     /**
      * WHAT this commit is. Identity, minted by whoever wrote it, meaningful outside the model it
      * belongs to — which the old integer was not: that was the platform's storage version, a number
-     * the CDE handed out. An application that does not push through a Revit central has no such
-     * number, and an integer sequence asserts one line of history, which Revit's central enforces and
+     * the CDE handed out. An application that does not push through a central model has no such
+     * number, and an integer sequence asserts one line of history, which the authoring tool's central model enforces and
      * nothing else has to.
      */
     guid: string;
@@ -2095,8 +2095,8 @@ export interface RevitFlowCommit {
      * MERGE means naming both lines, and that needs this. The first entry is the line the commit
      * continues, which is what lets the panel lay out lanes without guessing which side is the trunk.
      *
-     * Revit never writes more than one: its central IS a single line and it merges inside itself
-     * rather than in this graph. The list is for the applications that are not Revit.
+     * The native authoring tool never writes more than one: its central IS a single line and it merges inside itself
+     * rather than in this graph. The list is for the applications that are not that tool.
      */
     parents?: string[] | null;
     /**
@@ -2116,7 +2116,7 @@ export interface RevitFlowCommit {
      * What the author said this commit was for, in their own words. Absent when nobody said
      * anything, which is most commits.
      *
-     * In Revit it comes from the Comment box in its own Synchronize with Central dialog, which
+     * In the native authoring tool it comes from the Comment box in its own Synchronize with Central dialog, which
      * people have been typing into for years while it went nowhere. Free text: never parsed, never
      * relied on for structure.
      */
@@ -2136,7 +2136,7 @@ export interface RevitFlowCommit {
     /**
      * Platform user id of the committer, recorded by the add-in from its API key. Lets the
      * UI resolve the author to a real project member (avatar + name) via getProjectData,
-     * instead of deriving initials from the raw Revit username. Absent on history written
+     * instead of deriving initials from the raw authoring-tool username. Absent on history written
      * before this was recorded, or when the key isn't a readable JWT.
      */
     userId?: string;
@@ -2158,7 +2158,7 @@ export interface RevitFlowCommit {
     full?: boolean;
     /**
      * Interoperability operations this commit materialised. Present only when somebody in
-     * Revit pulled a deferred edit: the commit is the native half of it, and this is the
+     * the authoring tool pulled a deferred edit: the commit is the native half of it, and this is the
      * link back to the operation that asked for it. Ordinary hand-authored commits, which
      * are nearly all of them, carry no such key at all.
      */
@@ -2188,7 +2188,7 @@ export interface RevitFlowHistory {
  *
  * Operations are NOT commits and do not live in the graph: a commit is immutable past, an
  * operation is optional future. They sit above the model's HEAD until somebody opens the
- * model in Revit and applies one, at which point they become a commit and stop being
+ * model in the authoring tool and applies one, at which point they become a commit and stop being
  * pending. Mirrors the add-in's `revitflow_ops.json`.
  */
 export interface RevitFlowOp {
@@ -2300,10 +2300,10 @@ declare class _GitHistoryManager extends OBC.Component {
     /**
      * Which mark to draw on a commit, by the application that wrote it.
      *
-     * Every commit already says who made it, in `source`. The panel used to draw the Revit logo on
-     * all of them regardless, which was true while Revit was the only thing that could write one and
+     * Every commit already says who made it, in `source`. The panel used to draw the authoring tool's logo on
+     * all of them regardless, which was true while the authoring tool was the only thing that could write one and
      * became a lie the moment anything else did: a commit from another tool would claim to be a
-     * Revit commit, on the one part of the row whose whole job is to say where a change came from.
+     * commit of the authoring tool, on the one part of the row whose whole job is to say where a change came from.
      *
      * The format is deliberately open about who writes history, so the icons have to be too. This is
      * the registry. Only `revit` is built in; an application adds its own:

@@ -681,7 +681,7 @@ export class EngineServicesClient {
    * (`GET /item/export`): a row per file with its folder path, its live
    * version and every metadata field of that version as a `meta.<key>`
    * column. Only what the caller may read. As JSON rows by default; as CSV
-   * text (RFC 4180) with `format: 'csv'`, ready for Power BI or Excel. A
+   * text (RFC 4180) with `format: 'csv'`, ready for BI and spreadsheet tools. A
    * platform from before the route answers 404.
    *
    * @example
@@ -703,7 +703,7 @@ export class EngineServicesClient {
         query: { projectId, format: 'csv' },
         responseType: 'blob',
       });
-      // (The platform starts it with a BOM for Excel; a string has no use for it.)
+      // (The platform starts it with a BOM for spreadsheet tools; a string has no use for it.)
       return (await blob.text()).replace(/^﻿/, '');
     }
     return await this.#requestApi<{
@@ -1594,7 +1594,7 @@ export class EngineServicesClient {
   }
 
   /**
-   * A project's history of connected documents (Revit models, AutoCAD
+   * A project's history of connected documents (authoring-tool models, CAD
    * drawings…): their version timelines and their change requests. See
    * `src/core/history.ts` — this surface is the only supported way to read
    * or write it; the storage underneath is private and will move.

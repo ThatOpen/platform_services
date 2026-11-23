@@ -1,11 +1,11 @@
-// description: "History and recipes — a project's connected documents (Revit, AutoCAD…), their version timelines, and recipes: scripts that bring a source into an app, in its native language, applied from inside that app."
+// description: "History and recipes — a project's connected documents (authoring tools, CAD tools…), their version timelines, and recipes: scripts that bring a source into an app, in its native language, applied from inside that app."
 import { EngineServicesClient } from '../client';
 import type { Recipe } from '../recipes';
 
 // The mental model, in three sentences:
-// 1. Every connected document (a Revit model, an AutoCAD drawing) has its
+// 1. Every connected document (an authoring-tool model, a CAD drawing) has its
 //    version history: who synced, when, what changed.
-// 2. A RECIPE is a script that brings a source (an IFC, a Rhino layer…) into
+// 2. A RECIPE is a script that brings a source (an IFC, a modelling tool's layer…) into
 //    an application, in that application's own words: the changes that make
 //    the document match the source.
 // 3. Recipes are applied from INSIDE the native application, by its plugin,
@@ -47,7 +47,7 @@ export async function readTheProjectHistory(
 // app fills, so people pick instead of typing names.
 const pointsToBlocks: Recipe<{ layer: string; block: string }> = {
   name: 'points-to-autocad-blocks',
-  description: 'Places an AutoCAD block on every input point.',
+  description: 'Places a CAD block on every input point.',
   to: 'autocad',
   inputs: ['points'],
   settingsSchema: {

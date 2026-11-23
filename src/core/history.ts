@@ -3,7 +3,7 @@
  * encapsulated.
  *
  * The vocabulary is deliberately small and BIM-shaped:
- * - A DOC is a connected native document (a Revit model, an AutoCAD drawing).
+ * - A DOC is a connected native document (an authoring-tool model, a CAD drawing).
  * - A VERSION is one step of it: who, when, what changed. A sync of the
  *   native application, a file uploaded to the platform, or a recipe applied
  *   in the native application ({@link FlowOrigin} says which recipe, and
@@ -32,7 +32,7 @@ import { ProjectDocuments, stampOf, type DocumentDescriptor, type DocumentView }
 export interface FlowChange {
   /** create | update | delete. */
   type: 'create' | 'update' | 'delete' | string;
-  /** The native application's own id for the element (Revit UniqueId, AutoCAD handle). */
+  /** The native application's own id for the element (the authoring tool's UniqueId, a CAD handle). */
   uniqueId: string;
 }
 
@@ -84,7 +84,7 @@ export interface FlowVersion {
    * Absent: a sync.
    */
   kind?: 'upload' | 'sync' | 'recipe' | 'restore' | string;
-  /** On a 'restore' (Revit's That Open > History > Restore this version): the version it went back to. */
+  /** On a 'restore' (the authoring tool's That Open > History > Restore this version): the version it went back to. */
   restoredFrom?: { guid: string; version: number };
   /** The file the step brought, on an upload: its id, name and the storage version it landed in. */
   file?: FlowFile;
@@ -125,11 +125,11 @@ export interface FlowOrigin {
     /** The file's storage version the recipe read. */
     version: string;
   };
-  /** What it wrote, in a line: «IFC to Revit: 12 wall(s), 3 floor(s)». */
+  /** What it wrote, in a line: «IFC to the authoring tool: 12 wall(s), 3 floor(s)». */
   title?: string;
   /** The settings it ran with, as the person chose them. */
   settings?: Record<string, unknown>;
-  /** The recipe's name for people ("IFC to Revit"). */
+  /** The recipe's name for people ("IFC to the authoring tool"). */
   recipeTitle?: string;
 }
 
@@ -164,8 +164,8 @@ export interface FlowDocInfo {
 /**
  * One person's current hold on a document's elements, read from the lock
  * registry the native plugins arbitrate through. Element keys are the native
- * application's own ids (Revit UniqueIds). Workset-level ownership lives in
- * Revit's own binary worksharing files (the ownership mirror) and is not
+ * application's own ids (the authoring tool's UniqueIds). Workset-level ownership lives in
+ * the authoring tool's own binary worksharing files (the ownership mirror) and is not
  * readable here — what IS here is every element-level claim.
  */
 export interface FlowOwner {
@@ -401,7 +401,7 @@ export class ProjectHistory {
    * @internal The documents' folders (the root's children), listed ONCE and
    * shared by every document. Each document listing them for itself was ~150
    * requests on one Coordinator load with ~30 documents, and the platform
-   * answers 429 past 100 a minute: the app then showed no Revit document and
+   * answers 429 past 100 a minute: the app then showed no authoring-tool document and
    * a queued request never arrived (13-10). Listed again after 30 s, when a
    * folder is made, or when asked `fresh`.
    */
@@ -529,8 +529,8 @@ export class FlowDoc {
    * takes the fragments engine, which this package deliberately does not
    * carry.
    *
-   * UniqueIds are the native application's own stable element ids (a Revit
-   * UniqueId survives syncs, machines and full exports), which is what makes
+   * UniqueIds are the native application's own stable element ids (the authoring
+   * tool's UniqueId survives syncs, machines and full exports), which is what makes
    * replace-by-uniqueId the whole composition rule.
    *
    * When the baseline is NEWER than the asked version (somebody published

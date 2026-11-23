@@ -1,4 +1,4 @@
-// description: "Platform channel (app-side, runs inside the platform iframe) — a collaboration room with presence, and typed commands from external tools (MCP, CLI, Revit, etc) with automatic replies."
+// description: "Platform channel (app-side, runs inside the platform iframe) — a collaboration room with presence, and typed commands from external tools (MCP, CLI, authoring-tool plugins, etc) with automatic replies."
 import { PlatformClient } from '../platform-client';
 
 // Unlike the other examples this is not a Node script: `client.channel` only
@@ -23,7 +23,7 @@ type CollabEvents = {
 
 export async function setupChannel(client: PlatformClient) {
   // Commands from this account's MCP server only. `external()` with no kind
-  // hears every kind of external tool (MCP, CLI, Revit plugin, etc...).
+  // hears every kind of external tool (MCP, CLI, authoring-tool plugin, etc...).
   const mcp = client.channel.external<McpCommands>('mcp');
 
   // What you return is sent back to whoever asked. Throw and it gets an error
