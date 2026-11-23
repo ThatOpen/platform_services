@@ -2,10 +2,10 @@
 
 You are an AI assistant. A user wants a **recipe**: something that brings data of their project into a
 native application — "put a column at every point of this layer", "build the walls of this IFC as
-Revit walls", "make a Revit room for every space of this spreadsheet". This guide is everything you
-need to write one, test it without Revit, and save it in their project. Follow it in order.
+the modelling tool walls", "make a native room for every space of this spreadsheet". This guide is everything you
+need to write one, test it without the modelling tool, and save it in their project. Follow it in order.
 
-> The user applies recipes from inside the application. In Revit: **That Open > Select recipe**
+> The user applies recipes from inside the application. In the modelling tool: **That Open > Select recipe**
 > (pick the recipe, its source and its settings) and **That Open > Update** (it runs and the
 > changes land in ONE transaction; Ctrl+Z undoes it whole; applying again writes only what changed).
 > When they publish, the model's history says which recipe, which version of it, and which version
@@ -15,19 +15,19 @@ need to write one, test it without Revit, and save it in their project. Follow i
 
 ## 1. What a recipe is
 
-A recipe is a **manifest** (what a person reads in Revit) and a **`run(context)` function** that
+A recipe is a **manifest** (what a person reads in the modelling tool) and a **`run(context)` function** that
 returns **changes**: a list of elements to add, set or remove in the target document, in that
-application's own vocabulary (Revit categories, family and type names, levels by name, feet).
+application's own vocabulary (native categories, family and type names, levels by name, feet).
 
-It does not touch Revit. It only says what Revit should end up with. The plugin applies the list.
+It does not touch the modelling tool. It only says what the modelling tool should end up with. The plugin applies the list.
 
 Two kinds of recipe exist and both appear in the catalog:
 
 - **Built-in** — shipped in `@thatopen/services` (`src/core/builtin-recipes/`). Always available, never
   replaced. **Read them before writing your own: they are your examples.**
-  - `ifc-to-revit` / `frag-to-revit` (`records-to-revit.ts`): a whole building — levels, walls,
+  - `ifc-to-revit` / `frag-to-revit` (`records-to-native.ts`): a whole building — levels, walls,
     curtain walls, floors, roofs, ceilings, stairs, columns — from the platform's records.
-  - `rhino-to-revit` (`rhino-to-revit.ts`): one Revit instance per placed object of a Rhino layer.
+  - `rhino-to-revit` (`layer-to-native.ts`): one native instance per placed object of a source layer.
 - **Project recipes** — yours. Saved in the user's project, versioned there, each with a name of its
   own (a built-in's name is refused). Starting from a built-in is the normal way: copy what you need.
 
@@ -61,9 +61,9 @@ const manifest = {
 
 - `source.kind: 'project-file'` with `extensions` lists the project's documents of those formats.
   The one picked arrives as `context.input`: `{ fileId, name, folderId, version }`.
-- Settings Revit can show today: **booleans** (a checkbox) and **`x-existing` family types of the
+- Settings the modelling tool can show today: **booleans** (a checkbox) and **`x-existing` family types of the
   target** (a list of the open model's types, filtered by `CategoryId`). Anything else and the
-  recipe is not offered in Revit — keep to those two.
+  recipe is not offered in the modelling tool — keep to those two.
 - Write `doc` for a person: what it does, what it carries per thing, what it leaves out.
 
 ## 3. The code
@@ -133,7 +133,7 @@ export async function run(context) {
 | `settings` | What the person chose, keyed as in `settingsSchema`. A family type is `{ categoryId, family, type }`. |
 | `made` | What this recipe made before in this model, as the model has it now. Use `kit.whatItMadeBefore`. |
 | `opId` | This run's id: pass it to `operation.build`. |
-| `progress(says, fraction?)` | A line for Revit's progress notice. |
+| `progress(says, fraction?)` | A line for the modelling tool's progress notice. |
 | `kit` | The tools below. |
 
 ### `context.kit`
@@ -143,38 +143,38 @@ export async function run(context) {
 | `readPickedFrag(context, input)` | Downloads the picked file (that version) and reads it: `{ picked, contents: { metadata, items }, site }`. A raw IFC goes through the platform's IFC converter first, so `items` carry records. |
 | `readFrag(bytes)` | Reads any .frag: `{ metadata, items: [{ localId, guid, category, attrs }] }`. |
 | `recordsOf(items)` | The platform's semantic records (walls as runs, slabs as extrusions, levels as datums…) out of a converted model: `[{ id, kind, params, item }]`. |
-| `innerJson(record, param)`, `levelsOf(records)`, `levelNames(records)`, `stylesOf(records)` | Reading those records (see `records-to-revit.ts` for every kind). |
+| `innerJson(record, param)`, `levelsOf(records)`, `levelNames(records)`, `stylesOf(records)` | Reading those records (see `records-to-native.ts` for every kind). |
 | `OperationBuilder` | Builds the changes: `add(attrs, { position?, rotationDeg?, source? })`, `set(revitId, attrs, placement?)`, `remove(revitId)`, `length`, `summary`, `build(opId)`. |
 | `whatItMadeBefore(context, prints?)` | `Map<sourceKey, revitId>`, and fills `prints` with each one's fingerprint. |
 | `printOf(value)` | A short fingerprint of what a change asks for: unchanged print = nothing to write. |
 | `siteLocationOf(ifcBytes)` | Where an IFC's site stands (east, north, elevation, angle). |
-| `FEET_PER_METRE` | Revit is feet. Records are metres. |
+| `FEET_PER_METRE` | The modelling tool works in feet. Records are metres. |
 
 ### The rules that make a recipe behave
 
 1. **Every `add` carries a stable `source` key**: the source file's id plus the thing's own id
-   (an IFC GlobalId, a Rhino guid), never its position in a list. That is how the next Apply knows
+   (an IFC GlobalId, a source guid), never its position in a list. That is how the next Apply knows
    what it made.
 2. **Fingerprint what you add** (`'flow:print': kit.printOf(...)`): same print, nothing to write.
 3. **Remove only what you made** (`made`): never anything a person drew.
 4. **Nothing to write is `UpToDate`**, not an error.
-5. **Feet, Z up, Revit names.** Categories by `CategoryId` (Revit's language-independent id), types
+5. **Feet, Z up, native names.** Categories by `CategoryId` (the modelling tool's language-independent id), types
    and levels by their exact names.
 
-## 4. What Revit understands (the change vocabulary)
+## 4. What the modelling tool understands (the change vocabulary)
 
-Every attribute of an `add` or `set` is either one of these fields or **a Revit parameter by name**
+Every attribute of an `add` or `set` is either one of these fields or **a native parameter by name**
 (written as the parameter's value).
 
 | Field | Meaning |
 |---|---|
-| `CategoryId` | Revit's category id: levels `-2000240`, walls `-2000011`, floors `-2000032`, roofs `-2000035`, ceilings `-2000038`, structural foundations `-2001300`, stairs `-2000120`, structural columns `-2001330`. |
-| `Family`, `Type` | The family and type, by exact name. A loadable family type that the model lacks makes Revit refuse that element. Wall and floor types missing are made from `Type.Width`. |
+| `CategoryId` | the modelling tool's category id: levels `-2000240`, walls `-2000011`, floors `-2000032`, roofs `-2000035`, ceilings `-2000038`, structural foundations `-2001300`, stairs `-2000120`, structural columns `-2001330`. |
+| `Family`, `Type` | The family and type, by exact name. A loadable family type that the model lacks makes the modelling tool refuse that element. Wall and floor types missing are made from `Type.Width`. |
 | `Type.Width` | A wall or floor type's thickness (feet), to make it when missing. |
 | `Name` | A level's name (levels are ensured by name: an existing one is reused). |
 | `Elevation` | A level's height (feet). |
 | `Level` | The element's level, by name. |
-| `Position` / `Rotation` | Via the builder's `position` [x,y,z] (feet) and `rotationDeg` (about Z). For point-placed families. |
+| `Position` / `Rotation` | Via builder's `position` [x,y,z] (feet) and `rotationDeg` (about Z). For point-placed families. |
 | `LocationLine` | A wall's line: `"x1,y1,z1;x2,y2,z2"` (feet). |
 | `Height`, `BaseOffset`, `TopLevel`, `TopOffset` | A wall's height, base offset, top level (by name) and offset. |
 | `JoinEnds`, `Mitre`, `Yields` | A wall's ends (`start`, `end`) that join, mitre, or stop at the wall they meet. |
@@ -190,7 +190,7 @@ Every attribute of an `add` or `set` is either one of these fields or **a Revit 
 What it cannot make yet is said in the built-ins' rules tables ("Nothing yet - read and counted"):
 hosted doors and windows, footings, ramps.
 
-## 5. Test it without Revit
+## 5. Test it without the modelling tool
 
 Run it with the services client and read the changes it would ask for:
 
@@ -213,8 +213,8 @@ Check: the count is what the source holds, every `add` has a `source`, the units
 names are the model's own. Run it a second time with `made` filled from the first (source → an id)
 and it must answer `UpToDate`.
 
-(A raw IFC source needs the IFC converter, which the Revit plugin provides. To test an IFC recipe
-outside Revit, point it at the IFC's converted .frag instead.)
+(A raw IFC source needs the IFC converter, which the plugin provides. To test an IFC recipe
+outside the modelling tool, point it at the IFC's converted .frag instead.)
 
 ## 6. Save it in the project
 
@@ -226,7 +226,7 @@ const version = await client.recipes.project.save(projectId, { manifest, code },
 // 'v1', then 'v2'… every save is a new version, all of them kept
 ```
 
-Then, in Revit, **That Open > Select recipe** lists it (marked "this project", with its version)
+Then, in the modelling tool, **That Open > Select recipe** lists it (marked "this project", with its version)
 next to the built-ins. Apply runs its latest version; the history says which.
 
 Other calls: `client.recipes.catalog(projectId, { to: 'revit' })` (built-ins and the project's),

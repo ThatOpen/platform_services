@@ -12,7 +12,7 @@ shaped the way it is; this says what the bytes look like.
 > and the reference for what the API does underneath. Anything else touching these files directly
 > will break when the layout moves behind the API, which is the plan.
 
-Nothing here is aspirational. Every rule below is what the Revit and Rhino plugins already do, and
+Nothing here is aspirational. Every rule below is what the native tools plugins already do, and
 was written from their implementation rather than ahead of it — which is why the awkward parts are
 stated as plainly as the tidy ones. Where a rule exists because something broke, it says so.
 
@@ -152,7 +152,7 @@ somebody else's avatar, which is worse than showing none.
 
 **In a native plug-in there is no call that answers it**, so read the `u` claim out of the API
 key's JWT payload (base64url, no signature check, since this only decides which name to display).
-That is what the Revit add-in does.
+That is what the plugin does.
 
 ### The verbs
 
@@ -182,7 +182,7 @@ of the target carries it. The plugin keeps it in the target model's record of wh
 (`revitflow_recipes.json`), which is the recipe's own bookkeeping and nobody else's.
 
 **Every other attribute name belongs to the target application.** `Family`, `Type`, `CategoryId`,
-`Level`, `Position` are what Revit calls its own fields in what Revit publishes. A recipe copies
+`Level`, `Position` are what the modelling tool calls its own fields in what the modelling tool publishes. A recipe copies
 them without needing to know what any of them mean; the plugin receiving them is the only thing that
 does. Anything not in the receiving plugin's list of structural fields is treated as a parameter of
 the element, which is what keeps the change vocabulary and the export vocabulary the same thing
@@ -241,7 +241,7 @@ Rules, restated here because they are the part an implementer gets wrong:
 - **`version` is data, never a name, and nothing may sort by it.** It is where the commit landed in
   the CDE. An application with no such number omits it entirely.
 - **`message` is the author's own words, and is optional.** Free text, never parsed, absent when
-  nobody said anything. Take it from wherever the application already asks: Revit's Synchronize
+  nobody said anything. Take it from wherever the application already asks: the modelling tool's Synchronize
   with Central dialog has had a Comment box forever, so the add-in passes that through rather than
   generating a sentence about element counts, which `changes` already says better.
 - **`full`** means this commit re-exported the whole model, so the visible `.frag` shows the model
@@ -258,10 +258,10 @@ Rules, restated here because they are the part an implementer gets wrong:
 
 ---
 
-## 4. Collaboration in Revit, as one worked example
+## 4. Collaboration in the modelling tool, as one worked example
 
 None of this is required by the contract. It is what a file needs when its application works the way
-Revit does, and it is here because it is the hardest case: read it as an example, not as the shape
+the modelling tool does, and it is here because it is the hardest case: read it as an example, not as the shape
 your application must take.
 
 ### The native model
@@ -275,7 +275,7 @@ name so a past state can be rebuilt.
 ### Ownership
 
 
-Revit already arbitrates ownership — against **that machine's copy of the central**. Since the
+the modelling tool already arbitrates ownership — against **that machine's copy of the central**. Since the
 central here is a snapshot that syncs rather than a live shared file, two people on two machines can
 both borrow the same wall and both succeed, and neither finds out until one syncs. So arbitration
 has to happen where both machines can see it.
@@ -312,13 +312,13 @@ for good.
 ## 5. Applying a recipe in your plugin, end to end
 
 The recipe code is the platform's own, in `@thatopen/services`; a plugin hosts it rather than
-reimplementing it. (The Revit add-in runs it in a hidden WebView2 page and applies the result in
+reimplementing it. (The plugin runs it in a hidden WebView2 page and applies the result in
 C#.) The whole job, for the common case:
 
 1. **Offer the recipes.** `client.recipes.catalog(projectId, { to: '<your app>' })` lists the
    built-ins and the project's own; `client.recipes.choices(name, projectId)` lists the documents
    it can read, each with its current version; the manifest's `settingsSchema` says what to ask.
-   In Revit this is **That Open > Select recipe**.
+   In the modelling tool this is **That Open > Select recipe**.
 2. **Run it.** `client.recipes.run(name, { projectId, target, input, settings, made, opId,
    recipeVersion, progress })`, with `made` read from your model's record of what that recipe made
    before. It answers `{ title, verb, payload, targets, ruleTallies }`, or throws `UpToDate`: say
@@ -331,7 +331,7 @@ C#.) The whole job, for the common case:
    (section 3).
 
 That is all. No lock beyond what your application already takes for an edit, no queue, nobody else
-to wait for. In Revit, steps 2 to 4 are **That Open > Update**.
+to wait for. In the modelling tool, steps 2 to 4 are **That Open > Update**.
 
 ---
 
@@ -340,14 +340,14 @@ to wait for. In Revit, steps 2 to 4 are **That Open > Update**.
 The contract is section 3, and nothing else. What you decide for yourself:
 
 - **What a commit contains.** Whatever your application can honestly report as changed.
-- **Whether ownership exists at all.** Revit's model is claimed-before-editing arbitrated centrally.
+- **Whether ownership exists at all.** the modelling tool's model is claimed-before-editing arbitrated centrally.
   For an application where teams already divide work by file, no locking may be the right answer.
-- **How concurrent edits reconcile.** Revit has a merge engine; most applications do not, and this
+- **How concurrent edits reconcile.** the modelling tool has a merge engine; most applications do not, and this
   is the expensive half. A central that is *reconstructed* from per-object deltas rather than
   overwritten is buildable on stable object ids and per-commit deltas, but that is rebuilding
   worksharing rather than configuring it.
 - **Whether history branches.** The format allows it. Whether your application does is yours to
-  decide, and Revit's cannot: its central is a single line.
+  decide, and the modelling tool's cannot: its central is a single line.
 
 The one thing not up for grabs: **order comes from the graph, never from a counter.** Write commits
 with guids and parents, and every reader on the platform can already show your history alongside

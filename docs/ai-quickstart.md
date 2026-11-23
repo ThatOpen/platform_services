@@ -29,22 +29,22 @@ on the [That Open Platform](https://platform.thatopen.com) from scratch, using
 > Phrases that mean this: *"in the app I have open"*, *"use Planner/Coordinator to…"*, *"drive
 > my app"*, *"make me a set of drawings"*.
 
-> **Not building anything — here to work in Revit?** If what the user actually wants is to share a
-> Revit model with their team, join one a colleague uploaded, or bring an IFC or a Rhino model into
-> their Revit model with a recipe that already exists, this is the wrong guide and nothing below
+> **Not building anything — here to work in the modelling tool?** If what the user actually wants is to share a
+> native model with their team, join one a colleague uploaded, or bring an IFC or a shape model into
+> their native model with a recipe that already exists, this is the wrong guide and nothing below
 > applies. Go to
-> **[the Revit collaboration quickstart](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/revit-collab-quickstart.md)** and follow that instead.
+> **[plugin collaboration quickstart](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/revit-collab-quickstart.md)** and follow that instead.
 > It is the same shape as this one: ask first, then drive the CLI.
 >
-> Phrases that mean that guide, not this one: *"I want to collaborate on a Revit project"*, *"share
-> my central"*, *"join my team's model"*, *"bring this IFC into my Revit model"*, *"work on the
+> Phrases that mean that guide, not this one: *"I want to collaborate on a native project"*, *"share
+> my central"*, *"join my team's model"*, *"bring this IFC into my native model"*, *"work on the
 > same model as my colleague"*.
 >
 > *"Someone sent me a change to approve"* has no guide: nothing is sent into anybody's model any
-> more, and there is nothing to approve. What exists is the person in Revit applying a recipe
+> more, and there is nothing to approve. What exists is the person in the modelling tool applying a recipe
 > themselves (That Open > Select recipe, Update) — Step 6 of that same guide.
 
-> **Making another application talk to this one?** If the user wants their own tool — Rhino, Blender,
+> **Making another application talk to this one?** If the user wants their own tool — the shape modeller, Blender,
 > a script, an in-house app — to publish its data so recipes can read it, to updates in its
 > own models, or to show a model it did not author, that is a third thing again:
 > **[Writing a flow plugin](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/flow-plugin-guide.md)** is the
@@ -54,10 +54,10 @@ on the [That Open Platform](https://platform.thatopen.com) from scratch, using
 > Phrases that mean those: *"export my model to the platform"*, *"write a plugin for X"*, *"read a
 > .frag in my app"*.
 
-> **Making a recipe?** If the user wants to bring something of their project into Revit — *"put a
-> column at every point of this layer"*, *"build this IFC's walls in Revit"*, *"send my geometry to
-> Revit"*, *"a recipe that…"* — that is a recipe, not an app: **[Writing a recipe](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/recipes-guide.md)**.
-> It is applied from inside Revit (That Open > Select recipe, Update) and saved in their project.
+> **Making a recipe?** If the user wants to bring something of their project into the modelling tool — *"put a
+> column at every point of this layer"*, *"build this IFC's walls in the modelling tool"*, *"send my geometry to
+> the modelling tool"*, *"a recipe that…"* — that is a recipe, not an app: **[Writing a recipe](https://raw.githubusercontent.com/ThatOpen/platform_services/main/docs/recipes-guide.md)**.
+> It is applied from inside the modelling tool (That Open > Select recipe, Update) and saved in their project.
 
 ---
 
@@ -135,8 +135,8 @@ thatopen create my-app --beta
 cd my-app
 ```
 
-**[app, showing a Revit model's commit history]** If what they asked for is a viewer of the
-revit-flow history, scaffold it directly. Do not build it by hand: the wiring is four additions in
+**[app, showing a native model's commit history]** If what they asked for is a viewer of the
+flow history, scaffold it directly. Do not build it by hand: the wiring is four additions in
 three places and the ORDER of them is load-bearing (see the boot order section below). This ships
 it already correct, opening on the History layout.
 
@@ -177,7 +177,7 @@ https://platform.thatopen.com/dashboard/projects/<PROJECT_ID>/apps/local-app
 
 > **If the platform shows "failed to load application" and the console says
 > `Permission was denied for this request to access the `loopback` address space`**:
-> current Chrome blocks an https page from fetching `http://localhost` until the
+> current browsers block an https page from fetching `http://localhost` until the
 > user grants the **Local network access** permission. Tell the user: click the
 > icon left of the URL → Site settings → **Local network access** → **Allow**,
 > then reload. One-time, per browser profile. Verified 2026-09-22 — without the
@@ -426,13 +426,13 @@ into the folder as a view, so the document is born ready to visualize.
 
 ## 5d. History and recipes: versions, bringing data in
 
-Three sentences hold the whole model. Every connected document (a Revit model,
-an AutoCAD drawing) has its version history: who synced, when, what changed,
+Three sentences hold the whole model. Every connected document (a native model,
+a CAD drawing) has its version history: who synced, when, what changed,
 and — when a recipe made it — which recipe and which source. Nobody writes in
 somebody else's document: the person working in the native application brings
-things in themselves. A RECIPE brings something of the project (an IFC, a Rhino
+things in themselves. A RECIPE brings something of the project (an IFC, a shape modeller
 layer, a .frag) into a native application; it is chosen and applied from inside
-that application (in Revit: That Open > Select recipe, Update), and its
+that application (in the modelling tool: That Open > Select recipe, Update), and its
 changes land there at once, in one undoable step.
 
 ```ts
@@ -468,8 +468,8 @@ the package needs them; in plain Node, fragments also pulls `web-ifc`).
 
 BUILT-IN RECIPES ship with the SDK — proof that interoperability works
 without writing anything, and the templates to copy:
-`registerBuiltinRecipes(client)` registers `rhino-to-revit` (a Rhino layer's
-placed objects become instances of a chosen Revit type, reconciled on re-run),
+`registerBuiltinRecipes(client)` registers `rhino-to-revit` (a source layer's
+placed objects become instances of a chosen native type, reconciled on re-run),
 `ifc-to-revit` and `frag-to-revit` (a whole building from the platform's own
 records: levels, walls, curtain walls, floors, roofs, ceilings, stairs,
 columns). A project's OWN recipes are saved in the project, versioned

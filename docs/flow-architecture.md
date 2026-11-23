@@ -17,7 +17,7 @@ recording change.
 The platform holds **native files** — `.rvt`, `.3dm`, whatever an application actually saves.
 Nothing is converted on the way in.
 
-Each **file** has its own collaboration system. Note: a file, not a format. Two Rhino models in two
+Each **file** has its own collaboration system. Note: a file, not a format. Two shape models in two
 projects can be collaborated on in two different ways, by the same person, on the same day, because
 what suits a five-person structural team does not suit somebody sketching alone.
 
@@ -29,9 +29,9 @@ That is the whole of the shared surface. Everything above it is free.
 
 Two consequences, and they are the point of the design:
 
-1. **Applications with incompatible needs coexist.** Revit needs a very specific collaboration
-   system, because Revit worksharing is a specific thing: a central file, element-level ownership,
-   a merge engine. Rhino needs none of that. Neither has to pretend to be the other.
+1. **Applications with incompatible needs coexist.** the modelling tool needs a very specific collaboration
+   system, because the modelling tool worksharing is a specific thing: a central file, element-level ownership,
+   a merge engine. the shape modeller needs none of that. Neither has to pretend to be the other.
 2. **A project chooses.** Ownership claimed up front, or nothing locked at all, or something in
    between. The history contract does not care which, and the platform reads all of them the same
    way.
@@ -49,19 +49,19 @@ A history is a list of commits. Each commit says:
 | `counts` | Derived totals, so a reader need not walk the changes to summarise. |
 | `version` | Where it landed in the CDE, when there IS such a place. Data, never identity. |
 
-Two rules about reading it, and they are what let an application unlike Revit take part at all:
+Two rules about reading it, and they are what let an application unlike the modelling tool take part at all:
 
 - **Order comes from the graph, not from a number.** Follow `parents`; break ties by timestamp.
   Asking "which came first" of an integer forces every application to invent a sequence, and only
-  something like Revit's central — which serialises everybody through one line — can honestly
+  something like the modelling tool's central — which serialises everybody through one line — can honestly
   produce one.
 - **`version` is never a name.** It is where the commit was stored, not what it is. An application
   with no version counter simply omits it.
 
 `parents` is a **list** because a history that can only be a line is a different thing from a graph.
-A fork is two commits naming the same parent; a merge is one commit naming two. Revit will never
+A fork is two commits naming the same parent; a merge is one commit naming two. the modelling tool will never
 write more than one — its central is a single line and it merges inside itself — and the list exists
-precisely for the applications that are not Revit.
+precisely for the applications that are not the modelling tool.
 
 ---
 
@@ -85,7 +85,7 @@ Every application on the platform publishes its data openly: readable **without 
 proprietary application**.
 
 This is what makes everything in the next section possible. A translator, a script or a model runs
-with Revit closed and Rhino closed; if the only way to know what is in a model were to open the
+with the modelling tool closed and the shape modeller closed; if the only way to know what is in a model were to open the
 application that wrote it, none of it could exist.
 
 The constraint that follows is worth stating, because it decides where fixes go: **anything reading
@@ -99,13 +99,13 @@ back channel to a running application.
 
 The other half is bringing things INTO a native application — as a **recipe**.
 
-A recipe reads something of the project (an IFC, a Rhino layer, a `.frag`, anything the platform
+A recipe reads something of the project (an IFC, a source layer, a `.frag`, anything the platform
 holds) and returns the changes that make the target model match it: adds, edits and removals, in
 the target application's own vocabulary. Three things define it:
 
-**It is chosen and applied from inside the application that receives it.** In Revit: **That Open >
+**It is chosen and applied from inside the application that receives it.** In the modelling tool: **That Open >
 Select recipe** (the recipe, its source document from a list, its settings) and **That Open > Apply
-recipe**. The plugin runs the recipe and writes its changes at once, in **one** Revit transaction:
+recipe**. The plugin runs the recipe and writes its changes at once, in **one** the modelling tool transaction:
 Ctrl+Z undoes it whole, and closing without saving or going back in the history reverts it like any
 other edit. Nothing is queued, uploaded or waiting for anybody.
 
@@ -125,7 +125,7 @@ its sync — so the change is theirs from the first moment, and an ordinary edit
 
 When they sync, the commit says where the change came from: `kind: "recipe"` and an `origin` naming
 the recipe, its version, a title, and the exact source document and version it read. The platform's
-history panel shows such commits with a recipe mark and that title («IFC to Revit: 6 level(s), 47
+history panel shows such commits with a recipe mark and that title («IFC to the modelling tool: 6 level(s), 47
 wall(s)…», «from racbasicsampleproject.ifc v1»).
 
 Built-in recipes ship in `@thatopen/services` (`ifc-to-revit`, `frag-to-revit`, `rhino-to-revit`)
@@ -179,11 +179,11 @@ get a refusal naming it rather than a silently wrong element.
 > **No plugin ever mentions another application. It publishes its own data raw, and reads a
 > `.frag`. Everything that translates between two applications lives in the platform.**
 
-The Revit plugin has no idea Rhino exists: it receives verbs over the Revit data it already
-publishes. The Rhino plugin must have no idea Revit exists either — it exports what Rhino has, as
-Rhino has it, and stops. The thing that reads a Rhino model and says what it means in a Revit one is
+The plugin has no idea shape modeller exists: it receives verbs over the modelling tool data it already
+publishes. The shape modeller's plugin must have no idea native exists either — it exports what the shape modeller has, as
+the shape modeller has it, and stops. The thing that reads a shape model and says what it means in a native one is
 a third thing — a recipe — and it lives in the platform: built into `@thatopen/services`, or saved
-in the project. The Revit plugin runs it and applies what it returns, without knowing what it read.
+in the project. The plugin runs it and applies what it returns, without knowing what it read.
 
 The reason is arithmetic. Put translation in the plugins and every new tool has to learn about every
 existing one: N tools, N² translators, each needing an update when either end changes. Put it in the
@@ -205,8 +205,8 @@ set     names an item by its published id, writes the attributes given
 remove  names an item by its published id
 ```
 
-The field names are not ours. `Family`, `Type`, `CategoryId` are what Revit calls its own fields in
-what Revit publishes, and a translator copies them without needing to know what any of them mean.
+The field names are not ours. `Family`, `Type`, `CategoryId` are what the modelling tool calls its own fields in
+what the modelling tool publishes, and a translator copies them without needing to know what any of them mean.
 The plugin that receives them is the only thing that does.
 
 This was got wrong once and is easy to get wrong again. The first version defined `flow:family`,
@@ -235,8 +235,8 @@ The rule most likely to be undone by accident:
 > **A recipe's changes are generic changes over a model. They never establish a shared identity
 > between an element in one application and an element in another — not 1:1, not N:N, not at all.**
 
-Each application owns its ids and nothing else knows what they mean. A Revit `UniqueId` identifies
-something in that Revit model. A Rhino object GUID identifies something in that `.3dm`. Neither is
+Each application owns its ids and nothing else knows what they mean. A modelling tool `UniqueId` identifies
+something in that native model. A shape modeller object GUID identifies something in that `.3dm`. Neither is
 ever translated into the other, and nothing is ever written into the source.
 
 What IS recorded is much weaker, deliberately: **a recipe's own memory of what it made in one
@@ -256,8 +256,8 @@ Because it answers one question only — "what did THIS recipe make HERE?" — a
 re-apply needs: an unchanged print writes nothing, a changed one is made again, a source key that is
 gone is removed. Only what the recipe made is ever removed, never anything a person drew.
 
-So a round trip works — create an object in Rhino, apply the recipe in Revit, then modify the same
-object in Rhino and apply again — without either model holding a link to the other. Another recipe
+So a round trip works — create an object in the shape modeller, apply the recipe in the modelling tool, then modify the same
+object in the shape modeller and apply again — without either model holding a link to the other. Another recipe
 reading the same source keeps its own record, and knows nothing of this one's.
 
 ### Why it matters
@@ -277,18 +277,18 @@ can live in that application instead — the way a recipe's memory lives in the 
 
 ---
 
-## 8. Revit: lean on the native system, do not rebuild it
+## 8. the modelling tool: lean on the native system, do not rebuild it
 
-Revit already has worksharing, and it is good. The temptation is to build a collaboration layer on
+the modelling tool already has worksharing, and it is good. The temptation is to build a collaboration layer on
 top of it, because our central is not a live shared file and the native mechanisms therefore do not
 reach across machines. The decision is the opposite: **be an efficient copier of a few files, and
-let Revit do the collaborating.** A very fast file transport can be made not to break. A layer of
+let the modelling tool do the collaborating.** A very fast file transport can be made not to break. A layer of
 our own logic on top of a partial API breaks in the cases nobody thought of.
 
-What made that decision possible is a set of measurements rather than an opinion. Revit stores
+What made that decision possible is a set of measurements rather than an opinion. the modelling tool stores
 worksharing ownership in small files NEXT TO the central, never inside the `.rvt`:
 
-| what happens | what Revit writes to the central, immediately |
+| what happens | what the modelling tool writes to the central, immediately |
 |---|---|
 | somebody takes a workset | `worksetperms.dat` |
 | somebody borrows elements by editing them | `editingperms.dat`, `editingdeltas.dat` |
@@ -301,7 +301,7 @@ feet.
 
 Three more facts decide the design:
 
-- **Revit re-reads those files.** Overwrite them behind a running Revit and it reports the new
+- **the modelling tool re-reads those files.** Overwrite them behind a running the modelling tool and it reports the new
   ownership within two to three seconds, with no reload and nothing asked of it. It polls the
   central every five to eight seconds on its own; the read locks are visible in the worksharing log.
 - **A borrow is a two-byte write.** `editingperms.dat` is a table of 32-byte records, one per
@@ -314,10 +314,10 @@ Three more facts decide the design:
   not go through the block store, which would mint a model version per borrow.
 
 So the shape is: a file watcher publishes ownership when it changes, everyone else pulls and merges
-it, and Revit believes what it reads. The platform's own registry stays as the ARBITER for the few
+it, and the modelling tool believes what it reads. The platform's own registry stays as the ARBITER for the few
 seconds before a replicated file arrives, because that race cannot be closed by transport alone.
 
-**What still has to be our own, and why.** Revit publishes ownership; it does not publish INTENT.
+**What still has to be our own, and why.** the modelling tool publishes ownership; it does not publish INTENT.
 There is no event for taking a workset, none for borrowing an element, and no API to relinquish on
 somebody else's behalf (`RelinquishOwnership` takes a document and no user; `Application.Username`
 is read-only). So a claim cannot be vetoed before it happens, only observed after — which is why the
@@ -329,45 +329,45 @@ that machine's copy of the central and, left alone, tells the platform nothing. 
 publishes first, the next pull overwrites that copy and the work is gone while their local still
 believes it was published.
 
-That is why the add-in sits on both of Revit's sync events rather than beside them with a button of
-its own. `DocumentSynchronizingWithCentral` fires before Revit touches anything: it takes the turn
-in the team queue and brings the central up to date in place, so Revit's own merge runs against the
+That is why the add-in sits on both of the modelling tool's sync events rather than beside them with a button of
+its own. `DocumentSynchronizingWithCentral` fires before the modelling tool touches anything: it takes the turn
+in the team queue and brings the central up to date in place, so the modelling tool's own merge runs against the
 team's current file. It is cancellable, and every refusal uses it — elements held by somebody else,
 a pull the guardrail refused, a queue the person gave up on — so a sync that cannot be published
-safely is stopped before Revit writes rather than left half done.
+safely is stopped before the modelling tool writes rather than left half done.
 `DocumentSynchronizedWithCentral` then publishes what was written, and nothing else: no second
 merge, no second SWC.
 
-Measured while building it: Revit reports the sync finished while it still holds a file in the
+Measured while building it: the modelling tool reports the sync finished while it still holds a file in the
 central's worksharing folder, so the publish retries with a growing wait. And replacing the central
 files from inside the pre-event works with the model open — verified with the central rolled back a
-version underneath a live session: 30 files rebuilt in the event, Revit's merge on top of them.
+version underneath a live session: 30 files rebuilt in the event, the modelling tool's merge on top of them.
 
-The consequence is that the add-in has no sync button, no take button and no release button. Revit's
+The consequence is that the add-in has no sync button, no take button and no release button. the modelling tool's
 own worksharing UI is the interface, and ownership replication is what makes it true for everybody.
 
-## 9. Rhino: deliberately unanswered
+## 9. the shape modeller: deliberately unanswered
 
-revit-flow works because Revit already had worksharing. flow arbitrates on top of it; it did not
+The flow works because the modelling tool already had worksharing. flow arbitrates on top of it; it did not
 have to invent it.
 
-Rhino has none of that. A `.3dm` is one file, with no central, no per-object checkout, and no merge.
-So "collaboration in Rhino" is not a thing that exists and gets wired up — it is a thing that would
+the shape modeller has none of that. A `.3dm` is one file, with no central, no per-object checkout, and no merge.
+So "collaboration in the shape modeller" is not a thing that exists and gets wired up — it is a thing that would
 have to be designed and written. Which is exactly what section 1 says is allowed: the contract is
 the history, and how a file is collaborated on underneath is open.
 
-**We are not answering it yet, on purpose.** Bringing a Rhino model into Revit needs no Rhino
-collaboration layer at all — Rhino publishes, and the Revit user applies `rhino-to-revit` — and Rhino displaying a Revit model needs only a `.frag` reader. The
-question appears when several people want to edit one Rhino model at once, and until somebody
+**We are not answering it yet, on purpose.** Bringing a shape model into the modelling tool needs no the shape modeller
+collaboration layer at all — the shape modeller publishes, and the modelling tool user applies `rhino-to-revit` — and the shape modeller displaying a native model needs only a `.frag` reader. The
+question appears when several people want to edit one shape model at once, and until somebody
 actually wants that, designing it would be guessing.
 
 Two notes from thinking it through, so the thinking is not repeated:
 
-- **Ownership granularity is the easy half, and layers are the natural unit.** A Rhino layer is what
-  a workset is in Revit: it is how teams already divide work, every object carries one, and the
+- **Ownership granularity is the easy half, and layers are the natural unit.** A source layer is what
+  a workset is in the modelling tool: it is how teams already divide work, every object carries one, and the
   exporter already records it. The lock registry needs no change beyond a different key prefix.
-- **Merging is the hard half, and it is the real cost.** Revit reconciles concurrent element edits
-  itself. Rhino will not. A central would have to be *reconstructed* by applying per-object deltas
+- **Merging is the hard half, and it is the real cost.** the modelling tool reconciles concurrent element edits
+  itself. the shape modeller will not. A central would have to be *reconstructed* by applying per-object deltas
   rather than being a file somebody overwrites — buildable on what already exists (stable object
   GUIDs, regenerable definitions, per-commit deltas), but that is rebuilding worksharing, not
   configuring it.
@@ -381,12 +381,12 @@ divide the work by file. If it is the latter, the merge may never be needed.
 
 `.frag` is the transport for both layers: models, per-commit deltas, and the changes a recipe
 returns (a geometry-less `.frag`, envelope `revitflow/op@2`). It
-carries stable per-item global ids (Revit `UniqueId`, Rhino object GUID) in its `guids` vector,
+carries stable per-item global ids (the modelling tool `UniqueId`, the shape modeller object GUID) in its `guids` vector,
 which is what lets anything address an element it did not create.
 
-`.3dm` is readable and writable without a Rhino licence, through McNeel's open-source **openNURBS**
-and the **rhino3dm** bindings. That covers the document and its geometry definitions but not the
-Rhino kernel, so a converter can run server-side while real modelling operations still need Rhino.
+`.3dm` is readable and writable without a shape modeller licence, through McNeel's open-source **openNURBS**
+and the open 3DM bindings. That covers the document and its geometry definitions but not the
+the shape modeller kernel, so a converter can run server-side while real modelling operations still need the shape modeller.
 
 The concrete wire formats — where each file lives on the platform, what the change envelope
 contains, how the sync queue and the ownership registry work — are in

@@ -213,7 +213,7 @@ lists as a source. Publishing again makes a new version of it; the next Apply re
 This is the part that is **not** in either plug-in, and should not be. It reads the published
 `.frag`, decides what it means in Revit, and returns the changes; the Revit add-in applies them.
 
-The one that exists is the built-in **`rhino-to-revit`** (`src/core/builtin-recipes/rhino-to-revit.ts`
+The one that exists is the built-in **`rhino-to-revit`** (`src/core/builtin-recipes/layer-to-native.ts`
 in `@thatopen/services`): each placed object of a chosen Rhino layer becomes an instance of a chosen
 Revit family type. It is written to be read and then rewritten as a project recipe — the next person
 wants walls from curves, or louvres from blocks — and

@@ -9,7 +9,7 @@
   },
   {
     "path": "src/core/examples/channel.ts",
-    "description": "Platform channel (app-side, runs inside the platform iframe) — a collaboration room with presence, and typed commands from external tools (MCP, CLI, Revit, etc) with automatic replies."
+    "description": "Platform channel (app-side, runs inside the platform iframe) — a collaboration room with presence, and typed commands from external tools (MCP, CLI, plugins, etc) with automatic replies."
   },
   {
     "path": "src/core/examples/components.ts",
@@ -37,7 +37,7 @@
   },
   {
     "path": "src/core/examples/history.ts",
-    "description": "History and recipes — a project's connected documents (Revit, AutoCAD…), their version timelines, change requests (suggestions), and recipes: scripts that write suggestions in an app's native language."
+    "description": "History and recipes — a project's connected documents (from the native tools…), their version timelines, change requests (suggestions), and recipes: scripts that write suggestions in an app's native language."
   },
   {
     "path": "src/core/examples/icons.ts",
