@@ -27,13 +27,15 @@ import { setAppContext } from "./app";
 async function main() {
   const client = PlatformClient.fromPlatformContext();
 
-  // Brand accent (purple) — drives layout-selector active state, dividers, etc.
-  document.documentElement.style.setProperty("--bim-ui_accent-base", "#6528d7");
+  // Brand accent: the library's own purple (UI colours only from @thatopen/ui's variables), as the platform's apps.
+  document.documentElement.style.setProperty("--bim-ui_accent-base", "var(--bim-ui_main-base)");
 
   // The dev `thatopen serve` wrapper HTML doesn't zero the UA body margin (8px),
   // which insets the whole app inside the platform iframe. Kill it here so it's
   // fixed in both dev and production regardless of the host page.
   document.body.style.margin = "0";
+  // The library's background, set by the app and not by the host page, so it holds inside the platform too.
+  document.body.style.background = "var(--bim-ui_bg-base)";
 
   // 1 ── UIManager registers the platform web components (top-app, top-viewer, …)
   // before the DOM renders. GitHistoryManager is the headless half of the history
@@ -46,12 +48,13 @@ async function main() {
   );
   components.get(UIManager).init();
 
-  // One STABLE top-viewer node, returned by reference so re-rendering top-app
-  // reuses it instead of disposing and recreating its world.
-  const viewerEl = document.createElement("top-viewer");
-  viewerEl.style.border = "1px solid var(--bim-ui_bg-contrast-20)";
-  viewerEl.style.borderRadius = "0.75rem";
-  viewerEl.style.boxSizing = "border-box";
+  // The platform's document viewer, as the Hub's and the Coordinator's: each file opened with its viewer (3D, PDF,
+  // text), the 3D scene kept alive between them. Given no viewers it brings the platform's own: a 3D viewer ready for
+  // streamed models, its bar (3D/2D, projection, the colours softened by default), undo of section planes and measures.
+  // One STABLE node, returned by reference so re-rendering top-app reuses it instead of rebuilding its world.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const viewerEl = document.createElement("top-file-viewer") as any;
+  viewerEl.keepScene = true;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const app = document.createElement("top-app") as any;
@@ -103,40 +106,15 @@ async function main() {
   // at the top of this file before moving this line.
   await components.get(GitHistoryManager).init(client);
 
-  // Pluggable loaders for <top-models-list>. Heavy, app-specific loaders are
-  // registered here so they stay OUT of the built-in's bundle.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let rcViewer: any = null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const modelLoaders: Record<string, any> = {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    "3tz": async (fileId: string, ctx: any) => {
-      if (!rcViewer) {
-        const { realityCaptureViewer } = await import(
-          "./setups/reality-capture-viewer"
-        );
-        rcViewer = realityCaptureViewer(ctx.components, client);
-      }
-      const saved = ctx.getAlignment(fileId) as number[] | undefined;
-      await rcViewer.loadIntoWorld(fileId, {
-        keepPostproduction: true,
-        transform: saved ? new THREE.Matrix4().fromArray(saved) : undefined,
-        onTransformChange: (m: THREE.Matrix4) =>
-          ctx.setAlignment(fileId, m.toArray()),
-      });
-    },
-  };
-
   // The stable viewer + the panels, under named layouts with the activity-bar
   // sidebar. All panels are built-ins that self-wire from top-app's contexts.
   app.elements = {
     viewer: () => BUI.html`${viewerEl}`,
     tree: () => BUI.html`<top-model-tree></top-model-tree>`,
     properties: () => BUI.html`<top-properties-panel></top-properties-panel>`,
-    files: () =>
-      BUI.html`<top-models-list .loaders=${modelLoaders}></top-models-list>`,
+    // The project's documents, as every platform app lists them: a click opens one in the viewer.
+    files: () => BUI.html`<top-documents-panel reads-project></top-documents-panel>`,
     dataTable: () => BUI.html`<top-data-table-panel></top-data-table-panel>`,
-    objects: () => BUI.html`<top-objects-panel></top-objects-panel>`,
     settings: () => BUI.html`<top-settings-panel></top-settings-panel>`,
     history: () => BUI.html`<top-git-history></top-git-history>`,
   };
@@ -147,7 +125,7 @@ async function main() {
     },
     Assets: {
       icon: "mdi:folder-multiple-outline",
-      template: `"files viewer" 1fr "objects viewer" 1fr / 22rem 1fr`,
+      template: `"files viewer" 1fr "properties viewer" 1fr / 22rem 1fr`,
     },
     Data: {
       icon: "mdi:table",
@@ -167,7 +145,6 @@ async function main() {
   app.layout = "History";
   app.sidebar = true;
 
-  viewerEl.appendChild(document.createElement("top-viewer-toolbar"));
 
   // The history panel lights up once a revit-flow model is loaded. Load it from the
   // Assets panel, or auto-load it here if this app only ever shows one model.

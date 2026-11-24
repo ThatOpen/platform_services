@@ -10,27 +10,20 @@ import { PlatformClient, UIManager } from "@thatopen/services";
 import { setAppContext } from "./app";
 import { setupChannel } from "./setups/channel";
 
-// ─── A2 migration — PHASES 1+2: boot on UIManager + re-dock panels ───────────
-// Juan consolidated the old AppManager (layout) + ViewportsManager (viewport)
-// built-ins into the single UIManager built-in, which ships `top-app` (shell +
-// layout) and `top-viewer` (deferred-PEN viewport). This boots the bim-viewer on
-// that model.
-//   Phase 1 — top-app shell hosting one top-viewer + auto-load.  [done]
-//   Phase 2 — re-dock the side panels (tree/properties/files/data/objects/
-//             settings) into top-app's layouts + sidebar.        [this file]
-//   Phase 3 — the viewer-overlay tools (fps/HUD/gizmo/bottom toolbar/measure +
-//             clip handles) that mount over the canvas.          [next]
-// The pre-A2 rich main is preserved at `main.rich.ts.bak`.
+// A platform app made of the platform's own pieces, as the Hub and the Coordinator are: the project's documents on the
+// left, the document viewer on the right, the model's tree, properties and data beside it. Built on WebGPU (`src/webgpu/`).
 async function main() {
   const client = PlatformClient.fromPlatformContext();
 
-  // Brand accent (purple) — drives layout-selector active state, dividers, etc.
-  document.documentElement.style.setProperty("--bim-ui_accent-base", "#6528d7");
+  // Brand accent: the library's own purple (UI colours only from @thatopen/ui's variables), as the platform's apps.
+  document.documentElement.style.setProperty("--bim-ui_accent-base", "var(--bim-ui_main-base)");
 
   // The dev `thatopen serve` wrapper HTML doesn't zero the UA body margin (8px),
   // which insets the whole app inside the platform iframe. Kill it here so it's
   // fixed in both dev and production regardless of the host page.
   document.body.style.margin = "0";
+  // The library's background, set by the app and not by the host page, so it holds inside the platform too.
+  document.body.style.background = "var(--bim-ui_bg-base)";
 
   // UIManager must be in the setup call: it registers the platform web
   // components (top-app, top-viewer, top-viewer-tools, …) before the DOM renders.
@@ -54,20 +47,13 @@ async function main() {
     console.warn("[channel] unavailable outside the platform:", error);
   }
 
-  // One STABLE top-viewer node, returned by reference so re-rendering top-app
-  // (when we add the panels below) reuses it instead of disposing/recreating
-  // its world. No <top-viewer-tools>: the bim-viewer mounts its own tabbed
-  // visibility/inspect toolbar (see below), so the platform default would just
-  // duplicate it.
-  const viewerEl = document.createElement("top-viewer");
-  // Frame the viewport to match the side panels (BUI bim-panel host = 1px border
-  // + 0.75rem radius). top-viewer's host is already overflow:hidden, so the
-  // radius clips the canvas corners; border-box keeps the 1px inside the grid
-  // area. Done here (not in top-viewer) so the CDE's top-file-viewer, which draws
-  // its own frame, never double-borders.
-  viewerEl.style.border = "1px solid var(--bim-ui_bg-contrast-20)";
-  viewerEl.style.borderRadius = "0.75rem";
-  viewerEl.style.boxSizing = "border-box";
+  // The platform's document viewer, as the Hub's and the Coordinator's: each file opened with its viewer (3D, PDF,
+  // text), the 3D scene kept alive between them. Given no viewers it brings the platform's own: a 3D viewer ready for
+  // streamed models, its bar (3D/2D, projection, the colours softened by default), undo of section planes and measures.
+  // One STABLE node, returned by reference so re-rendering top-app reuses it instead of rebuilding its world.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const viewerEl = document.createElement("top-file-viewer") as any;
+  viewerEl.keepScene = true;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const app = document.createElement("top-app") as any;
@@ -101,9 +87,7 @@ async function main() {
   const container = document.getElementById("that-open-app") ?? document.body;
   container.appendChild(app);
 
-  // Wait for top-viewer's world to exist before building world-dependent panels.
-  // The viewer tool suite + dynamic-anchor pivot dot are now baked into
-  // <top-viewer> (setupViewerTools), so the app no longer wires them.
+  // Wait for the viewer's world to exist before building world-dependent panels.
   await firstWorld(components.get(OBC.Worlds));
 
   // Platform client + project data for the AppManager-shim consumers
@@ -129,34 +113,6 @@ async function main() {
   }
   setAppContext(client, projectData);
 
-  // Pluggable loaders for <top-models-list>. The built-in ships the lightweight
-  // defaults (.frag load, IFC→fragments convert); heavy/app-specific loaders are
-  // registered here so they stay OUT of the built-in's bundle. The reality-capture
-  // .3tz viewer pulls Spark + 3d-tiles-renderer, so it's lazy-imported app-side
-  // and plugged in via the loader registry. Alignment persists through the panel's
-  // app-data via the loader context (getAlignment/setAlignment).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let rcViewer: any = null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const modelLoaders: Record<string, any> = {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    "3tz": async (fileId: string, ctx: any) => {
-      if (!rcViewer) {
-        const { realityCaptureViewer } = await import(
-          "./setups/reality-capture-viewer"
-        );
-        rcViewer = realityCaptureViewer(ctx.components, client);
-      }
-      const saved = ctx.getAlignment(fileId) as number[] | undefined;
-      await rcViewer.loadIntoWorld(fileId, {
-        keepPostproduction: true,
-        transform: saved ? new THREE.Matrix4().fromArray(saved) : undefined,
-        onTransformChange: (m: THREE.Matrix4) =>
-          ctx.setAlignment(fileId, m.toArray()),
-      });
-    },
-  };
-
   // Re-dock: the stable viewer + the panels, under the bim-viewer's named layouts
   // with the activity-bar sidebar (Explorer · Assets · Data · Settings). All panels
   // are now built-ins that self-wire from top-app's componentsContext/clientContext
@@ -165,10 +121,9 @@ async function main() {
     viewer: () => BUI.html`${viewerEl}`,
     tree: () => BUI.html`<top-model-tree></top-model-tree>`,
     properties: () => BUI.html`<top-properties-panel></top-properties-panel>`,
-    files: () =>
-      BUI.html`<top-models-list .loaders=${modelLoaders}></top-models-list>`,
+    // The project's documents, as every platform app lists them: a click opens one in the viewer.
+    files: () => BUI.html`<top-documents-panel reads-project></top-documents-panel>`,
     dataTable: () => BUI.html`<top-data-table-panel></top-data-table-panel>`,
-    objects: () => BUI.html`<top-objects-panel></top-objects-panel>`,
     settings: () => BUI.html`<top-settings-panel></top-settings-panel>`,
   };
   // No `label` → the sidebar renders icon-only activity-bar buttons (matching
@@ -180,7 +135,7 @@ async function main() {
     },
     Assets: {
       icon: "mdi:folder-multiple-outline",
-      template: `"files viewer" 1fr "objects viewer" 1fr / 22rem 1fr`,
+      template: `"files viewer" 1fr "properties viewer" 1fr / 22rem 1fr`,
     },
     Data: {
       icon: "mdi:table",
@@ -194,18 +149,7 @@ async function main() {
   app.layout = "Explorer";
   app.sidebar = true;
 
-  // ── Viewer toolbar — now a built-in slotted INTO <top-viewer> (it consumes the
-  // world + components contexts top-viewer provides). The rich bottom toolbar +
-  // active-tool HUD + clip/measure/walkthrough tools all live in
-  // <top-viewer-toolbar>; the side panels share the SAME tool singletons via
-  // components.get (OBC.Component-wrapped).
-  viewerEl.appendChild(document.createElement("top-viewer-toolbar"));
-
-  // Navigation gizmo is now baked into <top-viewer> (setupViewerTools), so the
-  // app no longer mounts it. (Cascade: the rest of the overlay tools follow.)
-
-  // No auto-load: the viewer opens empty. Users add models from the Assets
-  // (files) panel — top-models-list loads the .frag they pick into the world.
+  // No auto-load: the viewer opens empty. A document clicked in the Assets panel opens in it.
 }
 
 /** Resolves with the first world once it exists (top-viewer creates it async). */

@@ -29,9 +29,23 @@ function getBetaAliases() {
 // URL back to the bare package name and let it resolve from node_modules.
 const CDN_ESM = /^https:\/\/cdn\.jsdelivr\.net\/npm\/((?:@[^/]+\/)?[^@/]+)(?:@[^/]+)?\/\+esm$/;
 
+// On WebGPU, as the platform's apps and as `thatopen serve` builds it: three's WebGPU build answers `three`, and its
+// WebGL-only addons (fat lines, postprocessing passes) go to the stand-ins in `src/webgpu/`.
+const webgpuAliases = existsSync('src/webgpu/webgpu-lines.mjs')
+  ? [
+      { find: /^three(\/webgpu)?$/, replacement: resolve(__dirname, 'node_modules/three/build/three.webgpu.js') },
+      {
+        find: /^three\/(examples\/jsm|addons)\/lines\/(Line2|LineSegments2|LineMaterial|Wireframe)\.js$/,
+        replacement: resolve(__dirname, 'src/webgpu/webgpu-lines.mjs'),
+      },
+      { find: /^three\/(examples\/jsm|addons)\/postprocessing\/.*$/, replacement: resolve(__dirname, 'src/webgpu/webgl-addons-stub.mjs') },
+    ]
+  : [];
+
 export default defineConfig({
   resolve: {
     alias: [
+      ...webgpuAliases,
       { find: CDN_ESM, replacement: '$1' },
       ...Object.entries(getBetaAliases()).map(([find, replacement]) => ({
         find,

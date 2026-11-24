@@ -77,12 +77,17 @@ place with plain HTML/`BUI.html`:
 
 - `<top-app>` — the app shell: a CSS-grid layout system with a sidebar (activity bar)
   for switching named layouts.
-- `<top-viewer>` — the 3D viewport (pre-configured world: scene, camera, renderer,
-  fragments), with its own tools baked in.
-- `<top-viewer-toolbar>` — the bottom viewer toolbar (visibility/inspect, clip, measure).
-- Side panels — `<top-model-tree>`, `<top-properties-panel>`, `<top-models-list>`,
-  `<top-data-table-panel>`, `<top-objects-panel>`, `<top-settings-panel>`, … — each
-  self-wires from the contexts `<top-app>` provides (no `components` plumbing needed).
+- `<top-file-viewer>` — the document viewer, as the platform's apps have it: each file opened
+  with its viewer (3D, PDF, text). Given no viewers, it brings the platform's own: a 3D viewer
+  ready for streamed models, with its tools and its bar (3D/2D, projection, the colours softened
+  by default).
+- `<top-documents-panel reads-project>` — the project's documents; a click opens one in the viewer.
+  IFC files are converted by the platform when uploaded, not in the browser.
+- Side panels — `<top-model-tree>`, `<top-properties-panel>`, `<top-data-table-panel>`,
+  `<top-settings-panel>`, … — each self-wires from the contexts `<top-app>` provides
+  (no `components` plumbing needed).
+- WebGPU: the app is built on three's WebGPU build (`src/webgpu/`), as the platform's apps; where
+  the browser has no WebGPU, three draws with WebGL2.
 
 The scaffolded `src/main.ts` already sets this up. The shape is:
 
@@ -184,7 +189,7 @@ const fileBuffer = await (await client.downloadFile(fileId)).arrayBuffer();
 await fragments.core.load(fileBuffer, { modelId: "my-model" });
 ```
 
-(The scaffold's `<top-models-list>` panel already loads models the user picks, so you
+(The scaffold's documents panel already opens the models the user picks, so you
 usually don't need to do this by hand.)
 
 ## PlatformClient API (commonly used in apps)
