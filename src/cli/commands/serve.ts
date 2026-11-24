@@ -160,6 +160,28 @@ export const serveCommand = new Command('serve')
           },
         },
         {
+          // 🔴 ON WEBGPU, AS THE PLATFORM'S APPS (Antonio 24-11: «la plantilla debería funcionar siempre con webgpu, misma
+          // configuración que el coordinator»). An app that carries the WebGPU stand-ins (`src/webgpu/`, the app template
+          // does) is built on three's WebGPU build: the engine sees `WebGPURenderer` in `three` and draws with it (WebGL2
+          // only where the browser has no WebGPU), and its WebGL-only addons (fat lines, postprocessing passes) go to the
+          // stand-ins. Before `dedupe-three`, which would answer `three` with the plain build.
+          name: 'three-on-webgpu',
+          setup(build) {
+            const standIns = join(cwd, 'src', 'webgpu');
+            const lines = join(standIns, 'webgpu-lines.mjs');
+            const addons = join(standIns, 'webgl-addons-stub.mjs');
+            if (!existsSync(lines) || !existsSync(addons)) return;
+            build.onResolve({ filter: /^three(\/webgpu)?$/ }, async (args) => {
+              // (Its own resolution, and `dedupe-three`'s, are not asked again: they would come back here for ever.)
+              if (args.pluginData === 'three-on-webgpu' || args.pluginData === 'dedupe-three') return null;
+              const resolved = await build.resolve('three/webgpu', { kind: args.kind, resolveDir: cwd, pluginData: 'three-on-webgpu' });
+              return resolved.errors.length > 0 ? null : { path: resolved.path, sideEffects: resolved.sideEffects };
+            });
+            build.onResolve({ filter: /^three\/(examples\/jsm|addons)\/lines\/(Line2|LineSegments2|LineMaterial|Wireframe)\.js$/ }, () => ({ path: lines }));
+            build.onResolve({ filter: /^three\/(examples\/jsm|addons)\/postprocessing\/.*$/ }, () => ({ path: addons }));
+          },
+        },
+        {
           // With published packages every `import "three"` lands in the app's
           // single copy, because npm hoists one three to the app root. When the
           // beta packages resolve to local repos instead (linked for
