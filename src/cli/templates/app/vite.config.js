@@ -42,7 +42,25 @@ const webgpuAliases = existsSync('src/webgpu/webgpu-lines.mjs')
     ]
   : [];
 
+// web-ifc without its IFC reader, as `thatopen serve` builds it: the platform converts IFC files on upload, and this app only
+// uses web-ifc's constants (`src/webgpu/web-ifc-light.mjs` writes them from the web-ifc installed).
+const LIGHT_WEB_IFC = '\0web-ifc-light';
+const webIfcLight = existsSync('src/webgpu/web-ifc-light.mjs')
+  ? [{
+      // (The plugin's name kept in a constant: `thatopen serve` takes the first quoted name in this file as the app's.)
+      name: LIGHT_WEB_IFC.slice(1),
+      enforce: 'pre',
+      resolveId: (source) => (source === 'web-ifc' ? LIGHT_WEB_IFC : null),
+      async load(id) {
+        if (id !== LIGHT_WEB_IFC) return null;
+        const { lightWebIfc } = await import('./src/webgpu/web-ifc-light.mjs');
+        return lightWebIfc(process.cwd());
+      },
+    }]
+  : [];
+
 export default defineConfig({
+  plugins: webIfcLight,
   resolve: {
     alias: [
       ...webgpuAliases,

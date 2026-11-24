@@ -160,6 +160,21 @@ export const serveCommand = new Command('serve')
           },
         },
         {
+          // 🔴 web-ifc WITHOUT ITS IFC READER, FOR AN APP THAT NEVER CONVERTS AN IFC (24-11: the platform converts them on
+          // upload). An app that carries `src/webgpu/web-ifc-light.mjs` (the app template does) gets, for `web-ifc`, the module
+          // it writes from the web-ifc installed: its constants, and stand-ins for the reader (57 KB in place of 5.8 MB).
+          name: 'web-ifc-light',
+          async setup(build) {
+            const writer = join(cwd, 'src', 'webgpu', 'web-ifc-light.mjs');
+            if (!existsSync(writer)) return;
+            const { pathToFileURL } = await import('node:url');
+            const { lightWebIfc } = (await import(pathToFileURL(writer).href)) as { lightWebIfc: (cwd: string) => string };
+            const source = lightWebIfc(cwd);
+            build.onResolve({ filter: /^web-ifc$/ }, () => ({ path: 'web-ifc', namespace: 'web-ifc-light' }));
+            build.onLoad({ filter: /.*/, namespace: 'web-ifc-light' }, () => ({ contents: source, loader: 'js' }));
+          },
+        },
+        {
           // 🔴 WHAT DRAWS WITH WEBGL ONLY, ON ITS OWN COPY OF three (24-11: the app template's `.3tz` viewer draws with a
           // library that has no WebGPU, in a renderer of its own, while the app is on three's WebGPU build). Everything under
           // `src/webgl/` is built with three's plain build, and so is all it imports (its libraries and their addons): a
