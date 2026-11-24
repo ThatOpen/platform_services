@@ -8,7 +8,6 @@ import * as BUI from "@thatopen/ui";
 import * as MARKERJS from "@markerjs/markerjs3";
 import { PlatformClient, UIManager } from "@thatopen/services";
 import { setAppContext } from "./app";
-import { threeTZViewer } from "./setups/three-tz";
 import { setupChannel } from "./setups/channel";
 
 // A platform app made of the platform's own pieces, as the Hub and the Coordinator are: the project's documents on the
@@ -55,8 +54,6 @@ async function main() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const viewerEl = document.createElement("top-file-viewer") as any;
   viewerEl.keepScene = true;
-  // And the reality captures as 3D Tiles (`.3tz`), a viewer of this app's own beside the platform's.
-  viewerEl.extraViewers = [threeTZViewer(client)];
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const app = document.createElement("top-app") as any;

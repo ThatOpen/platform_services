@@ -2,7 +2,7 @@
 // For local development, use: npm run dev (runs thatopen serve with esbuild).
 // Do NOT run "vite" or "vite build --watch" directly for dev.
 import { defineConfig } from 'vite';
-import { dirname, resolve } from 'path';
+import { resolve } from 'path';
 import { existsSync, readFileSync } from 'fs';
 
 // When `.thatopen` marks the project as beta, alias the public engine imports
@@ -42,37 +42,7 @@ const webgpuAliases = existsSync('src/webgpu/webgpu-lines.mjs')
     ]
   : [];
 
-// What draws with WebGL only (`src/webgl/`: the `.3tz` viewer) is built on its own copy of three's plain build, with all it
-// imports, as `thatopen serve` builds it: never shared with the app's three, which is the WebGPU build.
-const WEBGL_ROOT = resolve(__dirname, 'src/webgl');
-const WEBGL = '\0webgl:';
-// (Its name kept in a constant: `thatopen serve` takes the first quoted name in this file as the app's global name.)
-const WEBGL_PLUGIN = 'webgl-on-its-own-three';
-const webglOnItsOwnThree = {
-  name: WEBGL_PLUGIN,
-  enforce: 'pre',
-  async resolveId(source, importer, options) {
-    if (!importer || options?.custom?.webglInner) return null;
-    const fromWebgl = importer.startsWith(WEBGL);
-    const from = fromWebgl ? importer.slice(WEBGL.length) : importer;
-    if (!fromWebgl && !(source.startsWith('.') && resolve(dirname(from), source).startsWith(WEBGL_ROOT))) return null;
-    if (source === 'three' || source === 'three/webgpu') return WEBGL + resolve(__dirname, 'node_modules/three/build/three.module.js');
-    const resolved = await this.resolve(source, from, { skipSelf: true, custom: { webglInner: true } });
-    if (!resolved || resolved.external) return null;
-    return fromWebgl || resolved.id.startsWith(WEBGL_ROOT) ? WEBGL + resolved.id : null;
-  },
-  async load(id) {
-    if (!id.startsWith(WEBGL)) return null;
-    const file = id.slice(WEBGL.length).split('?')[0];
-    const code = readFileSync(file, 'utf8');
-    if (!/\.tsx?$/.test(file)) return code;
-    const { transform } = await import('esbuild');
-    return (await transform(code, { loader: 'ts', sourcefile: file })).code;
-  },
-};
-
 export default defineConfig({
-  plugins: existsSync(WEBGL_ROOT) ? [webglOnItsOwnThree] : [],
   resolve: {
     alias: [
       ...webgpuAliases,

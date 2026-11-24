@@ -87,9 +87,7 @@ place with plain HTML/`BUI.html`:
   `<top-settings-panel>`, … — each self-wires from the contexts `<top-app>` provides
   (no `components` plumbing needed).
 - WebGPU: the app is built on three's WebGPU build (`src/webgpu/`), as the platform's apps; where
-  the browser has no WebGPU, three draws with WebGL2. What draws with WebGL only goes in `src/webgl/`
-  and is built with its own copy of three's plain build: the `.3tz` reality-capture viewer
-  (`src/setups/three-tz.ts`, a viewer of the app's own beside the platform's: `extraViewers`).
+  the browser has no WebGPU, three draws with WebGL2.
 
 The scaffolded `src/main.ts` already sets this up. The shape is:
 
