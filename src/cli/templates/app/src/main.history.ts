@@ -12,6 +12,7 @@ import {
   GitHistoryManager,
 } from "@thatopen/services";
 import { setAppContext } from "./app";
+import { threeTZViewer } from "./setups/three-tz";
 
 // The standard app, plus the revit-flow commit history: a History layout with the
 // timeline beside the viewer. Scaffolded by `thatopen create <name> --beta --history`.
@@ -55,6 +56,8 @@ async function main() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const viewerEl = document.createElement("top-file-viewer") as any;
   viewerEl.keepScene = true;
+  // And the reality captures as 3D Tiles (`.3tz`), a viewer of this app's own beside the platform's.
+  viewerEl.extraViewers = [threeTZViewer(client)];
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const app = document.createElement("top-app") as any;

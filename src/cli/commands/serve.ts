@@ -160,6 +160,37 @@ export const serveCommand = new Command('serve')
           },
         },
         {
+          // 🔴 WHAT DRAWS WITH WEBGL ONLY, ON ITS OWN COPY OF three (24-11: the app template's `.3tz` viewer draws with a
+          // library that has no WebGPU, in a renderer of its own, while the app is on three's WebGPU build). Everything under
+          // `src/webgl/` is built with three's plain build, and so is all it imports (its libraries and their addons): a
+          // copy of its own, never shared with the app's, so neither sees the other's. The rest of the app is untouched.
+          name: 'webgl-on-its-own-three',
+          setup(build) {
+            const root = join(cwd, 'src', 'webgl');
+            if (!existsSync(root)) return;
+            const plainThree = join(cwd, 'node_modules', 'three', 'build', 'three.module.js');
+            const inside = (path: string) => path.startsWith(root + '\\') || path.startsWith(root + '/');
+            build.onResolve({ filter: /.*/ }, async (args) => {
+              if (args.pluginData === 'webgl-inner') return null;
+              const fromWebgl = args.namespace === 'webgl';
+              if (!fromWebgl && !(args.resolveDir && inside(join(args.resolveDir, args.path)))) return null;
+              if (args.path === 'three' || args.path === 'three/webgpu') return { path: plainThree, namespace: 'webgl' };
+              const resolved = await build.resolve(args.path, { kind: args.kind, resolveDir: args.resolveDir, importer: args.importer, pluginData: 'webgl-inner' });
+              if (resolved.errors.length > 0 || resolved.external) return null;
+              // (The app's own engine, reached by a type: not drawn here, left to the app.)
+              if (fromWebgl || inside(resolved.path)) return { path: resolved.path, namespace: 'webgl' };
+              return null;
+            });
+            build.onLoad({ filter: /.*/, namespace: 'webgl' }, async (args) => {
+              const { readFile } = await import('node:fs/promises');
+              const { dirname, extname } = await import('node:path');
+              const ext = extname(args.path).slice(1);
+              const loader = (['ts', 'tsx', 'js', 'mjs', 'cjs', 'jsx', 'json', 'css'].includes(ext) ? (ext === 'mjs' || ext === 'cjs' ? 'js' : ext) : 'js') as 'ts';
+              return { contents: await readFile(args.path, 'utf8'), loader, resolveDir: dirname(args.path) };
+            });
+          },
+        },
+        {
           // 🔴 ON WEBGPU, AS THE PLATFORM'S APPS (Antonio 24-11: «la plantilla debería funcionar siempre con webgpu, misma
           // configuración que el coordinator»). An app that carries the WebGPU stand-ins (`src/webgpu/`, the app template
           // does) is built on three's WebGPU build: the engine sees `WebGPURenderer` in `three` and draws with it (WebGL2
