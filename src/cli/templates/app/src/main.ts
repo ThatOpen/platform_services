@@ -129,13 +129,13 @@ async function main() {
   // No `label` → the sidebar renders icon-only activity-bar buttons (matching
   // the pre-A2 look), background only on the active one.
   app.layouts = {
-    Explorer: {
-      icon: "mdi:file-tree",
-      template: `"tree viewer" 1fr "properties viewer" 1fr / 22rem 1fr`,
-    },
     Assets: {
       icon: "mdi:folder-multiple-outline",
       template: `"files viewer" 1fr "properties viewer" 1fr / 22rem 1fr`,
+    },
+    Explorer: {
+      icon: "mdi:file-tree",
+      template: `"tree viewer" 1fr "properties viewer" 1fr / 22rem 1fr`,
     },
     Data: {
       icon: "mdi:table",
@@ -146,7 +146,8 @@ async function main() {
       template: `"settings viewer" 1fr / 22rem 1fr`,
     },
   };
-  app.layout = "Explorer";
+  // (The project's documents first: where a file dropped on the app goes and opens. Antonio 24-11.)
+  app.layout = "Assets";
   app.sidebar = true;
 
   // No auto-load: the viewer opens empty. A document clicked in the Assets panel opens in it.

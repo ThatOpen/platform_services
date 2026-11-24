@@ -119,13 +119,13 @@ async function main() {
     history: () => BUI.html`<top-git-history></top-git-history>`,
   };
   app.layouts = {
-    Explorer: {
-      icon: "mdi:file-tree",
-      template: `"tree viewer" 1fr "properties viewer" 1fr / 22rem 1fr`,
-    },
     Assets: {
       icon: "mdi:folder-multiple-outline",
       template: `"files viewer" 1fr "properties viewer" 1fr / 22rem 1fr`,
+    },
+    Explorer: {
+      icon: "mdi:file-tree",
+      template: `"tree viewer" 1fr "properties viewer" 1fr / 22rem 1fr`,
     },
     Data: {
       icon: "mdi:table",
