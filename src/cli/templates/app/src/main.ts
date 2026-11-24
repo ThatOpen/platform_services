@@ -122,7 +122,7 @@ async function main() {
     tree: () => BUI.html`<top-model-tree></top-model-tree>`,
     properties: () => BUI.html`<top-properties-panel></top-properties-panel>`,
     // The project's documents, as every platform app lists them: a click opens one in the viewer.
-    files: () => BUI.html`<top-documents-panel reads-project></top-documents-panel>`,
+    files: () => BUI.html`<top-documents-panel reads-project opens-drops></top-documents-panel>`,
     dataTable: () => BUI.html`<top-data-table-panel></top-data-table-panel>`,
     settings: () => BUI.html`<top-settings-panel></top-settings-panel>`,
   };
