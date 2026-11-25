@@ -2957,6 +2957,22 @@ declare class _TopicsManager extends OBC.Component {
      * backfilling viewpoint worlds by hand.
      */
     init(client: PlatformClient): Promise<void>;
+    /**
+     * Saving is the app's: the issues panel keeps what is made or changed as a draft, marks each such issue as not saved
+     * yet, and writes nothing to the project until the app calls this — from its own Save, or its Ctrl+S, together with
+     * whatever else it saves. A set never saved before needs a name the first time.
+     */
+    persist(name?: string): Promise<void>;
+    /** Whether there is something to save (the topics changed since the project last kept them). */
+    get dirty(): boolean;
+    /** Whether leaving the page now would lose work: for an app's «leave the page?» warning. */
+    get unsavedWork(): boolean;
+    /** The issues made or changed and not saved yet, by guid (the panel marks them with a grey sign). */
+    unsavedTopics(): ReadonlySet<string>;
+    /** Fired when the topics or the set change, a change kept or the set saved: an app's Save button can follow `dirty` by it. */
+    readonly onSetChanged: OBC.Event<void>;
+    /** The open set: its folder (null until saved the first time) and its name. */
+    get set(): { folderId: string | null; name: string } | null;
     private _firstWorld;
 }
 
