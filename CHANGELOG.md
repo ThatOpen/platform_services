@@ -1,5 +1,11 @@
 # thatopen-services
 
+## 0.37.3
+
+### Patch Changes
+
+- 629f072: TopicsManager types: `persist`, `dirty`, `unsavedWork`, `unsavedTopics()`, `onSetChanged` and `set`, so an app made from the template can save its issues with its own Save.
+
 ## 0.37.2
 
 ### Patch Changes
