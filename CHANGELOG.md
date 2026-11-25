@@ -1,5 +1,11 @@
 # thatopen-services
 
+## 0.37.4
+
+### Patch Changes
+
+- 010a4a6: Docs for app-making AI: what a Coordination Set is and how issues are saved (`docs/coordination-sets-guide.md`, a rule in `resources/AGENTS.md`).
+
 ## 0.37.3
 
 ### Patch Changes
