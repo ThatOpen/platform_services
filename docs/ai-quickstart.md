@@ -545,4 +545,8 @@ component, once added to a project, is then triggered by an app or an automation
   `429` loses the write. See
   `node_modules/@thatopen/services/docs/rate-limits.md` before you write any save, sync or
   polling code.
+- **Issues are saved by the app's Save, into the project's Coordination Set.** The built-in issues
+  panel keeps what the user does as a draft (each unsaved issue marked with a grey "!") and writes
+  nothing by itself; the app's Save (or Ctrl+S) calls `TopicsManager.persist()`, together with whatever
+  else the app edits. See `node_modules/@thatopen/services/docs/coordination-sets-guide.md`.
 - The scaffold already works — **extend it, don't replace it.**

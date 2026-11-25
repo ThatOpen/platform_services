@@ -1,5 +1,9 @@
 [
   {
+    "path": "docs/coordination-sets-guide.md",
+    "description": "Coordination sets and issues — how an app keeps them. A project holds several kinds of documents (BIM models, drawing sets, the Coordination Set with the project's issues and its own history). The built-in issues panel (top-topics-panel) keeps changes as a draft and marks each unsaved issue with a grey \"!\"; nothing is saved by itself: the app's Save (or Ctrl+S) calls TopicsManager.persist(), with dirty, unsavedWork, unsavedTopics() and onSetChanged for its Save button and its leave-page warning. Read before adding the issues panel or writing an app's Save."
+  },
+  {
     "path": "src/built-in/CDEManager/example.ts",
     "description": "CDEManager — CDEManager is the central state machine for a Common Data Environment. It holds files, folders, metadata schemas, viewer groups, and user permissions, and exposes a typed state machine that all file operations — selecting, editing, uploading, viewing — route through. It has no DOM or Three.js dependencies and can run in Node, a browser, or a server-side worker wherever `@thatopen/components` is available."
   },

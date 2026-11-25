@@ -20,6 +20,7 @@ Do this before answering any question or writing any code. These are compact des
 | Platform client API | `node_modules/@thatopen/services/docs/client/paths.json` |
 | CLI commands | `node_modules/@thatopen/services/docs/cli/paths.json` |
 | Rate limits + how to save data | `node_modules/@thatopen/services/docs/rate-limits.md` |
+| Coordination sets + how an app saves issues | `node_modules/@thatopen/services/docs/coordination-sets-guide.md` |
 | Engine components (`OBC`, `OBF`) | `https://raw.githubusercontent.com/ThatOpen/engine_components/refs/heads/main/examples/paths.json` |
 | Fragments (`FRAGS`) | `https://raw.githubusercontent.com/ThatOpen/engine_fragment/refs/heads/main/examples/paths.json` |
 | UI components (`BUI`) | `https://raw.githubusercontent.com/ThatOpen/engine_ui-components/refs/heads/main/examples/paths.json` — **skip** entries whose path contains `packages/obc` or `bim-grid` |
@@ -55,4 +56,12 @@ Once you have these, you know everything available on the platform. Only then fe
    Read `node_modules/@thatopen/services/docs/rate-limits.md` before writing any
    save, sync, or polling code — it has the per-endpoint limits and the pattern.
 
-2. **All UI must be built with Lit**, using the web components from `@thatopen/ui` (`BUI`) — `bim-button`, `bim-panel`, `bim-panel-section`, `bim-toolbar`, `bim-dropdown`, `bim-input`, and the rest of `packages/core`. Always consult the design system before writing any UI: `https://raw.githubusercontent.com/ThatOpen/engine_ui-components/refs/heads/main/DESIGN.md`.
+2. **Issues live in a Coordination Set and are saved only by the app's Save.** A project's
+   documents are of several kinds (BIM models, drawing sets, the **Coordination Set** with the
+   project's issues, its own history). The built-in issues panel keeps changes as a draft and marks
+   each unsaved issue with a grey "!"; nothing reaches the platform until the app's Save (or Ctrl+S)
+   calls `TopicsManager.persist()`. If the app shows issues, its Save must save them. Read
+   `node_modules/@thatopen/services/docs/coordination-sets-guide.md` before adding the issues panel
+   or writing the app's Save.
+
+3. **All UI must be built with Lit**, using the web components from `@thatopen/ui` (`BUI`) — `bim-button`, `bim-panel`, `bim-panel-section`, `bim-toolbar`, `bim-dropdown`, `bim-input`, and the rest of `packages/core`. Always consult the design system before writing any UI: `https://raw.githubusercontent.com/ThatOpen/engine_ui-components/refs/heads/main/DESIGN.md`.
