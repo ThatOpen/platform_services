@@ -2147,11 +2147,25 @@ export class EngineServicesClient {
 
   async #downloadItem(itemId: string, params?: DownloadItemFileParams) {
     const { versionTag, withDraft } = params || {};
-    const response = await this.#requestFile(`${ITEM_PATH}/${itemId}/download`, {
-      query: {
-        ...(versionTag && { versionTag }),
-        ...(withDraft && { withDraft }),
-      },
+    const query = {
+      ...(versionTag && { versionTag }),
+      ...(withDraft && { withDraft }),
+    };
+    // 🔴 A LARGE FILE COMES FROM STORAGE, NOT THROUGH THE API (cost audit 26-11): asked with `redirect=storage`, the platform
+    // answers a file of 1 MB or more with a redirect to a signed storage URL, which fetch follows. A platform from before ignores
+    // it. A redirect that does not end well (a browser that keeps the token on it, a network that refuses it) is asked again
+    // the old way, through the API.
+    let response: Response | null = null;
+    try {
+      response = await this.#requestFile(`${ITEM_PATH}/${itemId}/download`, {
+        query: { ...query, redirect: 'storage' },
+      });
+      if (response.redirected && !response.ok) response = null;
+    } catch {
+      response = null;
+    }
+    response ??= await this.#requestFile(`${ITEM_PATH}/${itemId}/download`, {
+      query,
     });
     // 🔴 A REFUSED OR FAILED READ IS AN ERROR, NEVER THE FILE (23-10, DEV's rate limit): the body of a 429 was read
     // as the file asked for, by every reader that did not check (descriptors, histories, the stores that read, change
