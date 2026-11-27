@@ -1,11 +1,12 @@
 import { Command } from 'commander';
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { execSync, fork } from 'node:child_process';
+import { execSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { requireResolvedConfig, readLocalConfig } from '../lib/config';
 import { buildEngineScript } from '../lib/engine-script';
+import { forkEngine, permissionModelAvailable } from '../lib/engine-fork';
 import { readDeclarations, validateParams } from '../lib/declarations';
 
 export const runCommand = new Command('run')
@@ -88,19 +89,18 @@ export const runCommand = new Command('run')
       );
 
       const tmpFile = join(tmpdir(), `thatopen-run-${executionId}.js`);
-      writeFileSync(tmpFile, engineScript);
+      writeFileSync(tmpFile, engineScript, { mode: 0o600 });
 
       console.log('Running cloud component...\n');
 
-      // Fork as child process (mirrors backend ProcessorService behavior)
+      // Fork as child process (mirrors backend ProcessorService behavior, including its permission model)
+      if (!permissionModelAvailable) {
+        console.warn(
+          'This Node version has no permission model: the component runs without the cloud\'s file system and process restrictions.',
+        );
+      }
       const startTime = Date.now();
-      const child = fork(tmpFile, [], {
-        stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
-        env: {
-          ...process.env,
-          NODE_PATH: join(cwd, 'node_modules'),
-        },
-      });
+      const child = forkEngine(cwd, tmpFile);
 
       const cleanup = () => {
         try {
